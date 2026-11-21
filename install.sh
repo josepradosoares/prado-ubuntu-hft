@@ -76,12 +76,16 @@ systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
 systemctl restart "${SERVICE_NAME}"
 
-echo "[6/6] Liberando porta ${WEB_PORT}/tcp no Firewall (UFW) se estiver ativo..."
+echo "[6/6] Liberando porta ${WEB_PORT}/tcp no Firewall (UFW e iptables Oracle Cloud)..."
 if command -v ufw >/dev/null 2>&1; then
     ufw allow "${WEB_PORT}/tcp" >/dev/null 2>&1 || true
 fi
+if command -v iptables >/dev/null 2>&1; then
+    iptables -I INPUT 1 -p tcp --dport "${WEB_PORT}" -j ACCEPT >/dev/null 2>&1 || true
+    iptables -I INPUT 1 -p tcp --dport 3000 -j ACCEPT >/dev/null 2>&1 || true
+fi
 
-SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'SEU_IP_DO_SERVIDOR')"
+SERVER_IP="$(curl -s --max-time 3 ifconfig.me || hostname -I 2>/dev/null | awk '{print $1}' || echo 'SEU_IP_DO_SERVIDOR')"
 
 echo ""
 echo "======================================================================"
