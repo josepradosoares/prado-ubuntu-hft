@@ -76,6 +76,7 @@ class MT5UniversalConnector:
         self.last_error: str = ""
         self._sim_ticks: dict[str, list[TickRecord]] = {}
         self._sim_positions: list[dict[str, Any]] = []
+        self._sim_deals_history: list[dict[str, Any]] = []
         self._sim_daily_pnl: float = 0.0
         self._sim_balance: float = 100_000.0
 
@@ -379,15 +380,38 @@ class MT5UniversalConnector:
             except Exception:
                 return []
 
-        for pos in self._sim_positions:
+        for pos in list(self._sim_positions):
             sym = pos["symbol"]
             ticks = self._sim_ticks.get(sym)
             if ticks:
                 curr = ticks[-1].effective_price()
                 pos["price_current"] = round(curr, 6)
-                diff = (curr - pos["price_open"]) if pos["type"] == "BUY" else (pos["price_open"] - curr)
+                is_buy = pos["type"] == "BUY"
+                diff = (curr - pos["price_open"]) if is_buy else (pos["price_open"] - curr)
                 mult = 0.20 if sym.startswith("WIN") else (1.0 if "BTC" in sym else 10.0)
                 pos["profit"] = round(diff * pos["volume"] * mult, 2)
+
+                # Check TP or SL hit in simulation
+                hit_tp = (curr >= pos["tp"]) if is_buy else (curr <= pos["tp"])
+                hit_sl = (curr <= pos["sl"]) if is_buy else (curr >= pos["sl"])
+                if (pos["tp"] > 0 and hit_tp) or (pos["sl"] > 0 and hit_sl):
+                    self._sim_daily_pnl += pos["profit"]
+                    self._sim_deals_history.insert(
+                        0,
+                        {
+                            "ticket": pos["ticket"],
+                            "time": datetime.now().strftime("%H:%M:%S"),
+                            "symbol": sym,
+                            "type": pos["type"],
+                            "volume": pos["volume"],
+                            "price_open": pos["price_open"],
+                            "price_close": round(curr, 6),
+                            "profit": pos["profit"],
+                            "reason": "TAKE_PROFIT" if hit_tp else "STOP_LOSS",
+                            "comment": pos.get("comment", ""),
+                        },
+                    )
+                    self._sim_positions.remove(pos)
         return list(self._sim_positions)
 
     def place_order(
@@ -478,9 +502,72 @@ class MT5UniversalConnector:
 
         count = len(self._sim_positions)
         for p in self._sim_positions:
-            self._sim_daily_pnl += float(p.get("profit", 0.0))
+            pnl = float(p.get("profit", 0.0))
+            self._sim_daily_pnl += pnl
+            self._sim_deals_history.insert(
+                0,
+                {
+                    "ticket": p["ticket"],
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "symbol": p["symbol"],
+                    "type": p["type"],
+                    "volume": p["volume"],
+                    "price_open": p["price_open"],
+                    "price_close": p["price_current"],
+                    "profit": pnl,
+                    "reason": reason,
+                    "comment": p.get("comment", ""),
+                },
+            )
         self._sim_positions.clear()
         return count, f"{count} posicao(oes) zerada(s) ({reason})."
+
+    def close_single_position(self, ticket: int) -> tuple[bool, str]:
+        if self._mt5 is not None:
+            try:
+                positions = self._mt5.positions_get(ticket=int(ticket)) or []
+                for p in positions:
+                    is_buy_pos = int(p.type) == 0
+                    tick = self._mt5.symbol_info_tick(p.symbol)
+                    close_price = float(tick.bid if is_buy_pos else tick.ask) if tick else float(p.price_current)
+                    req = {
+                        "action": self._mt5.TRADE_ACTION_DEAL,
+                        "position": int(p.ticket),
+                        "symbol": str(p.symbol),
+                        "volume": float(p.volume),
+                        "type": self._mt5.ORDER_TYPE_SELL if is_buy_pos else self._mt5.ORDER_TYPE_BUY,
+                        "price": close_price,
+                        "deviation": 30,
+                        "magic": int(self.cfg.magic_number),
+                        "comment": "CLOSE_SINGLE_WEB",
+                    }
+                    self._mt5.order_send(req)
+                return True, f"Posição #{ticket} encerrada no MT5."
+            except Exception as exc:
+                return False, f"Erro encerrando #{ticket}: {exc}"
+
+        for p in list(self._sim_positions):
+            if int(p["ticket"]) == int(ticket):
+                pnl = float(p.get("profit", 0.0))
+                self._sim_daily_pnl += pnl
+                self._sim_deals_history.insert(
+                    0,
+                    {
+                        "ticket": p["ticket"],
+                        "time": datetime.now().strftime("%H:%M:%S"),
+                        "symbol": p["symbol"],
+                        "type": p["type"],
+                        "volume": p["volume"],
+                        "price_open": p["price_open"],
+                        "price_close": p["price_current"],
+                        "profit": pnl,
+                        "reason": "FECHAMENTO_MANUAL",
+                        "comment": p.get("comment", ""),
+                    },
+                )
+                self._sim_positions.remove(p)
+                return True, f"Posição #{ticket} ({p['symbol']}) encerrada com resultado {pnl:+.2f}."
+        return False, f"Posição #{ticket} não encontrada."
 
 
 class PradoTradingService:
@@ -911,6 +998,29 @@ class PradoTradingService:
                     elif act == "STOP":
                         b["status"] = "STOPPED"
                         self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) PAUSADO.")
+                    elif act in ("FIRE_BUY", "FIRE_SELL"):
+                        sym = str(b.get("symbol", "WIN$N"))
+                        ticks = self.connector.fetch_ticks(sym, count=200)
+                        vwap_b = compute_intraday_vwap(ticks)
+                        last_p = ticks[-1].effective_price() if ticks else 100.0
+                        bw = max(vwap_b.std_dev, abs(last_p) * 0.0020, 1e-4)
+                        ord_act = "BUY_FLOW" if act == "FIRE_BUY" else "SELL_FLOW"
+                        # unlock risk if locked so manual fire works immediately
+                        if self.connector._sim_daily_pnl <= -abs(self.cfg.max_daily_loss_money):
+                            self.connector._sim_daily_pnl = 0.0
+                        ok, msg = self.connector.place_order(
+                            symbol=sym,
+                            action=ord_act,
+                            volume=float(b.get("lot_size", self.cfg.default_lot_size)),
+                            price=last_p,
+                            sl_points=round(bw * float(b.get("sl_sigma_mult", 1.0)), 6),
+                            tp_points=round(bw * float(b.get("tp_sigma_mult", 1.8)), 6),
+                            magic=self.cfg.magic_number,
+                            bot_name=str(b.get("name", "PradoBot")),
+                        )
+                        if ok:
+                            b["trades_executed"] = int(b.get("trades_executed", 0)) + 1
+                        self._log_event("BOT_EXEC", msg)
                     elif act == "DELETE":
                         removed = self.cfg.bots.pop(idx)
                         save_config(self.cfg, self.config_path)
@@ -955,13 +1065,19 @@ class PradoTradingService:
                     corr_scores.append(c_flow.imbalance_ratio)
             corr_bias = round(sum(corr_scores) / len(corr_scores), 4) if corr_scores else 0.0
 
-            # 2. EOD Flatten Rule ("HFT sempre dorme zerado")
+            # 2. EOD Flatten Rule ("HFT sempre dorme zerado") — Only applies to B3 cash/futures symbols (not 24/7 Crypto/Forex)
             positions = self.connector.get_open_positions()
             if self.cfg.enforce_eod_flatten and now_str >= self.cfg.eod_flatten_time and positions:
-                cnt, msg = self.connector.close_all_positions("EOD_HFT_DORME_ZERADO")
-                if cnt > 0:
-                    self._log_event("EOD_FLATTEN", msg)
-                positions = self.connector.get_open_positions()
+                b3_positions = [
+                    p
+                    for p in positions
+                    if p["symbol"].endswith("$N") or (len(p["symbol"]) in (5, 6) and p["symbol"][-1].isdigit())
+                ]
+                if b3_positions:
+                    for bp in b3_positions:
+                        self.connector.close_single_position(int(bp["ticket"]))
+                    self._log_event("EOD_FLATTEN", f"{len(b3_positions)} posição(ões) B3 encerrada(s) no fim do pregão.")
+                    positions = self.connector.get_open_positions()
 
             # 3. Daily Loss & Target Guard
             acc = self.connector.get_account_summary()
@@ -1055,9 +1171,22 @@ class PradoTradingService:
                 )
                 last_price = ticks[-1].effective_price() if ticks else 0.0
                 bot_action = bot_flow.recommended_action
-                if bot_action in ("BUY_FLOW", "BUY_REVERT_VWAP") and corr_bias <= -abs(self.cfg.correlation_block_threshold):
+                bot_corr_list = bot.get("correlated_basket") or []
+                bot_corr_bias = corr_bias
+                if bot_corr_list:
+                    b_scores = []
+                    for csym in bot_corr_list:
+                        ct = self.connector.fetch_ticks(csym, count=200)
+                        if len(ct) >= 5:
+                            cv = compute_intraday_vwap(ct)
+                            cf = compute_flow_metrics(ct, cv, window_size=min(60, len(ct)))
+                            b_scores.append(cf.imbalance_ratio)
+                    if b_scores:
+                        bot_corr_bias = round(sum(b_scores) / len(b_scores), 4)
+
+                if bot_action in ("BUY_FLOW", "BUY_REVERT_VWAP") and bot_corr_bias <= -0.80:
                     bot_action = "WAIT_CORRELATION_BLOCK"
-                elif bot_action in ("SELL_FLOW", "SELL_REVERT_VWAP") and corr_bias >= abs(self.cfg.correlation_block_threshold):
+                elif bot_action in ("SELL_FLOW", "SELL_REVERT_VWAP") and bot_corr_bias >= 0.80:
                     bot_action = "WAIT_CORRELATION_BLOCK"
 
                 bot["last_price"] = round(last_price, 6)
@@ -1105,6 +1234,7 @@ class PradoTradingService:
                 "auto_trading_enabled": self.cfg.auto_trading_enabled,
                 "operation_mode": self.cfg.operation_mode,
                 "positions": positions,
+                "deals_history": list(self.connector._sim_deals_history[:40]),
                 "symbols": symbols_data,
                 "events": list(self._event_log[:30]),
             }

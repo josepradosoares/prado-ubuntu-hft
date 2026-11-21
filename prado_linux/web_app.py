@@ -364,6 +364,19 @@ class PradoWebApp:
             )
 
         if method == "POST" and clean_path == "/api/flatten":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                payload = {}
+            ticket = payload.get("ticket")
+            if ticket is not None:
+                ok, msg = self.service.connector.close_single_position(int(ticket))
+                self.service.step_once()
+                return (
+                    200,
+                    json.dumps({"ok": ok, "message": msg}, ensure_ascii=False),
+                    {"Content-Type": "application/json"},
+                )
             cnt, msg = self.service.flatten_all("ZERAR_TUDO_PAINEL_WEB")
             self.service.step_once()
             return (

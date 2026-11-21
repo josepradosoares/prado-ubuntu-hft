@@ -428,7 +428,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
 
       <div class="card">
-        <h2>ORDENS &amp; POSIÇÕES ABERTAS NO METATRADER 5</h2>
+        <h2>ORDENS &amp; POSIÇÕES ABERTAS NO METATRADER 5 (EM TEMPO REAL)</h2>
         <table>
           <thead>
             <tr>
@@ -442,9 +442,31 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <th>Take Profit (&sigma;)</th>
               <th>Lucro / Prejuízo</th>
               <th>Robô</th>
+              <th>Ação</th>
             </tr>
           </thead>
           <tbody id="positionsBody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>HISTÓRICO DE ORDENS EXECUTADAS &amp; ENCERRADAS (TAKE PROFIT / STOP LOSS / MANUAL)</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Ticket</th>
+              <th>Horário</th>
+              <th>Ativo</th>
+              <th>Direção</th>
+              <th>Lote</th>
+              <th>Entrada</th>
+              <th>Saída</th>
+              <th>Resultado (P&amp;L)</th>
+              <th>Motivo Saída</th>
+              <th>Robô</th>
+            </tr>
+          </thead>
+          <tbody id="dealsHistoryBody"></tbody>
         </table>
       </div>
     </div>
@@ -1166,7 +1188,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     ${isRun ? '● RODANDO' : '■ PARADO'}
                   </span>
                 </td>
-                <td onclick="event.stopPropagation();" style="display:flex;gap:6px;flex-wrap:wrap;">
+                <td onclick="event.stopPropagation();" style="display:flex;gap:5px;flex-wrap:wrap;">
+                  <button class="btn btn-green" title="Disparar Ordem Compra Agora" onclick="botAction('${b.bot_id}', 'FIRE_BUY')">⚡ Comprar</button>
+                  <button class="btn btn-danger" title="Disparar Ordem Venda Agora" onclick="botAction('${b.bot_id}', 'FIRE_SELL')">⚡ Vender</button>
                   <button class="btn btn-cyan" onclick="editBot('${b.bot_id}')">✏️ Editar</button>
                   ${isRun
                     ? `<button class="btn btn-danger" onclick="botAction('${b.bot_id}', 'STOP')">⏸ Pausar</button>`
@@ -1203,7 +1227,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const posBody = document.getElementById('positionsBody');
         const positions = snap.positions || [];
         if (positions.length === 0) {
-          posBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);">Nenhuma posição aberta no momento.</td></tr>';
+          posBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);">Nenhuma posição aberta no momento (Aguardando gatilho matemático ou clique em ⚡ Comprar / ⚡ Vender no robô).</td></tr>';
         } else {
           posBody.innerHTML = positions.map(p => `
             <tr>
@@ -1215,8 +1239,30 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <td>${p.price_current}</td>
               <td>${p.sl}</td>
               <td>${p.tp}</td>
-              <td style="font-weight:700;color:${p.profit >= 0 ? 'var(--green)' : 'var(--red)'};">${p.profit.toFixed(2)}</td>
+              <td style="font-weight:700;color:${p.profit >= 0 ? 'var(--green)' : 'var(--red)'};">${p.profit >= 0 ? '+' : ''}${p.profit.toFixed(2)}</td>
               <td>${p.comment}</td>
+              <td><button class="btn btn-danger" onclick="closeSinglePosition(${p.ticket})">✖ Fechar</button></td>
+            </tr>
+          `).join('');
+        }
+
+        const dealsBody = document.getElementById('dealsHistoryBody');
+        const deals = snap.deals_history || [];
+        if (deals.length === 0) {
+          dealsBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);">Nenhuma ordem encerrada ainda nesta sessão.</td></tr>';
+        } else {
+          dealsBody.innerHTML = deals.map(d => `
+            <tr>
+              <td>#${d.ticket}</td>
+              <td style="color:var(--muted);">${d.time}</td>
+              <td><strong>${d.symbol}</strong></td>
+              <td><span class="pill ${d.type === 'BUY' ? 'pill-up' : 'pill-down'}">${d.type}</span></td>
+              <td>${d.volume}</td>
+              <td>${d.price_open}</td>
+              <td>${d.price_close}</td>
+              <td style="font-weight:700;color:${d.profit >= 0 ? 'var(--green)' : 'var(--red)'};">${d.profit >= 0 ? '+' : ''}${Number(d.profit).toFixed(2)}</td>
+              <td><span class="pill pill-wait">${d.reason}</span></td>
+              <td>${d.comment}</td>
             </tr>
           `).join('');
         }
@@ -1429,6 +1475,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const res = await fetch('/api/flatten', {method: 'POST'});
       const data = await res.json();
       showToast(data.message || 'Ordens zeradas!');
+      refreshStatus();
+    }
+
+    async function closeSinglePosition(ticket) {
+      const res = await fetch('/api/flatten', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ticket})
+      });
+      const data = await res.json();
+      showToast(data.message || `Posição #${ticket} encerrada!`);
       refreshStatus();
     }
 

@@ -405,6 +405,23 @@ def test_account_deduplication_broker_server_autocomplete_and_preseeded_xm_accou
     assert code == 200
     assert json.loads(body)["ok"] is True
 
+    # 6. Manual immediate order dispatch for a bot (/api/bots/action -> FIRE_ORDER) and deals history
+    code, body, _ = app.handle_request(
+        "POST",
+        "/api/bots/action",
+        headers=auth_headers,
+        body=json.dumps({"bot_id": bot_id, "action": "FIRE_BUY"}).encode("utf-8"),
+    )
+    assert code == 200
+    fire_data = json.loads(body)
+    assert fire_data["ok"] is True
+
+    code, body, _ = app.handle_request("GET", "/api/status", headers=auth_headers, body=b"")
+    snap = json.loads(body)
+    assert len(snap["positions"]) >= 1
+    assert "deals_history" in snap
+
+
 
 
 
