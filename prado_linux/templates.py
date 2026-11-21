@@ -1,4 +1,7 @@
-"""HTML templates for Prado Institutional HFT Login & Pure Mathematical Multi-Robot Command Center."""
+"""HTML templates for Prado Institutional HFT Login & Pure Mathematical Multi-Robot Command Center.
+Designed following the frontend-design skill: institutional quant desk identity, tabular precision,
+sentence-case clarity, and split-pane workspace hierarchy without generic SaaS-card clutter.
+"""
 from __future__ import annotations
 
 LOGIN_HTML = """<!DOCTYPE html>
@@ -6,110 +9,163 @@ LOGIN_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prado Institutional HFT — Login</title>
+  <title>Prado Institutional HFT — Acesso à Mesa Quantitativa</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #080c14;
-      --panel: #101726;
-      --border: #1f2b44;
-      --gold: #f5b942;
-      --text: #e2e8f0;
-      --muted: #94a3b8;
-      --danger: #ef4444;
+      --obsidian: #0a0e14;
+      --slate: #111722;
+      --hairline: #1e2838;
+      --bullion: #d4a853;
+      --emerald: #10b981;
+      --crimson: #e11d48;
+      --text: #eef2f6;
+      --muted: #8b9bb4;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: radial-gradient(circle at top, #131d31 0%, var(--bg) 70%);
+      background-color: var(--obsidian);
+      background-image:
+        linear-gradient(to right, rgba(30, 40, 56, 0.25) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(30, 40, 56, 0.25) 1px, transparent 1px);
+      background-size: 48px 48px;
       color: var(--text);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
       min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .login-shell {
+      width: 100%;
+      max-width: 440px;
+      background: var(--slate);
+      border: 1px solid var(--hairline);
+      border-top: 2px solid var(--bullion);
+    }
+    .login-header {
+      padding: 28px 32px 20px;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .desk-tag {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      color: var(--bullion);
+      margin-bottom: 8px;
       display: flex;
       align-items: center;
-      justify-content: center;
-      padding: 20px;
+      gap: 8px;
     }
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      width: 100%;
-      max-width: 420px;
-      padding: 32px;
-      box-shadow: 0 20px 50px rgba(0,0,0,0.6);
-    }
-    .badge {
+    .desk-tag::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      background: var(--emerald);
       display: inline-block;
-      background: rgba(245, 185, 66, 0.14);
-      color: var(--gold);
-      border: 1px solid rgba(245, 185, 66, 0.4);
-      padding: 4px 12px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      margin-bottom: 14px;
     }
-    h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; color: #fff; }
-    p.sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; line-height: 1.5; }
-    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .login-body {
+      padding: 24px 32px 28px;
+    }
+    .field {
+      margin-bottom: 18px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
     input {
       width: 100%;
-      background: #0a101d;
-      border: 1px solid var(--border);
+      background: var(--obsidian);
+      border: 1px solid var(--hairline);
       color: #fff;
-      padding: 12px 14px;
-      border-radius: 8px;
+      padding: 11px 13px;
       font-size: 14px;
-      margin-bottom: 16px;
+      font-family: 'IBM Plex Mono', monospace;
       outline: none;
+      transition: border-color 0.15s;
     }
-    input:focus { border-color: var(--gold); }
+    input:focus {
+      border-color: var(--bullion);
+    }
     button {
       width: 100%;
-      background: linear-gradient(135deg, #f5b942 0%, #d99b26 100%);
-      color: #090d16;
+      background: var(--bullion);
+      color: #080b10;
       border: none;
-      padding: 13px;
-      border-radius: 8px;
+      padding: 12px 16px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
       font-weight: 700;
       font-size: 14px;
       cursor: pointer;
+      transition: filter 0.15s;
+    }
+    button:hover {
+      filter: brightness(1.08);
     }
     .err {
-      color: var(--danger);
-      background: rgba(239,68,68,0.12);
-      border: 1px solid rgba(239,68,68,0.3);
+      color: #fda4af;
+      background: rgba(225, 29, 72, 0.12);
+      border-left: 3px solid var(--crimson);
       padding: 10px 12px;
-      border-radius: 8px;
       font-size: 13px;
-      margin-bottom: 16px;
+      margin-bottom: 18px;
       display: none;
     }
-    .hint {
-      margin-top: 18px;
+    .login-footer {
+      padding: 14px 32px;
+      background: rgba(10, 14, 20, 0.55);
+      border-top: 1px solid var(--hairline);
+      font-family: 'IBM Plex Mono', monospace;
       font-size: 12px;
       color: var(--muted);
-      text-align: center;
-      border-top: 1px solid var(--border);
-      padding-top: 14px;
+      display: flex;
+      justify-content: space-between;
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <span class="badge">Motor 100% Matemático • Ubuntu MetaTrader 5</span>
-    <h1>Prado Institutional HFT</h1>
-    <p class="sub">Central Quantitativa Multi-Robôs (Sem Gráficos • Execução Direta por Matemática VWAP &amp; Z-Score)</p>
-    <div id="errBox" class="err"></div>
-    <form id="loginForm">
-      <label for="username">USUÁRIO DO PAINEL</label>
-      <input id="username" name="username" type="text" value="admin" required autocomplete="username" />
-      <label for="password">SENHA DE ACESSO</label>
-      <input id="password" name="password" type="password" placeholder="••••••••" required autocomplete="current-password" />
-      <button type="submit">ACESSAR CENTRAL QUANTITATIVA</button>
-    </form>
-    <div class="hint">Credencial padrão inicial: <strong>admin</strong> / <strong>prado2026</strong></div>
-  </div>
+  <main class="login-shell">
+    <div class="login-header">
+      <div class="desk-tag">Motor quantitativo • Ubuntu Server</div>
+      <h1>Prado Institutional HFT</h1>
+      <p class="subtitle">Execução matemática pura de VWAP, bandas de desvio padrão e fluxo de agressão via Python MetaTrader 5.</p>
+    </div>
+    <div class="login-body">
+      <div id="errBox" class="err"></div>
+      <form id="loginForm">
+        <div class="field">
+          <label for="username">Usuário do operador</label>
+          <input id="username" name="username" type="text" value="admin" required autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="password">Senha de acesso</label>
+          <input id="password" name="password" type="password" placeholder="••••••••" required autocomplete="current-password" />
+        </div>
+        <button type="submit">Entrar na mesa de execução</button>
+      </form>
+    </div>
+    <div class="login-footer">
+      <span>Acesso inicial: admin</span>
+      <span>Senha: prado2026</span>
+    </div>
+  </main>
   <script>
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -127,11 +183,11 @@ LOGIN_HTML = """<!DOCTYPE html>
         if (res.ok && data.ok) {
           window.location.href = '/';
         } else {
-          errBox.textContent = data.error || 'Usuário ou senha inválidos.';
+          errBox.textContent = data.error || 'Credenciais inválidas. Verifique usuário e senha.';
           errBox.style.display = 'block';
         }
       } catch (err) {
-        errBox.textContent = 'Erro de conexão com o servidor.';
+        errBox.textContent = 'Não foi possível comunicar com o servidor Ubuntu.';
         errBox.style.display = 'block';
       }
     });
@@ -145,186 +201,404 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prado Institutional HFT — Motor 100% Matemático (Ubuntu Server)</title>
+  <title>Prado Institutional HFT — Mesa Quantitativa Multi-Robôs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #070b12;
-      --panel: #0f1624;
-      --panel-alt: #131c2e;
-      --border: #1e293b;
-      --gold: #f5b942;
-      --cyan: #22d3ee;
-      --green: #10b981;
-      --red: #ef4444;
-      --text: #f1f5f9;
-      --muted: #94a3b8;
+      --obsidian: #0a0e14;
+      --slate: #101620;
+      --slate-hover: #161e2c;
+      --hairline: #1e2838;
+      --bullion: #d4a853;
+      --emerald: #10b981;
+      --crimson: #e11d48;
+      --cyan: #38bdf8;
+      --text: #eef2f6;
+      --muted: #8b9bb4;
+      --mono: 'IBM Plex Mono', Consolas, monospace;
+      --sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
-    body { background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 40px; }
-    header {
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-      padding: 14px 24px;
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--obsidian);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
       display: flex;
-      flex-wrap: wrap;
+      flex-direction: column;
+      font-size: 13px;
+    }
+    .num {
+      font-family: var(--mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 1. Top Command & Telemetry Strip (Hero) */
+    .command-bar {
+      background: var(--slate);
+      border-bottom: 1px solid var(--hairline);
+      padding: 10px 20px;
+      display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+    .identity {
+      display: flex;
+      align-items: center;
       gap: 12px;
     }
-    .brand { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .brand-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 12px var(--gold); }
-    .brand h1 { font-size: 18px; font-weight: 700; color: #fff; }
-    .brand span { font-size: 12px; color: var(--gold); background: rgba(245,185,66,0.12); padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(245,185,66,0.3); }
-    .top-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .btn {
-      padding: 8px 14px;
-      border-radius: 8px;
+    .live-pulse {
+      width: 8px;
+      height: 8px;
+      background: var(--emerald);
+      box-shadow: 0 0 8px var(--emerald);
+    }
+    .identity-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #fff;
+    }
+    .engine-badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--bullion);
+      background: rgba(212, 168, 83, 0.1);
+      border: 1px solid rgba(212, 168, 83, 0.35);
+      padding: 2px 8px;
+    }
+    .command-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .account-switcher {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--obsidian);
+      border: 1px solid var(--hairline);
+      padding: 5px 10px;
+    }
+    .account-switcher span {
       font-size: 12px;
-      font-weight: 700;
-      border: 1px solid var(--border);
-      cursor: pointer;
-      background: var(--panel-alt);
-      color: var(--text);
-      transition: 0.15s;
-    }
-    .btn:hover { border-color: var(--gold); }
-    .btn-gold { background: var(--gold); color: #090d16; border-color: var(--gold); }
-    .btn-danger { background: rgba(239,68,68,0.18); color: #fca5a5; border-color: rgba(239,68,68,0.45); }
-    .btn-danger:hover { background: var(--red); color: #fff; }
-    .btn-green { background: rgba(16,185,129,0.18); color: #6ee7b7; border-color: rgba(16,185,129,0.45); }
-    .btn-green:hover { background: var(--green); color: #05130d; }
-    .btn-cyan { background: rgba(34,211,238,0.16); color: #22d3ee; border-color: rgba(34,211,238,0.4); }
-
-    .container { max-width: 1440px; margin: 20px auto; padding: 0 20px; display: grid; gap: 20px; }
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
-    .kpi {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 16px;
-    }
-    .kpi .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
-    .kpi .val { font-size: 20px; font-weight: 700; color: #fff; }
-    .kpi .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
-
-    .tabs { display: flex; gap: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px; flex-wrap: wrap; }
-    .tab-btn {
-      padding: 10px 16px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: var(--panel);
       color: var(--muted);
-      font-weight: 700;
+    }
+    .account-switcher select {
+      background: transparent;
+      color: var(--bullion);
+      border: none;
+      font-family: var(--mono);
+      font-weight: 600;
+      font-size: 12px;
+      outline: none;
+      cursor: pointer;
+    }
+    .account-switcher select option {
+      background: var(--slate);
+      color: var(--text);
+    }
+
+    /* Telemetry Strip (Replaces generic SaaS KPI cards) */
+    .telemetry-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      background: #0d121a;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .telemetry-cell {
+      padding: 12px 20px;
+      border-right: 1px solid var(--hairline);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .telemetry-cell:last-child { border-right: none; }
+    .telemetry-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .telemetry-value {
+      font-family: var(--mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .telemetry-sub {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* Navigation Bar */
+    .workspace-nav {
+      background: var(--slate);
+      border-bottom: 1px solid var(--hairline);
+      padding: 0 20px;
+      display: flex;
+      gap: 4px;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      padding: 11px 16px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      font-family: var(--sans);
+      font-weight: 600;
       font-size: 13px;
       cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.15s, border-color 0.15s;
     }
-    .tab-btn.active { background: rgba(245,185,66,0.15); color: var(--gold); border-color: var(--gold); }
+    .tab-btn:hover {
+      color: var(--text);
+    }
+    .tab-btn.active {
+      color: var(--bullion);
+      border-bottom-color: var(--bullion);
+      background: rgba(212, 168, 83, 0.05);
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 7px 12px;
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid var(--hairline);
+      background: var(--slate);
+      color: var(--text);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .btn:hover { border-color: var(--bullion); }
+    .btn-gold {
+      background: var(--bullion);
+      color: #080b10;
+      border-color: var(--bullion);
+      font-weight: 700;
+    }
+    .btn-gold:hover { filter: brightness(1.08); }
+    .btn-green {
+      background: rgba(16, 185, 129, 0.14);
+      color: #34d399;
+      border-color: rgba(16, 185, 129, 0.4);
+    }
+    .btn-green:hover { background: var(--emerald); color: #04130d; }
+    .btn-danger {
+      background: rgba(225, 29, 72, 0.14);
+      color: #fda4af;
+      border-color: rgba(225, 29, 72, 0.4);
+    }
+    .btn-danger:hover { background: var(--crimson); color: #fff; }
+    .btn-cyan {
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--cyan);
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+    .btn-cyan:hover { background: var(--cyan); color: #06131f; }
+
+    /* Main Workspace Panels */
+    .workspace {
+      max-width: 1600px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 20px;
+      flex: 1;
+    }
     .tab-content { display: none; }
     .tab-content.active { display: grid; gap: 20px; }
 
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      overflow-x: auto;
+    .panel {
+      background: var(--slate);
+      border: 1px solid var(--hairline);
     }
-    .card h2 {
-      font-size: 15px;
-      font-weight: 700;
-      margin-bottom: 14px;
-      color: var(--gold);
+    .panel-header {
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--hairline);
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 10px;
+      background: rgba(10, 14, 20, 0.35);
     }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
-    th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
-    tr.clickable-row { cursor: pointer; transition: background 0.15s; }
-    tr.clickable-row:hover td { background: rgba(245,185,66,0.08); }
-    .pill {
-      display: inline-block;
-      padding: 3px 9px;
-      border-radius: 999px;
-      font-size: 11px;
+    .panel-title {
+      font-size: 14px;
       font-weight: 700;
+      color: #fff;
     }
-    .pill-up { background: rgba(16,185,129,0.16); color: #34d399; border: 1px solid rgba(16,185,129,0.4); }
-    .pill-down { background: rgba(239,68,68,0.16); color: #f87171; border: 1px solid rgba(239,68,68,0.4); }
-    .pill-hft { background: rgba(34,211,238,0.16); color: #22d3ee; border: 1px solid rgba(34,211,238,0.4); }
-    .pill-gold { background: rgba(245,185,66,0.16); color: var(--gold); border: 1px solid rgba(245,185,66,0.4); }
-    .pill-wait { background: rgba(148,163,184,0.14); color: #94a3b8; }
+    .panel-subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 400;
+    }
+    .panel-body {
+      padding: 18px;
+      overflow-x: auto;
+    }
+    .panel-body.flush {
+      padding: 0;
+    }
 
+    /* Data Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--hairline);
+    }
+    th {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      background: rgba(10, 14, 20, 0.45);
+      white-space: nowrap;
+    }
+    th.num-col, td.num-col {
+      text-align: right;
+      font-family: var(--mono);
+      font-variant-numeric: tabular-nums;
+    }
+    tr.clickable-row {
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    tr.clickable-row:hover td {
+      background: var(--slate-hover);
+    }
+
+    /* Status Badges */
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid transparent;
+    }
+    .tag-up { background: rgba(16, 185, 129, 0.14); color: #34d399; border-color: rgba(16, 185, 129, 0.35); }
+    .tag-down { background: rgba(225, 29, 72, 0.14); color: #fda4af; border-color: rgba(225, 29, 72, 0.35); }
+    .tag-hft { background: rgba(56, 189, 248, 0.14); color: var(--cyan); border-color: rgba(56, 189, 248, 0.35); }
+    .tag-gold { background: rgba(212, 168, 83, 0.15); color: var(--bullion); border-color: rgba(212, 168, 83, 0.4); }
+    .tag-neutral { background: rgba(139, 155, 180, 0.12); color: var(--muted); border-color: rgba(139, 155, 180, 0.25); }
+
+    /* Forms */
     .form-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: 16px;
     }
     .field { position: relative; }
-    .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
     .field input, .field select {
       width: 100%;
-      background: #080d17;
-      border: 1px solid var(--border);
+      background: var(--obsidian);
+      border: 1px solid var(--hairline);
       color: #fff;
-      padding: 10px 12px;
-      border-radius: 8px;
+      padding: 9px 12px;
       font-size: 13px;
+      font-family: var(--sans);
     }
-    .field input:focus, .field select:focus { border-color: var(--gold); outline: none; }
-    .field small { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
+    .field input.mono-input {
+      font-family: var(--mono);
+    }
+    .field input:focus, .field select:focus {
+      border-color: var(--bullion);
+      outline: none;
+    }
+    .field small {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: 4px;
+    }
 
+    /* Broker Server Autocomplete Dropdown */
     .autocomplete-box {
       position: absolute;
-      top: 66px;
+      top: 64px;
       left: 0;
       right: 0;
-      background: #0b1220;
-      border: 1px solid var(--gold);
-      border-radius: 8px;
-      max-height: 210px;
+      background: #0c111a;
+      border: 1px solid var(--bullion);
+      max-height: 220px;
       overflow-y: auto;
-      z-index: 500;
+      z-index: 600;
       display: none;
-      box-shadow: 0 12px 30px rgba(0,0,0,0.7);
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.75);
     }
     .autocomplete-item {
       padding: 9px 12px;
-      font-size: 13px;
+      font-family: var(--mono);
+      font-size: 12px;
       cursor: pointer;
-      border-bottom: 1px solid rgba(255,255,255,0.05);
+      border-bottom: 1px solid var(--hairline);
+      display: flex;
+      justify-content: space-between;
     }
-    .autocomplete-item:hover { background: rgba(245,185,66,0.2); color: var(--gold); }
+    .autocomplete-item:hover {
+      background: rgba(212, 168, 83, 0.18);
+      color: var(--bullion);
+    }
 
-    .mode-switch { display: inline-flex; gap: 6px; background: #080d17; padding: 4px; border-radius: 8px; border: 1px solid var(--border); }
+    .mode-switch {
+      display: inline-flex;
+      border: 1px solid var(--hairline);
+      background: var(--obsidian);
+    }
     .mode-btn {
       padding: 6px 12px;
-      border-radius: 6px;
       border: none;
+      font-family: var(--sans);
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
       cursor: pointer;
       background: transparent;
       color: var(--muted);
     }
-    .mode-btn.active { background: var(--gold); color: #090d16; }
-    .formula-box {
-      background: #060911;
-      border: 1px solid #1e2d4a;
-      border-radius: 8px;
+    .mode-btn.active {
+      background: var(--bullion);
+      color: #080b10;
+    }
+
+    .formula-banner {
+      background: var(--obsidian);
+      border: 1px solid var(--hairline);
+      border-left: 3px solid var(--cyan);
       padding: 12px 16px;
-      font-family: 'Consolas', monospace;
+      font-family: var(--mono);
       font-size: 12px;
       color: var(--cyan);
-      margin: 12px 0;
+      margin: 14px 0 8px;
     }
-    .quote-box {
-      background: rgba(245,185,66,0.07);
-      border-left: 3px solid var(--gold);
-      padding: 12px 16px;
+    .brief-note {
+      background: rgba(212, 168, 83, 0.06);
+      border-left: 3px solid var(--bullion);
+      padding: 10px 14px;
       font-size: 12px;
       color: #cbd5e1;
       margin-bottom: 16px;
@@ -334,449 +608,510 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       position: fixed;
       bottom: 20px;
       right: 20px;
-      background: #10b981;
-      color: #06110d;
-      padding: 12px 18px;
-      border-radius: 8px;
+      background: var(--emerald);
+      color: #04120c;
+      padding: 11px 18px;
       font-weight: 700;
       font-size: 13px;
       display: none;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.6);
       z-index: 1000;
     }
   </style>
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <div class="brand-dot"></div>
-      <h1>PRADO INSTITUTIONAL HFT • MOTOR 100% MATEMÁTICO (SEM GRÁFICOS)</h1>
-      <span id="connBadge">CONECTANDO...</span>
+  <!-- Top Command Strip -->
+  <header class="command-bar">
+    <div class="identity">
+      <div class="live-pulse"></div>
+      <span class="identity-title">Prado Institutional HFT</span>
+      <span class="engine-badge" id="connBadge">Inicializando motor...</span>
     </div>
-    <div class="top-actions">
-      <div style="display:flex;align-items:center;gap:6px;background:#080d17;padding:4px 10px;border-radius:8px;border:1px solid var(--border);">
-        <span style="font-size:11px;color:var(--muted);font-weight:700;">CONTA EM USO:</span>
-        <select id="headerAccountSelect" onchange="quickSwitchAccount(this.value)" style="background:transparent;color:var(--gold);border:none;font-weight:700;font-size:12px;outline:none;cursor:pointer;"></select>
+    <div class="command-controls">
+      <div class="account-switcher">
+        <span>Conta ativa:</span>
+        <select id="headerAccountSelect" onchange="quickSwitchAccount(this.value)"></select>
       </div>
-      <button class="btn btn-cyan" onclick="resetDailyRisk()">🔄 DESTRAVAR RISCO DIÁRIO</button>
-      <button class="btn btn-green" id="toggleAutoBtn" onclick="toggleAutoTrading()">CHAVE GERAL: ATIVA</button>
-      <button class="btn btn-danger" onclick="panicFlatten()">🚨 ZERAR TUDO AGORA</button>
-      <button class="btn" onclick="logout()">SAIR</button>
+      <button class="btn btn-cyan" onclick="resetDailyRisk()">Destravar risco diário</button>
+      <button class="btn btn-green" id="toggleAutoBtn" onclick="toggleAutoTrading()">Execução automática: Ativa</button>
+      <button class="btn btn-danger" onclick="panicFlatten()">Zerar todas as posições</button>
+      <button class="btn" onclick="logout()">Sair</button>
     </div>
   </header>
 
-  <div class="container">
-    <div class="kpi-grid">
-      <div class="kpi">
-        <div class="label">CONTA ATIVA (DEMO / REAL)</div>
-        <div class="val" id="kpiAccount">---</div>
-        <div class="sub" id="kpiServer">Servidor: ---</div>
+  <!-- Live Telemetry Strip -->
+  <section class="telemetry-strip">
+    <div class="telemetry-cell">
+      <div class="telemetry-label">
+        <span>Credencial MetaTrader 5</span>
+        <span id="kpiAccBadge" class="tag tag-hft">DEMO</span>
       </div>
-      <div class="kpi">
-        <div class="label">SALDO / EQUITY</div>
-        <div class="val" id="kpiEquity">R$ 0,00</div>
-        <div class="sub" id="kpiBalance">Saldo: R$ 0,00</div>
-      </div>
-      <div class="kpi">
-        <div class="label">ROBÔS MATEMÁTICOS RODANDO</div>
-        <div class="val" id="kpiBotsRunning" style="color:var(--gold);">0</div>
-        <div class="sub" id="kpiRiskStatus">Status: OPERACIONAL</div>
-      </div>
-      <div class="kpi">
-        <div class="label">VETOR DE CORRELAÇÃO (CESTA)</div>
-        <div class="val" id="kpiCorr">0.0%</div>
-        <div class="sub">Cálculo Matricial Multi-Ativo</div>
-      </div>
+      <div class="telemetry-value" id="kpiAccount">---</div>
+      <div class="telemetry-sub" id="kpiServer">Servidor: ---</div>
     </div>
-
-    <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab('running-bots', this)">🤖 Robôs Rodando (<span id="tabBotCount">0</span>)</button>
-      <button class="tab-btn" onclick="switchTab('create-bot', this)">🧮 Criar / Editar Robô Matemático</button>
-      <button class="tab-btn" onclick="switchTab('backtest', this)">🧪 Backtest Matemático Tick-a-Tick</button>
-      <button class="tab-btn" onclick="switchTab('categories', this)">🗂️ Categorias de Ativos da Corretora</button>
-      <button class="tab-btn" onclick="switchTab('mt5', this)">🔌 Contas DEMO &amp; REAL (MetaTrader 5)</button>
-      <button class="tab-btn" onclick="switchTab('monitor', this)">📐 Matriz Matemática VWAP &amp; Z-Score</button>
+    <div class="telemetry-cell">
+      <div class="telemetry-label"><span>Patrimônio líquido (Equity)</span></div>
+      <div class="telemetry-value" id="kpiEquity">R$ 0,00</div>
+      <div class="telemetry-sub" id="kpiBalance">Saldo base: R$ 0,00</div>
     </div>
+    <div class="telemetry-cell">
+      <div class="telemetry-label"><span>Frota de robôs matemáticos</span></div>
+      <div class="telemetry-value" id="kpiBotsRunning" style="color:var(--bullion);">0 / 0</div>
+      <div class="telemetry-sub" id="kpiRiskStatus">Guarda-costas: Operacional</div>
+    </div>
+    <div class="telemetry-cell">
+      <div class="telemetry-label"><span>Vetor de correlação da cesta</span></div>
+      <div class="telemetry-value" id="kpiCorr">0.0%</div>
+      <div class="telemetry-sub" id="lastUpdate">Sincronizando ticks...</div>
+    </div>
+  </section>
 
-    <!-- ABA 1: ROBÔS RODANDO -->
+  <!-- Workspace Navigation -->
+  <nav class="workspace-nav">
+    <button class="tab-btn active" onclick="switchTab('running-bots', this)">Robôs em execução (<span id="tabBotCount">0</span>)</button>
+    <button class="tab-btn" onclick="switchTab('create-bot', this)">Criar ou editar robô</button>
+    <button class="tab-btn" onclick="switchTab('backtest', this)">Backtest matemático tick a tick</button>
+    <button class="tab-btn" onclick="switchTab('categories', this)">Categorias de ativos</button>
+    <button class="tab-btn" onclick="switchTab('mt5', this)">Contas Demo e Real (MT5)</button>
+    <button class="tab-btn" onclick="switchTab('monitor', this)">Matriz matemática VWAP e Z-Score</button>
+  </nav>
+
+  <main class="workspace">
+    <!-- TAB 1: RUNNING BOTS & POSITIONS -->
     <div id="tab-running-bots" class="tab-content active">
-      <div class="card">
-        <h2>
-          <span>🤖 FROTA DE ROBÔS MATEMÁTICOS EM EXECUÇÃO (CLIQUE EM QUALQUER ROBÔ OU EM "✏️ EDITAR" PARA ALTERAR LOTE, CONTA OU ATIVO)</span>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Frota de robôs matemáticos em execução</div>
+            <div class="panel-subtitle">Clique em qualquer linha para editar lote, conta ou parâmetros do robô</div>
+          </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn btn-gold" onclick="startNewBotForm()">+ ESCOLHER &amp; CRIAR NOVO ROBÔ</button>
-            <button class="btn btn-danger" onclick="deleteAllBots()">🗑️ APAGAR TODOS OS ROBÔS</button>
+            <button class="btn btn-gold" onclick="startNewBotForm()">Novo robô matemático</button>
+            <button class="btn btn-danger" onclick="deleteAllBots()">Apagar todos os robôs</button>
           </div>
-        </h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Robô / Algoritmo Matemático</th>
-              <th>Ambiente / Conta</th>
-              <th>Ativo</th>
-              <th>Lote</th>
-              <th>Preço / VWAP (&Sigma;PV/&Sigma;V)</th>
-              <th>Z-Score / Imbalance</th>
-              <th>Estado Matemático</th>
-              <th>Decisão</th>
-              <th>Status</th>
-              <th>Controle / Editar</th>
-            </tr>
-          </thead>
-          <tbody id="runningBotsBody"></tbody>
-        </table>
-      </div>
+        </div>
+        <div class="panel-body flush">
+          <table>
+            <thead>
+              <tr>
+                <th>Robô e modelo matemático</th>
+                <th>Conta vinculada</th>
+                <th>Ativo</th>
+                <th class="num-col">Lote</th>
+                <th class="num-col">Preço / VWAP (&Sigma;PV/&Sigma;V)</th>
+                <th class="num-col">Z-Score / Imbalance</th>
+                <th>Regime detectado</th>
+                <th>Decisão</th>
+                <th>Estado</th>
+                <th>Controles operacionais</th>
+              </tr>
+            </thead>
+            <tbody id="runningBotsBody"></tbody>
+          </table>
+        </div>
+      </section>
 
-      <div class="card">
-        <h2>ORDENS &amp; POSIÇÕES ABERTAS NO METATRADER 5 (EM TEMPO REAL)</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Ticket</th>
-              <th>Ativo</th>
-              <th>Direção</th>
-              <th>Lote</th>
-              <th>Preço Entrada</th>
-              <th>Preço Atual</th>
-              <th>Stop Loss (&sigma;)</th>
-              <th>Take Profit (&sigma;)</th>
-              <th>Lucro / Prejuízo</th>
-              <th>Robô</th>
-              <th>Ação</th>
-            </tr>
-          </thead>
-          <tbody id="positionsBody"></tbody>
-        </table>
-      </div>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Posições abertas no MetaTrader 5</div>
+            <div class="panel-subtitle">Acompanhamento em tempo real com Stop Loss e Take Profit baseados no desvio padrão (&sigma;)</div>
+          </div>
+        </div>
+        <div class="panel-body flush">
+          <table>
+            <thead>
+              <tr>
+                <th>Bilhete</th>
+                <th>Ativo</th>
+                <th>Direção</th>
+                <th class="num-col">Volume</th>
+                <th class="num-col">Preço de entrada</th>
+                <th class="num-col">Preço atual</th>
+                <th class="num-col">Stop Loss (&sigma;)</th>
+                <th class="num-col">Take Profit (&sigma;)</th>
+                <th class="num-col">Resultado aberto</th>
+                <th>Robô de origem</th>
+                <th>Ação</th>
+              </tr>
+            </thead>
+            <tbody id="positionsBody"></tbody>
+          </table>
+        </div>
+      </section>
 
-      <div class="card">
-        <h2>HISTÓRICO DE ORDENS EXECUTADAS &amp; ENCERRADAS (TAKE PROFIT / STOP LOSS / MANUAL)</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Ticket</th>
-              <th>Horário</th>
-              <th>Ativo</th>
-              <th>Direção</th>
-              <th>Lote</th>
-              <th>Entrada</th>
-              <th>Saída</th>
-              <th>Resultado (P&amp;L)</th>
-              <th>Motivo Saída</th>
-              <th>Robô</th>
-            </tr>
-          </thead>
-          <tbody id="dealsHistoryBody"></tbody>
-        </table>
-      </div>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Histórico de operações encerradas na sessão</div>
+            <div class="panel-subtitle">Registro auditável de saídas por Take Profit, Stop Loss ou encerramento manual</div>
+          </div>
+        </div>
+        <div class="panel-body flush">
+          <table>
+            <thead>
+              <tr>
+                <th>Bilhete</th>
+                <th>Horário</th>
+                <th>Ativo</th>
+                <th>Direção</th>
+                <th class="num-col">Volume</th>
+                <th class="num-col">Entrada</th>
+                <th class="num-col">Saída</th>
+                <th class="num-col">Resultado líquido</th>
+                <th>Motivo do encerramento</th>
+                <th>Robô</th>
+              </tr>
+            </thead>
+            <tbody id="dealsHistoryBody"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
 
-    <!-- ABA 2: CRIAR & EDITAR ROBÔ MATEMÁTICO -->
+    <!-- TAB 2: CREATE / EDIT MATHEMATICAL BOT -->
     <div id="tab-create-bot" class="tab-content">
-      <div class="card">
-        <h2>
-          <span id="botFormTitle">🧮 CATÁLOGO DE ROBÔS 100% MATEMÁTICOS (CRIAR OU EDITAR ROBÔ)</span>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title" id="botFormTitle">Configurar novo robô matemático</div>
+            <div class="panel-subtitle">Operação puramente algorítmica sobre arrays de ticks do MetaTrader 5, sem sobrecarga de gráficos</div>
+          </div>
           <div class="mode-switch">
-            <button type="button" id="btnModeMain" class="mode-btn active" onclick="setSymbolMode('PRINCIPAIS')">⭐ Ativos Principais</button>
-            <button type="button" id="btnModeAll" class="mode-btn" onclick="setSymbolMode('TODOS')">🌐 Todos os Ativos da Corretora</button>
+            <button type="button" id="btnModeMain" class="mode-btn active" onclick="setSymbolMode('PRINCIPAIS')">Ativos principais</button>
+            <button type="button" id="btnModeAll" class="mode-btn" onclick="setSymbolMode('TODOS')">Todos os ativos da corretora</button>
           </div>
-        </h2>
-        <div class="quote-box">
-          Nenhum gráfico pesado é carregado: os robôs operam diretamente sobre arrays numéricos de ticks da biblioteca <code>MetaTrader5</code> em Python. Você pode <strong>criar um novo robô</strong> ou <strong>editar qualquer robô existente</strong> clicando nele na lista!
         </div>
+        <div class="panel-body">
+          <form id="createBotForm" onsubmit="createAndRunBot(event)">
+            <input type="hidden" id="editing_bot_id" value="" />
+            <div class="form-grid">
+              <div class="field" style="grid-column: span 2;">
+                <label for="bot_template_id">Algoritmo matemático do robô</label>
+                <select id="bot_template_id" onchange="onBotTemplateChange()"></select>
+              </div>
+              <div class="field">
+                <label for="bot_name">Nome identificador do robô</label>
+                <input type="text" id="bot_name" placeholder="Ex: Desk BTC Fluxo Institucional" required />
+              </div>
+              <div class="field">
+                <label for="bot_account_id">Conta MetaTrader 5 (Demo ou Real)</label>
+                <select id="bot_account_id"></select>
+              </div>
+              <div class="field">
+                <label for="bot_category_filter">Filtrar por categoria da corretora</label>
+                <select id="bot_category_filter" onchange="loadBrokerSymbols()">
+                  <option value="">Todas as categorias</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="bot_symbol">Ativo da corretora (<span id="symModeLabel">PRINCIPAIS</span>)</label>
+                <select id="bot_symbol"></select>
+                <small id="symCountHint">Carregando lista de ativos...</small>
+              </div>
+              <div class="field">
+                <label for="bot_lot_size">Volume / Lote (ex: 0.01 cripto, 1.0 futuros)</label>
+                <input type="number" step="0.01" id="bot_lot_size" class="mono-input" value="0.10" required />
+              </div>
+              <div class="field">
+                <label for="bot_window_ticks">Janela de amostragem (ticks)</label>
+                <input type="number" id="bot_window_ticks" class="mono-input" value="120" required />
+              </div>
+              <div class="field">
+                <label for="bot_zscore">Limiar estatístico Z-Score (|Z|)</label>
+                <input type="number" step="0.1" id="bot_zscore" class="mono-input" value="1.8" required />
+              </div>
+              <div class="field">
+                <label for="bot_imbalance">Desequilíbrio mínimo (Imbalance)</label>
+                <input type="number" step="0.05" id="bot_imbalance" class="mono-input" value="0.35" required />
+              </div>
+              <div class="field">
+                <label for="bot_revert_sigma">Banda de reversão à média (&plusmn;k&middot;&sigma;)</label>
+                <input type="number" step="0.1" id="bot_revert_sigma" class="mono-input" value="2.0" required />
+              </div>
+              <div class="field">
+                <label for="bot_corr_basket">Cesta de correlação multi-ativo</label>
+                <input type="text" id="bot_corr_basket" class="mono-input" value="PETR4, VALE3, Crypto_10#" />
+              </div>
+            </div>
 
-        <form id="createBotForm" onsubmit="createAndRunBot(event)">
-          <input type="hidden" id="editing_bot_id" value="" />
-          <div class="form-grid">
-            <div class="field" style="grid-column: span 2;">
-              <label>Escolher Modelo Matemático do Robô (Todos os Bots Disponíveis)</label>
-              <select id="bot_template_id" onchange="onBotTemplateChange()"></select>
+            <div class="formula-banner" id="botFormulaDisplay">
+              Equação: VWAP = Σ(Pᵢ·Vᵢ)/ΣVᵢ | Z = (μ_w - μ)/(σ/√(w/4))
             </div>
-            <div class="field">
-              <label>Nome Personalizado do Robô</label>
-              <input type="text" id="bot_name" placeholder="Ex: Bot BTC Institucional #1" required />
-            </div>
-            <div class="field">
-              <label>Escolher Conta MetaTrader 5 (DEMO ou REAL)</label>
-              <select id="bot_account_id"></select>
-            </div>
-            <div class="field">
-              <label>Filtrar por Categoria da Corretora</label>
-              <select id="bot_category_filter" onchange="loadBrokerSymbols()">
-                <option value="">-- Todas as Categorias --</option>
-              </select>
-            </div>
-            <div class="field">
-              <label>Selecionar Ativo da Corretora (<span id="symModeLabel">PRINCIPAIS</span>)</label>
-              <select id="bot_symbol"></select>
-              <small id="symCountHint">Carregando ativos...</small>
-            </div>
-            <div class="field">
-              <label>Volume / Lote por Operação (Ex: 0.01 para BTC, 1.0 para WIN)</label>
-              <input type="number" step="0.01" id="bot_lot_size" value="0.10" required />
-            </div>
-            <div class="field">
-              <label>Janela de Amostragem (w Ticks)</label>
-              <input type="number" id="bot_window_ticks" value="120" required />
-            </div>
-            <div class="field">
-              <label>Limiar Estatístico Z-Score (|Z|)</label>
-              <input type="number" step="0.1" id="bot_zscore" value="1.8" required />
-            </div>
-            <div class="field">
-              <label>Coeficiente de Desequilíbrio (Imbalance)</label>
-              <input type="number" step="0.05" id="bot_imbalance" value="0.35" required />
-            </div>
-            <div class="field">
-              <label>Desvio Padrão de Reversão (&plusmn;k&middot;&sigma;)</label>
-              <input type="number" step="0.1" id="bot_revert_sigma" value="2.0" required />
-            </div>
-            <div class="field">
-              <label>Vetor Cesta de Correlação (Ativos)</label>
-              <input type="text" id="bot_corr_basket" value="PETR4, VALE3, Crypto_10#" />
-            </div>
-          </div>
+            <p id="botDescDisplay" style="font-size:12px;color:var(--muted);margin-bottom:18px;"></p>
 
-          <div class="formula-box" id="botFormulaDisplay">
-            Fórmula Matemática: VWAP = Σ(Pᵢ·Vᵢ)/ΣVᵢ | Z = (μ_w - μ)/(σ/√(w/4))
-          </div>
-          <p id="botDescDisplay" style="font-size:12px;color:var(--muted);margin-bottom:16px;"></p>
-
-          <div style="display:flex; gap:12px; flex-wrap:wrap;">
-            <button type="submit" id="botSubmitBtn" class="btn btn-gold" style="font-size:14px;padding:12px 24px;">
-              ▶ CRIAR E EXECUTAR ROBÔ AUTOMATICAMENTE
-            </button>
-            <button type="button" id="botCancelEditBtn" class="btn" style="display:none;" onclick="cancelBotEdit()">
-              Cancelar Edição
-            </button>
-          </div>
-        </form>
-      </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <button type="submit" id="botSubmitBtn" class="btn btn-gold" style="padding:10px 20px;font-size:13px;">
+                Criar e iniciar execução automática
+              </button>
+              <button type="button" id="botCancelEditBtn" class="btn" style="display:none;" onclick="cancelBotEdit()">
+                Cancelar edição
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
     </div>
 
-    <!-- ABA 3: BACKTEST MATEMÁTICO -->
+    <!-- TAB 3: MATHEMATICAL BACKTESTER -->
     <div id="tab-backtest" class="tab-content">
-      <div class="card">
-        <h2>🧪 SIMULADOR &amp; BACKTESTER MATEMÁTICO TICK-A-TICK (ALTA VELOCIDADE • SEM GRÁFICOS)</h2>
-        <div class="quote-box">
-          Teste qualquer um dos algoritmos matemáticos sobre a série de ticks do ativo antes de colocá-lo para rodar na Conta Demo ou Conta Real.
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Simulador e backtester matemático tick a tick</div>
+            <div class="panel-subtitle">Valide expectativa matemática, taxa de acerto, fator de lucro e drawdown antes de ligar o robô em produção</div>
+          </div>
         </div>
-        <form onsubmit="runMathBacktest(event)">
-          <div class="form-grid">
-            <div class="field">
-              <label>Algoritmo Matemático do Robô</label>
-              <select id="bt_template_id"></select>
+        <div class="panel-body">
+          <form onsubmit="runMathBacktest(event)">
+            <div class="form-grid">
+              <div class="field">
+                <label for="bt_template_id">Modelo matemático</label>
+                <select id="bt_template_id"></select>
+              </div>
+              <div class="field">
+                <label for="bt_symbol">Ativo analisado</label>
+                <select id="bt_symbol"></select>
+              </div>
+              <div class="field">
+                <label for="bt_ticks">Amostra histórica (ticks)</label>
+                <input type="number" id="bt_ticks" class="mono-input" value="1200" min="200" max="5000" required />
+              </div>
+              <div class="field">
+                <label for="bt_capital">Capital inicial alocado</label>
+                <input type="number" id="bt_capital" class="mono-input" value="50000" required />
+              </div>
+              <div class="field">
+                <label for="bt_lots">Volume / Lote simulado</label>
+                <input type="number" step="0.01" id="bt_lots" class="mono-input" value="1.0" required />
+              </div>
+              <div class="field">
+                <label for="bt_zscore">Limiar Z-Score</label>
+                <input type="number" step="0.1" id="bt_zscore" class="mono-input" value="1.5" required />
+              </div>
+              <div class="field">
+                <label for="bt_imbalance">Imbalance mínimo</label>
+                <input type="number" step="0.05" id="bt_imbalance" class="mono-input" value="0.25" required />
+              </div>
+              <div class="field">
+                <label for="bt_sigma">Desvio padrão de reversão (&sigma;)</label>
+                <input type="number" step="0.1" id="bt_sigma" class="mono-input" value="1.8" required />
+              </div>
             </div>
-            <div class="field">
-              <label>Ativo para Backtest</label>
-              <select id="bt_symbol"></select>
+            <div style="margin-top:18px;">
+              <button type="submit" class="btn btn-gold" style="padding:10px 20px;">Executar backtest matemático</button>
             </div>
-            <div class="field">
-              <label>Amostra de Ticks (Histórico)</label>
-              <input type="number" id="bt_ticks" value="1200" min="200" max="5000" required />
-            </div>
-            <div class="field">
-              <label>Capital Inicial Simulado (R$ / USD)</label>
-              <input type="number" id="bt_capital" value="50000" required />
-            </div>
-            <div class="field">
-              <label>Lote Simulado</label>
-              <input type="number" step="0.01" id="bt_lots" value="1.0" required />
-            </div>
-            <div class="field">
-              <label>Limiar Z-Score</label>
-              <input type="number" step="0.1" id="bt_zscore" value="1.5" required />
-            </div>
-            <div class="field">
-              <label>Imbalance Mínimo</label>
-              <input type="number" step="0.05" id="bt_imbalance" value="0.25" required />
-            </div>
-            <div class="field">
-              <label>Desvio Padrão Reversão (&sigma;)</label>
-              <input type="number" step="0.1" id="bt_sigma" value="1.8" required />
-            </div>
-          </div>
-          <div style="margin-top:18px;">
-            <button type="submit" class="btn btn-gold" style="padding:11px 22px;font-size:13px;">⚡ EXECUTAR BACKTEST MATEMÁTICO AGORA</button>
-          </div>
-        </form>
-      </div>
+          </form>
+        </div>
+      </section>
 
-      <div class="card" id="btResultCard" style="display:none;">
-        <h2>📈 RESULTADO ESTATÍSTICO DO BACKTEST</h2>
-        <div class="kpi-grid" id="btKpiGrid" style="margin-bottom:16px;"></div>
-        <div class="formula-box" id="btFormulaUsed"></div>
-        <h3 style="font-size:13px;color:var(--gold);margin:14px 0 8px;">ÚLTIMAS OPERAÇÕES MATEMÁTICAS DO BACKTEST</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Tipo</th>
-              <th>Gatilho Matemático</th>
-              <th>Preço Entrada</th>
-              <th>Preço Saída</th>
-              <th>Resultado Financeiro</th>
-              <th>Saldo Acumulado</th>
-            </tr>
-          </thead>
-          <tbody id="btTradesBody"></tbody>
-        </table>
-      </div>
+      <section class="panel" id="btResultCard" style="display:none;">
+        <div class="panel-header">
+          <div class="panel-title">Relatório estatístico do backtest</div>
+        </div>
+        <div class="telemetry-strip" id="btKpiGrid" style="border-top:none;"></div>
+        <div class="panel-body">
+          <div class="formula-banner" id="btFormulaUsed" style="margin-top:0;"></div>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Direção</th>
+                <th>Gatilho matemático</th>
+                <th class="num-col">Preço de entrada</th>
+                <th class="num-col">Preço de saída</th>
+                <th class="num-col">Resultado líquido</th>
+                <th class="num-col">Curva de patrimônio</th>
+              </tr>
+            </thead>
+            <tbody id="btTradesBody"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
 
-    <!-- ABA 4: CATEGORIAS DE ATIVOS DA CORRETORA -->
+    <!-- TAB 4: BROKER SYMBOL CATEGORIES -->
     <div id="tab-categories" class="tab-content">
-      <div class="card">
-        <h2>🗂️ CRIAR / EDITAR CATEGORIA DE ATIVOS DA CORRETORA (CLIQUE EM UMA CATEGORIA ABAIXO PARA EDITAR)</h2>
-        <form onsubmit="saveCustomCategory(event)">
-          <div class="form-grid">
-            <div class="field">
-              <label>Nome da Categoria</label>
-              <input type="text" id="new_cat_name" placeholder="Ex: Futuros B3 Liquidez Institucional" required />
-            </div>
-            <div class="field">
-              <label>Códigos dos Ativos (separados por vírgula)</label>
-              <input type="text" id="new_cat_symbols" placeholder="Ex: WIN$N, WDO$N, IND$N, DOL$N" required />
-            </div>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Criar ou editar categoria de ativos da corretora</div>
+            <div class="panel-subtitle">Clique em qualquer categoria da lista abaixo para carregar seus ativos e editar</div>
           </div>
-          <div style="margin-top:14px;">
-            <button type="submit" class="btn btn-gold">💾 SALVAR / ATUALIZAR CATEGORIA</button>
-          </div>
-        </form>
-      </div>
-
-      <div class="card">
-        <h2>CATEGORIAS DISPONÍVEIS PARA OS ROBÔS (CLIQUE PARA EDITAR)</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Categoria</th>
-              <th>Ativos Vinculados</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody id="categoriesBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- ABA 5: CONTAS DEMO & REAL METATRADER 5 -->
-    <div id="tab-mt5" class="tab-content">
-      <div class="card">
-        <h2 id="accountFormTitle">🔌 GERENCIADOR DE CONTAS DEMO &amp; REAL METATRADER 5 (CLIQUE EM QUALQUER CONTA ABAIXO PARA EDITAR)</h2>
-        <div class="quote-box">
-          Suas contas <strong>XM Global Demo (346595704 @ XMGlobal-MT5 10)</strong> e <strong>XM Global Real (382177116 @ XMGlobal-MT5 13)</strong> já estão pré-cadastradas com a sua senha! Ao começar a digitar no campo <strong>Servidor da Corretora no MT5</strong>, a lista de servidores aparece automaticamente para você escolher.
         </div>
-        <form id="mt5Form" onsubmit="saveMt5Account(event)">
-          <input type="hidden" id="editing_account_id" value="" />
-          <div class="form-grid">
-            <div class="field">
-              <label>Tipo da Conta (DEMO ou REAL)</label>
-              <select id="acc_type">
-                <option value="DEMO">🧪 CONTA DEMO (Simulação / Homologação na Corretora)</option>
-                <option value="REAL">💰 CONTA REAL (Produção / Dinheiro Real na Corretora)</option>
-              </select>
+        <div class="panel-body">
+          <form onsubmit="saveCustomCategory(event)">
+            <div class="form-grid">
+              <div class="field">
+                <label for="new_cat_name">Nome da categoria</label>
+                <input type="text" id="new_cat_name" placeholder="Ex: Futuros B3 Alta Liquidez" required />
+              </div>
+              <div class="field">
+                <label for="new_cat_symbols">Símbolos vinculados (separados por vírgula)</label>
+                <input type="text" id="new_cat_symbols" class="mono-input" placeholder="Ex: WIN$N, WDO$N, IND$N, DOL$N" required />
+              </div>
             </div>
-            <div class="field">
-              <label>Apelido de Identificação</label>
-              <input type="text" id="acc_label" placeholder="Ex: Jose XM Global Demo" required />
+            <div style="margin-top:14px;">
+              <button type="submit" class="btn btn-gold">Salvar categoria de ativos</button>
             </div>
-            <div class="field">
-              <label>Login da Conta MT5 (Número)</label>
-              <input type="text" id="mt5_login" placeholder="Ex: 346595704" required />
-            </div>
-            <div class="field">
-              <label>Senha da Conta MT5</label>
-              <input type="password" id="mt5_password" placeholder="Deixe em branco na edição para manter a senha atual" />
-            </div>
-            <div class="field">
-              <label>Servidor da Corretora no MT5 (Comece a digitar para autocompletar)</label>
-              <input
-                type="text"
-                id="mt5_server"
-                list="brokerServersDatalist"
-                placeholder="Digite ex: XMGlobal, XP, Clear, ICMarkets..."
-                autocomplete="off"
-                oninput="onServerInputAutocomplete(this.value)"
-                onfocus="onServerInputAutocomplete(this.value)"
-                required
-              />
-              <datalist id="brokerServersDatalist"></datalist>
-              <div id="serverAutocompleteBox" class="autocomplete-box"></div>
-              <small>Comece a escrever o nome da corretora (ex: XM, XP, Clear) e clique no servidor desejado.</small>
-            </div>
-          </div>
-          <div style="margin-top: 18px; display:flex; gap:10px;">
-            <button type="submit" id="accSubmitBtn" class="btn btn-gold">💾 SALVAR / ATUALIZAR CONTA &amp; CONECTAR</button>
-            <button type="button" id="accCancelEditBtn" class="btn" style="display:none;" onclick="cancelAccountEdit()">Cancelar Edição</button>
-          </div>
-        </form>
-      </div>
+          </form>
+        </div>
+      </section>
 
-      <div class="card">
-        <h2>
-          <span>CONTAS CADASTRADAS — CLIQUE EM "✏️ EDITAR", "🗑️ APAGAR" OU "USAR CONTA"</span>
-          <button class="btn btn-danger" onclick="deleteAllAccounts()">🗑️ APAGAR TODAS AS CONTAS</button>
-        </h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Ambiente</th>
-              <th>Nome da Conta</th>
-              <th>Login MT5</th>
-              <th>Servidor da Corretora</th>
-              <th>Status</th>
-              <th>Ações (Escolher / Editar / Excluir)</th>
-            </tr>
-          </thead>
-          <tbody id="accountsBody"></tbody>
-        </table>
-      </div>
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Categorias cadastradas</div>
+        </div>
+        <div class="panel-body flush">
+          <table>
+            <thead>
+              <tr>
+                <th>Categoria</th>
+                <th>Ativos vinculados</th>
+                <th>Controles</th>
+              </tr>
+            </thead>
+            <tbody id="categoriesBody"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
 
-    <!-- ABA 6: MATRIZ MATEMÁTICA VWAP & Z-SCORE -->
+    <!-- TAB 5: DEMO & REAL MT5 ACCOUNTS -->
+    <div id="tab-mt5" class="tab-content">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title" id="accountFormTitle">Contas Demo e Real do MetaTrader 5</div>
+            <div class="panel-subtitle">Suas contas XM Global Demo (346595704) e Real (382177116) já estão cadastradas. Clique em qualquer conta para editar.</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <form id="mt5Form" onsubmit="saveMt5Account(event)">
+            <input type="hidden" id="editing_account_id" value="" />
+            <div class="form-grid">
+              <div class="field">
+                <label for="acc_type">Ambiente da conta</label>
+                <select id="acc_type">
+                  <option value="DEMO">Conta Demo (Homologação / Simulação)</option>
+                  <option value="REAL">Conta Real (Produção na Corretora)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="acc_label">Nome de identificação</label>
+                <input type="text" id="acc_label" placeholder="Ex: Jose XM Global Demo" required />
+              </div>
+              <div class="field">
+                <label for="mt5_login">Login da conta MT5</label>
+                <input type="text" id="mt5_login" class="mono-input" placeholder="Ex: 346595704" required />
+              </div>
+              <div class="field">
+                <label for="mt5_password">Senha da conta MT5</label>
+                <input type="password" id="mt5_password" class="mono-input" placeholder="Deixe em branco ao editar para manter a atual" />
+              </div>
+              <div class="field">
+                <label for="mt5_server">Servidor da corretora (autocompletar ao digitar)</label>
+                <input
+                  type="text"
+                  id="mt5_server"
+                  class="mono-input"
+                  list="brokerServersDatalist"
+                  placeholder="Digite XMGlobal, XP, Clear, ICMarkets..."
+                  autocomplete="off"
+                  oninput="onServerInputAutocomplete(this.value)"
+                  onfocus="onServerInputAutocomplete(this.value)"
+                  required
+                />
+                <datalist id="brokerServersDatalist"></datalist>
+                <div id="serverAutocompleteBox" class="autocomplete-box"></div>
+                <small>Digite as primeiras letras da corretora para carregar os servidores oficiais.</small>
+              </div>
+            </div>
+            <div style="margin-top: 18px; display:flex; gap:10px;">
+              <button type="submit" id="accSubmitBtn" class="btn btn-gold">Salvar conta e conectar</button>
+              <button type="button" id="accCancelEditBtn" class="btn" style="display:none;" onclick="cancelAccountEdit()">Cancelar edição</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Contas disponíveis para operação</div>
+            <div class="panel-subtitle">Alterne entre Demo e Real com um clique ou edite/apague credenciais</div>
+          </div>
+          <button class="btn btn-danger" onclick="deleteAllAccounts()">Apagar todas as contas</button>
+        </div>
+        <div class="panel-body flush">
+          <table>
+            <thead>
+              <tr>
+                <th>Ambiente</th>
+                <th>Identificação</th>
+                <th>Login MT5</th>
+                <th>Servidor da corretora</th>
+                <th>Status</th>
+                <th>Controles</th>
+              </tr>
+            </thead>
+            <tbody id="accountsBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- TAB 6: VWAP & Z-SCORE MATHEMATICAL MATRIX -->
     <div id="tab-monitor" class="tab-content">
-      <div class="card">
-        <h2>
-          <span>📐 MATRIZ MATEMÁTICA PURA EM TEMPO REAL — VWAP, DESVIO PADRÃO (&plusmn;1&sigma; / &plusmn;2&sigma;) &amp; Z-SCORE</span>
-          <span id="lastUpdate" style="font-size:12px;color:var(--muted);font-weight:400;"></span>
-        </h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Ativo</th>
-              <th>Preço (P)</th>
-              <th>VWAP (&Sigma;PV/&Sigma;V)</th>
-              <th>-2&sigma;</th>
-              <th>+2&sigma;</th>
-              <th>Desvio (&sigma;)</th>
-              <th>Imbalance</th>
-              <th>Z-Score</th>
-              <th>Estado Matemático</th>
-              <th>Vetor de Ação</th>
-            </tr>
-          </thead>
-          <tbody id="symbolsBody"></tbody>
-        </table>
-      </div>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Matriz matemática em tempo real — VWAP, Bandas (&plusmn;1&sigma; / &plusmn;2&sigma;) e Z-Score</div>
+            <div class="panel-subtitle">Leitura contínua de fluxo de agressão e desvio padrão para todos os ativos monitorados</div>
+          </div>
+        </div>
+        <div class="panel-body flush">
+          <table>
+            <thead>
+              <tr>
+                <th>Ativo</th>
+                <th class="num-col">Preço atual (P)</th>
+                <th class="num-col">VWAP (&Sigma;PV/&Sigma;V)</th>
+                <th class="num-col">Banda -2&sigma;</th>
+                <th class="num-col">Banda +2&sigma;</th>
+                <th class="num-col">Desvio (&sigma;)</th>
+                <th class="num-col">Imbalance</th>
+                <th class="num-col">Z-Score</th>
+                <th>Regime estatístico</th>
+                <th>Sinal calculado</th>
+              </tr>
+            </thead>
+            <tbody id="symbolsBody"></tbody>
+          </table>
+        </div>
+      </section>
 
-      <div class="card">
-        <h2>LOG DO MOTOR MATEMÁTICO &amp; GUARDA-COSTAS DE RISCO</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Horário</th>
-              <th>Módulo</th>
-              <th>Evento</th>
-            </tr>
-          </thead>
-          <tbody id="eventsBody"></tbody>
-        </table>
-      </div>
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Registro de eventos do motor e guarda-costas de risco</div>
+        </div>
+        <div class="panel-body flush">
+          <table>
+            <thead>
+              <tr>
+                <th>Horário</th>
+                <th>Subsistema</th>
+                <th>Descrição do evento</th>
+              </tr>
+            </thead>
+            <tbody id="eventsBody"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
-  </div>
+  </main>
 
-  <div id="toast" class="toast">Salvo!</div>
+  <div id="toast" class="toast">Alterações salvas.</div>
 
   <script>
     let currentConfig = {};
@@ -800,16 +1135,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     function regimePill(regime) {
-      if (regime === 'INSTITUTIONAL_TREND_UP') return '<span class="pill pill-up">TREM VWAP (+Z)</span>';
-      if (regime === 'INSTITUTIONAL_TREND_DOWN') return '<span class="pill pill-down">TREM VWAP (-Z)</span>';
-      if (regime === 'HFT_MEAN_REVERSION') return '<span class="pill pill-hft">REVERSÃO HFT (&plusmn;2&sigma;)</span>';
-      return '<span class="pill pill-wait">EQUILÍBRIO (0)</span>';
+      if (regime === 'INSTITUTIONAL_TREND_UP') return '<span class="tag tag-up">Trem VWAP (+Z)</span>';
+      if (regime === 'INSTITUTIONAL_TREND_DOWN') return '<span class="tag tag-down">Trem VWAP (-Z)</span>';
+      if (regime === 'HFT_MEAN_REVERSION') return '<span class="tag tag-hft">Reversão HFT (&plusmn;2&sigma;)</span>';
+      return '<span class="tag tag-neutral">Equilíbrio (0)</span>';
     }
 
     function actionPill(action) {
-      if ((action || '').startsWith('BUY')) return `<span class="pill pill-up">${action}</span>`;
-      if ((action || '').startsWith('SELL')) return `<span class="pill pill-down">${action}</span>`;
-      return `<span class="pill pill-wait">${action || 'WAIT'}</span>`;
+      if ((action || '').startsWith('BUY')) return `<span class="tag tag-up">${action}</span>`;
+      if ((action || '').startsWith('SELL')) return `<span class="tag tag-down">${action}</span>`;
+      return `<span class="tag tag-neutral">${action || 'WAIT'}</span>`;
     }
 
     async function loadBrokerServersCatalog() {
@@ -833,7 +1168,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
       box.innerHTML = matches.map(s => `
         <div class="autocomplete-item" onmousedown="selectBrokerServer('${s.replace(/'/g, "\\'")}')">
-          🏢 <strong>${s}</strong>
+          <span>${s}</span>
+          <span style="color:var(--muted);">MT5 Server</span>
         </div>
       `).join('');
       box.style.display = 'block';
@@ -875,7 +1211,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         document.getElementById('bot_imbalance').value = tpl.imbalance_threshold;
         document.getElementById('bot_revert_sigma').value = tpl.revert_sigma;
       }
-      document.getElementById('botFormulaDisplay').textContent = `Fórmula Matemática: ${tpl.formula}`;
+      document.getElementById('botFormulaDisplay').textContent = `Equação: ${tpl.formula}`;
       document.getElementById('botDescDisplay').textContent = tpl.description;
     }
 
@@ -900,14 +1236,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (selectedSymbol) botSymSel.value = selectedSymbol;
       const btSym = document.getElementById('bt_symbol');
       if (!btSym.innerHTML) btSym.innerHTML = htmlOpts;
-      document.getElementById('symCountHint').textContent = `${syms.length} ativo(s) disponível(is) no modo ${currentSymbolMode}.`;
+      document.getElementById('symCountHint').textContent = `${syms.length} ativo(s) carregado(s) no modo ${currentSymbolMode}.`;
     }
 
     function renderCategoriesAndAccounts(categories, accounts, activeAccountId) {
       const catSel = document.getElementById('bot_category_filter');
       const prevCat = catSel.value;
       const catNames = Object.keys(categories || {});
-      catSel.innerHTML = '<option value="">-- Todas as Categorias --</option>' +
+      catSel.innerHTML = '<option value="">Todas as categorias</option>' +
         catNames.map(c => `<option value="${c}">${c} (${(categories[c] || []).length})</option>`).join('');
       if (catNames.includes(prevCat)) catSel.value = prevCat;
 
@@ -917,10 +1253,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         return `
           <tr class="clickable-row" onclick="editCategory('${c.replace(/'/g, "\\'")}', '${symsStr.replace(/'/g, "\\'")}')">
             <td><strong>${c}</strong></td>
-            <td>${(categories[c] || []).map(s => `<span class="pill pill-wait" style="margin:2px;">${s}</span>`).join(' ')}</td>
+            <td>${(categories[c] || []).map(s => `<span class="tag tag-neutral" style="margin:2px;">${s}</span>`).join(' ')}</td>
             <td onclick="event.stopPropagation();" style="display:flex;gap:6px;">
-              <button class="btn btn-cyan" onclick="editCategory('${c.replace(/'/g, "\\'")}', '${symsStr.replace(/'/g, "\\'")}')">✏️ Editar</button>
-              <button class="btn btn-danger" onclick="deleteCategory('${c.replace(/'/g, "\\'")}')">🗑️ Excluir</button>
+              <button class="btn btn-cyan" onclick="editCategory('${c.replace(/'/g, "\\'")}', '${symsStr.replace(/'/g, "\\'")}')">Editar</button>
+              <button class="btn btn-danger" onclick="deleteCategory('${c.replace(/'/g, "\\'")}')">Apagar</button>
             </td>
           </tr>
         `;
@@ -930,12 +1266,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const hdrSel = document.getElementById('headerAccountSelect');
       const list = accounts || [];
       if (list.length === 0) {
-        const defOpt = '<option value="default">[DEMO] Conta Padrão Simulador</option>';
+        const defOpt = '<option value="default">[DEMO] Simulador Quantitativo</option>';
         accSel.innerHTML = defOpt;
         hdrSel.innerHTML = defOpt;
       } else {
         const opts = list.map(a => {
-          const badge = a.account_type === 'REAL' ? '💰 REAL' : '🧪 DEMO';
+          const badge = a.account_type === 'REAL' ? 'REAL' : 'DEMO';
           const selected = a.account_id === activeAccountId ? 'selected' : '';
           return `<option value="${a.account_id}" ${selected}>[${badge}] ${a.label} (${a.mt5_login} @ ${a.mt5_server})</option>`;
         }).join('');
@@ -945,25 +1281,25 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
       const accBody = document.getElementById('accountsBody');
       if (list.length === 0) {
-        accBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;">Nenhuma conta DEMO ou REAL cadastrada ainda.</td></tr>';
+        accBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px;">Nenhuma conta cadastrada. Preencha os dados da corretora acima para adicionar uma conta Demo ou Real.</td></tr>';
       } else {
         accBody.innerHTML = list.map(a => {
           const isReal = a.account_type === 'REAL';
           const isActive = a.account_id === activeAccountId;
           return `
             <tr class="clickable-row" onclick="editAccount('${a.account_id}')">
-              <td><span class="pill ${isReal ? 'pill-gold' : 'pill-hft'}">${isReal ? '💰 CONTA REAL' : '🧪 CONTA DEMO'}</span></td>
+              <td><span class="tag ${isReal ? 'tag-gold' : 'tag-hft'}">${isReal ? 'Conta Real' : 'Conta Demo'}</span></td>
               <td><strong>${a.label}</strong></td>
-              <td><code>${a.mt5_login}</code></td>
-              <td><strong>${a.mt5_server}</strong></td>
-              <td>${isActive ? '<span class="pill pill-up">● EM USO AGORA</span>' : '<span class="pill pill-wait">DISPONÍVEL</span>'}</td>
+              <td class="num">${a.mt5_login}</td>
+              <td class="num"><strong>${a.mt5_server}</strong></td>
+              <td>${isActive ? '<span class="tag tag-up">Ativa na mesa</span>' : '<span class="tag tag-neutral">Disponível</span>'}</td>
               <td onclick="event.stopPropagation();" style="display:flex;gap:6px;flex-wrap:wrap;">
                 ${isActive
-                  ? '<button class="btn" disabled>Conectada</button>'
-                  : `<button class="btn btn-gold" onclick="quickSwitchAccount('${a.account_id}')">Usar Conta</button>`
+                  ? '<button class="btn" disabled>Em uso</button>'
+                  : `<button class="btn btn-gold" onclick="quickSwitchAccount('${a.account_id}')">Usar conta</button>`
                 }
-                <button class="btn btn-cyan" onclick="editAccount('${a.account_id}')">✏️ Editar</button>
-                <button class="btn btn-danger" onclick="deleteAccount('${a.account_id}')">🗑️ Apagar</button>
+                <button class="btn btn-cyan" onclick="editAccount('${a.account_id}')">Editar</button>
+                <button class="btn btn-danger" onclick="deleteAccount('${a.account_id}')">Apagar</button>
               </td>
             </tr>
           `;
@@ -975,7 +1311,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('new_cat_name').value = catName;
       document.getElementById('new_cat_symbols').value = symsCsv;
       document.getElementById('new_cat_name').focus();
-      showToast(`Editando categoria "${catName}" — altere os ativos e clique em Salvar.`);
+      showToast(`Editando categoria "${catName}".`);
     }
 
     function editAccount(accountId) {
@@ -988,11 +1324,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('mt5_login').value = acc.mt5_login || '';
       document.getElementById('mt5_password').value = '';
       document.getElementById('mt5_server').value = acc.mt5_server || '';
-      document.getElementById('accountFormTitle').textContent = `✏️ EDITANDO CONTA: ${acc.label} (${acc.mt5_login})`;
-      document.getElementById('accSubmitBtn').textContent = '💾 SALVAR ALTERAÇÕES DA CONTA';
+      document.getElementById('accountFormTitle').textContent = `Editando conta: ${acc.label} (${acc.mt5_login})`;
+      document.getElementById('accSubmitBtn').textContent = 'Salvar alterações da conta';
       document.getElementById('accCancelEditBtn').style.display = 'inline-block';
       switchTab('mt5', document.querySelectorAll('.tab-btn')[4]);
-      showToast(`Editando conta ${acc.mt5_login} (${acc.mt5_server})`);
+      showToast(`Conta ${acc.mt5_login} carregada para edição.`);
     }
 
     function cancelAccountEdit() {
@@ -1001,8 +1337,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('mt5_login').value = '';
       document.getElementById('mt5_password').value = '';
       document.getElementById('mt5_server').value = '';
-      document.getElementById('accountFormTitle').textContent = '🔌 GERENCIADOR DE CONTAS DEMO & REAL METATRADER 5 (CLIQUE EM QUALQUER CONTA ABAIXO PARA EDITAR)';
-      document.getElementById('accSubmitBtn').textContent = '💾 SALVAR / ATUALIZAR CONTA & CONECTAR';
+      document.getElementById('accountFormTitle').textContent = 'Contas Demo e Real do MetaTrader 5';
+      document.getElementById('accSubmitBtn').textContent = 'Salvar conta e conectar';
       document.getElementById('accCancelEditBtn').style.display = 'none';
     }
 
@@ -1016,7 +1352,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok) {
         currentConfig.accounts = data.accounts;
         renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, currentConfig.active_account_id);
-        showToast('Conta apagada com sucesso!');
+        showToast('Conta apagada.');
       }
     }
 
@@ -1030,7 +1366,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok) {
         currentConfig.accounts = [];
         renderCategoriesAndAccounts(currentConfig.custom_categories, [], '');
-        showToast('Todas as contas foram apagadas!');
+        showToast('Todas as contas foram apagadas.');
       }
     }
 
@@ -1042,7 +1378,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       });
       const data = await res.json();
       if (data.ok) {
-        showToast('Todos os robôs foram apagados!');
+        showToast('Todos os robôs foram apagados.');
         refreshStatus();
       }
     }
@@ -1068,19 +1404,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('bot_imbalance').value = bot.imbalance_threshold || 0.35;
       document.getElementById('bot_revert_sigma').value = bot.revert_sigma || 2.0;
       document.getElementById('bot_corr_basket').value = (bot.correlated_basket || []).join(', ');
-      document.getElementById('botFormTitle').textContent = `✏️ EDITANDO ROBÔ: ${bot.name} (${bot.symbol})`;
-      document.getElementById('botSubmitBtn').textContent = '💾 SALVAR ALTERAÇÕES DO ROBÔ';
+      document.getElementById('botFormTitle').textContent = `Editando robô: ${bot.name} (${bot.symbol})`;
+      document.getElementById('botSubmitBtn').textContent = 'Salvar alterações do robô';
       document.getElementById('botCancelEditBtn').style.display = 'inline-block';
       switchTab('create-bot', document.querySelectorAll('.tab-btn')[1]);
-      showToast(`Editando robô "${bot.name}" — altere o lote, conta ou parâmetros e clique em Salvar.`);
+      showToast(`Robô "${bot.name}" carregado para edição.`);
     }
 
     function cancelBotEdit() {
       document.getElementById('editing_bot_id').value = '';
       document.getElementById('bot_name').value = '';
       document.getElementById('bot_lot_size').value = '0.10';
-      document.getElementById('botFormTitle').textContent = '🧮 CATÁLOGO DE ROBÔS 100% MATEMÁTICOS (CRIAR OU EDITAR ROBÔ)';
-      document.getElementById('botSubmitBtn').textContent = '▶ CRIAR E EXECUTAR ROBÔ AUTOMATICAMENTE';
+      document.getElementById('botFormTitle').textContent = 'Configurar novo robô matemático';
+      document.getElementById('botSubmitBtn').textContent = 'Criar e iniciar execução automática';
       document.getElementById('botCancelEditBtn').style.display = 'none';
       onBotTemplateChange();
     }
@@ -1089,7 +1425,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const res = await fetch('/api/risk/reset', {method: 'POST'});
       const data = await res.json();
       if (data.ok) {
-        showToast('Trava de perda diária resetada e robôs liberados para operar!');
+        showToast('Trava de perda diária resetada e robôs liberados.');
         refreshStatus();
       }
     }
@@ -1105,7 +1441,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok) {
         currentConfig.active_account_id = accountId;
         renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, accountId);
-        showToast(`Conta ativa alterada para [${data.active_account.account_type}] ${data.active_account.label}!`);
+        showToast(`Conta ativa alterada para ${data.active_account.label}.`);
         refreshStatus();
       }
     }
@@ -1132,39 +1468,42 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const snap = await res.json();
         const acc = snap.account || {};
         const accType = acc.account_type || 'DEMO';
-        document.getElementById('connBadge').textContent = `[${accType}] ${acc.backend || 'ONLINE'} • ${acc.login || ''}`;
-        document.getElementById('kpiAccount').innerHTML = `<span class="pill ${accType === 'REAL' ? 'pill-gold' : 'pill-hft'}">${accType}</span> ${acc.login || '---'}`;
+        document.getElementById('connBadge').textContent = `${acc.backend || 'ONLINE'} • ${acc.login || ''}`;
+        const accBadge = document.getElementById('kpiAccBadge');
+        accBadge.textContent = accType;
+        accBadge.className = `tag ${accType === 'REAL' ? 'tag-gold' : 'tag-hft'}`;
+        document.getElementById('kpiAccount').textContent = acc.login || '---';
         document.getElementById('kpiServer').textContent = `Servidor: ${acc.server || '---'}`;
         document.getElementById('kpiEquity').textContent = `${acc.currency || 'R$'} ${(acc.equity || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
-        document.getElementById('kpiBalance').textContent = `Saldo: ${(acc.balance || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+        document.getElementById('kpiBalance').textContent = `Saldo base: ${(acc.balance || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
 
         const bots = snap.bots || [];
         latestBotsList = bots;
         const runningCount = bots.filter(b => b.status === 'RUNNING').length;
-        document.getElementById('kpiBotsRunning').textContent = `${runningCount} / ${bots.length}`;
+        document.getElementById('kpiBotsRunning').textContent = `${runningCount} ativos / ${bots.length} total`;
         document.getElementById('tabBotCount').textContent = runningCount;
 
         const rStatus = document.getElementById('kpiRiskStatus');
-        rStatus.textContent = snap.risk_status || 'OPERACIONAL';
-        rStatus.style.color = snap.risk_locked ? 'var(--red)' : 'var(--green)';
+        rStatus.textContent = snap.risk_status || 'Operacional';
+        rStatus.style.color = snap.risk_locked ? 'var(--crimson)' : 'var(--emerald)';
 
         const corr = Number(snap.correlation_bias || 0);
         const kpiCorr = document.getElementById('kpiCorr');
         kpiCorr.textContent = `${corr >= 0 ? '+' : ''}${(corr * 100).toFixed(1)}%`;
-        kpiCorr.style.color = corr > 0.15 ? 'var(--green)' : (corr < -0.15 ? 'var(--red)' : '#fff');
+        kpiCorr.style.color = corr > 0.15 ? 'var(--emerald)' : (corr < -0.15 ? 'var(--crimson)' : '#fff');
 
         const autoBtn = document.getElementById('toggleAutoBtn');
         if (snap.auto_trading_enabled) {
-          autoBtn.textContent = 'CHAVE GERAL: ATIVA';
+          autoBtn.textContent = 'Execução automática: Ativa';
           autoBtn.className = 'btn btn-green';
         } else {
-          autoBtn.textContent = 'CHAVE GERAL: PAUSADA';
+          autoBtn.textContent = 'Execução automática: Pausada';
           autoBtn.className = 'btn btn-danger';
         }
 
         const botsBody = document.getElementById('runningBotsBody');
         if (bots.length === 0) {
-          botsBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:22px;">Nenhum robô matemático em execução. Clique na aba <strong>"🧮 Criar / Editar Robô Matemático"</strong> para escolher um algoritmo e iniciar!</td></tr>';
+          botsBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:24px;">Nenhum robô matemático configurado. Acesse a aba <strong>Criar ou editar robô</strong> para selecionar um algoritmo e iniciar a execução.</td></tr>';
         } else {
           botsBody.innerHTML = bots.map(b => {
             const isRun = b.status === 'RUNNING';
@@ -1172,53 +1511,53 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             return `
               <tr class="clickable-row" onclick="editBot('${b.bot_id}')" title="Clique para editar este robô">
                 <td>
-                  <strong>${b.name}</strong> <span style="font-size:11px;color:var(--gold);">✏️</span><br/>
-                  <small style="color:var(--cyan);font-family:monospace;">${b.bot_template_name || b.operation_mode}</small><br/>
-                  <small style="color:var(--muted)">Trades executados: ${b.trades_executed || 0}</small>
+                  <strong>${b.name}</strong><br/>
+                  <small style="color:var(--cyan);font-family:var(--mono);">${b.bot_template_name || b.operation_mode}</small><br/>
+                  <small style="color:var(--muted)">Ordens disparadas: ${b.trades_executed || 0}</small>
                 </td>
-                <td><span class="pill ${bType === 'REAL' ? 'pill-gold' : 'pill-hft'}">${bType}</span><br/><small>${b.account_label || ''}</small></td>
-                <td><strong>${b.symbol}</strong><br/><small style="color:var(--muted)">${b.category || ''}</small></td>
-                <td><strong>${b.lot_size}</strong></td>
-                <td>P: <strong>${b.last_price || '---'}</strong><br/><small style="color:var(--gold)">VWAP: ${b.vwap || '---'}</small></td>
-                <td>Z: <strong>${Number(b.aggression_zscore || 0).toFixed(2)}</strong><br/>Imb: ${(Number(b.imbalance_ratio || 0) * 100).toFixed(1)}%</td>
+                <td><span class="tag ${bType === 'REAL' ? 'tag-gold' : 'tag-hft'}">${bType}</span><br/><small style="color:var(--muted)">${b.account_label || ''}</small></td>
+                <td><strong class="num">${b.symbol}</strong><br/><small style="color:var(--muted)">${b.category || ''}</small></td>
+                <td class="num-col"><strong>${b.lot_size}</strong></td>
+                <td class="num-col"><strong>${b.last_price || '---'}</strong><br/><small style="color:var(--bullion)">VWAP: ${b.vwap || '---'}</small></td>
+                <td class="num-col">Z: <strong>${Number(b.aggression_zscore || 0).toFixed(2)}</strong><br/>Imb: ${(Number(b.imbalance_ratio || 0) * 100).toFixed(1)}%</td>
                 <td>${regimePill(b.last_regime)}</td>
                 <td>${actionPill(b.last_signal)}</td>
                 <td>
-                  <span class="pill ${isRun ? 'pill-up' : 'pill-down'}">
-                    ${isRun ? '● RODANDO' : '■ PARADO'}
+                  <span class="tag ${isRun ? 'tag-up' : 'tag-down'}">
+                    ${isRun ? 'Em execução' : 'Pausado'}
                   </span>
                 </td>
                 <td onclick="event.stopPropagation();" style="display:flex;gap:5px;flex-wrap:wrap;">
-                  <button class="btn btn-green" title="Disparar Ordem Compra Agora" onclick="botAction('${b.bot_id}', 'FIRE_BUY')">⚡ Comprar</button>
-                  <button class="btn btn-danger" title="Disparar Ordem Venda Agora" onclick="botAction('${b.bot_id}', 'FIRE_SELL')">⚡ Vender</button>
-                  <button class="btn btn-cyan" onclick="editBot('${b.bot_id}')">✏️ Editar</button>
+                  <button class="btn btn-green" title="Disparar compra imediata" onclick="botAction('${b.bot_id}', 'FIRE_BUY')">Comprar</button>
+                  <button class="btn btn-danger" title="Disparar venda imediata" onclick="botAction('${b.bot_id}', 'FIRE_SELL')">Vender</button>
+                  <button class="btn btn-cyan" onclick="editBot('${b.bot_id}')">Editar</button>
                   ${isRun
-                    ? `<button class="btn btn-danger" onclick="botAction('${b.bot_id}', 'STOP')">⏸ Pausar</button>`
-                    : `<button class="btn btn-green" onclick="botAction('${b.bot_id}', 'START')">▶ Executar</button>`
+                    ? `<button class="btn btn-danger" onclick="botAction('${b.bot_id}', 'STOP')">Pausar</button>`
+                    : `<button class="btn btn-green" onclick="botAction('${b.bot_id}', 'START')">Iniciar</button>`
                   }
-                  <button class="btn btn-danger" onclick="botAction('${b.bot_id}', 'DELETE')">🗑️ Apagar</button>
+                  <button class="btn btn-danger" onclick="botAction('${b.bot_id}', 'DELETE')">Apagar</button>
                 </td>
               </tr>
             `;
           }).join('');
         }
 
-        document.getElementById('lastUpdate').textContent = `Ciclo: ${snap.timestamp || ''}`;
+        document.getElementById('lastUpdate').textContent = `Último ciclo: ${snap.timestamp || ''}`;
 
         const symBody = document.getElementById('symbolsBody');
         const syms = Object.values(snap.symbols || {});
         symBody.innerHTML = syms.map(s => `
           <tr>
-            <td><strong>${s.symbol}</strong></td>
-            <td><strong>${s.last_price}</strong></td>
-            <td style="color:var(--gold);font-weight:700;">${s.vwap}</td>
-            <td style="color:var(--green);">${s.lower_2}</td>
-            <td style="color:var(--red);">${s.upper_2}</td>
-            <td>${s.distance_sigma >= 0 ? '+' : ''}${s.distance_sigma}&sigma;</td>
-            <td style="color:${s.imbalance_ratio >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:700;">
+            <td class="num"><strong>${s.symbol}</strong></td>
+            <td class="num-col"><strong>${s.last_price}</strong></td>
+            <td class="num-col" style="color:var(--bullion);font-weight:600;">${s.vwap}</td>
+            <td class="num-col" style="color:var(--emerald);">${s.lower_2}</td>
+            <td class="num-col" style="color:var(--crimson);">${s.upper_2}</td>
+            <td class="num-col">${s.distance_sigma >= 0 ? '+' : ''}${s.distance_sigma}&sigma;</td>
+            <td class="num-col" style="color:${s.imbalance_ratio >= 0 ? 'var(--emerald)' : 'var(--crimson)'};font-weight:600;">
               ${(s.imbalance_ratio * 100).toFixed(1)}%
             </td>
-            <td style="font-weight:700;">${s.aggression_zscore.toFixed(2)}</td>
+            <td class="num-col" style="font-weight:600;">${s.aggression_zscore.toFixed(2)}</td>
             <td>${regimePill(s.regime)}</td>
             <td>${actionPill(s.action)}</td>
           </tr>
@@ -1227,21 +1566,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const posBody = document.getElementById('positionsBody');
         const positions = snap.positions || [];
         if (positions.length === 0) {
-          posBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);">Nenhuma posição aberta no momento (Aguardando gatilho matemático ou clique em ⚡ Comprar / ⚡ Vender no robô).</td></tr>';
+          posBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:18px;">Nenhuma posição aberta no momento. O robô abrirá automaticamente quando o Z-Score e o Imbalance atingirem o limiar, ou clique em Comprar / Vender na linha do robô.</td></tr>';
         } else {
           posBody.innerHTML = positions.map(p => `
             <tr>
-              <td>#${p.ticket}</td>
-              <td><strong>${p.symbol}</strong></td>
-              <td><span class="pill ${p.type === 'BUY' ? 'pill-up' : 'pill-down'}">${p.type}</span></td>
-              <td>${p.volume}</td>
-              <td>${p.price_open}</td>
-              <td>${p.price_current}</td>
-              <td>${p.sl}</td>
-              <td>${p.tp}</td>
-              <td style="font-weight:700;color:${p.profit >= 0 ? 'var(--green)' : 'var(--red)'};">${p.profit >= 0 ? '+' : ''}${p.profit.toFixed(2)}</td>
+              <td class="num">#${p.ticket}</td>
+              <td class="num"><strong>${p.symbol}</strong></td>
+              <td><span class="tag ${p.type === 'BUY' ? 'tag-up' : 'tag-down'}">${p.type}</span></td>
+              <td class="num-col">${p.volume}</td>
+              <td class="num-col">${p.price_open}</td>
+              <td class="num-col">${p.price_current}</td>
+              <td class="num-col">${p.sl}</td>
+              <td class="num-col">${p.tp}</td>
+              <td class="num-col" style="font-weight:600;color:${p.profit >= 0 ? 'var(--emerald)' : 'var(--crimson)'};">${p.profit >= 0 ? '+' : ''}${p.profit.toFixed(2)}</td>
               <td>${p.comment}</td>
-              <td><button class="btn btn-danger" onclick="closeSinglePosition(${p.ticket})">✖ Fechar</button></td>
+              <td><button class="btn btn-danger" onclick="closeSinglePosition(${p.ticket})">Encerrar</button></td>
             </tr>
           `).join('');
         }
@@ -1249,19 +1588,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const dealsBody = document.getElementById('dealsHistoryBody');
         const deals = snap.deals_history || [];
         if (deals.length === 0) {
-          dealsBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);">Nenhuma ordem encerrada ainda nesta sessão.</td></tr>';
+          dealsBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:18px;">Nenhuma operação encerrada nesta sessão.</td></tr>';
         } else {
           dealsBody.innerHTML = deals.map(d => `
             <tr>
-              <td>#${d.ticket}</td>
-              <td style="color:var(--muted);">${d.time}</td>
-              <td><strong>${d.symbol}</strong></td>
-              <td><span class="pill ${d.type === 'BUY' ? 'pill-up' : 'pill-down'}">${d.type}</span></td>
-              <td>${d.volume}</td>
-              <td>${d.price_open}</td>
-              <td>${d.price_close}</td>
-              <td style="font-weight:700;color:${d.profit >= 0 ? 'var(--green)' : 'var(--red)'};">${d.profit >= 0 ? '+' : ''}${Number(d.profit).toFixed(2)}</td>
-              <td><span class="pill pill-wait">${d.reason}</span></td>
+              <td class="num">#${d.ticket}</td>
+              <td class="num" style="color:var(--muted);">${d.time}</td>
+              <td class="num"><strong>${d.symbol}</strong></td>
+              <td><span class="tag ${d.type === 'BUY' ? 'tag-up' : 'tag-down'}">${d.type}</span></td>
+              <td class="num-col">${d.volume}</td>
+              <td class="num-col">${d.price_open}</td>
+              <td class="num-col">${d.price_close}</td>
+              <td class="num-col" style="font-weight:600;color:${d.profit >= 0 ? 'var(--emerald)' : 'var(--crimson)'};">${d.profit >= 0 ? '+' : ''}${Number(d.profit).toFixed(2)}</td>
+              <td><span class="tag tag-neutral">${d.reason}</span></td>
               <td>${d.comment}</td>
             </tr>
           `).join('');
@@ -1270,8 +1609,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const evBody = document.getElementById('eventsBody');
         evBody.innerHTML = (snap.events || []).map(ev => `
           <tr>
-            <td style="color:var(--muted);width:110px;">${ev.time}</td>
-            <td style="width:150px;"><span class="pill pill-wait">${ev.category}</span></td>
+            <td class="num" style="color:var(--muted);width:110px;">${ev.time}</td>
+            <td style="width:150px;"><span class="tag tag-neutral">${ev.category}</span></td>
             <td>${ev.message}</td>
           </tr>
         `).join('');
@@ -1309,7 +1648,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       });
       const data = await res.json();
       if (data.ok) {
-        showToast(editingId ? `Robô "${data.bot.name}" atualizado com sucesso!` : `Robô Matemático "${data.bot.name}" criado e RODANDO!`);
+        showToast(editingId ? `Robô "${data.bot.name}" atualizado.` : `Robô "${data.bot.name}" criado e em execução.`);
         cancelBotEdit();
         switchTab('running-bots', document.querySelectorAll('.tab-btn')[0]);
         refreshStatus();
@@ -1337,48 +1676,48 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok && data.report) {
         const r = data.report;
         document.getElementById('btResultCard').style.display = 'block';
-        document.getElementById('btFormulaUsed').textContent = `Modelo Testado: ${r.bot_template_name} | Fórmula: ${r.formula}`;
+        document.getElementById('btFormulaUsed').textContent = `Modelo avaliado: ${r.bot_template_name} | Equação: ${r.formula}`;
         const isPos = r.net_profit >= 0;
         document.getElementById('btKpiGrid').innerHTML = `
-          <div class="kpi">
-            <div class="label">LUCRO LÍQUIDO (${r.symbol})</div>
-            <div class="val" style="color:${isPos ? 'var(--green)' : 'var(--red)'};">${isPos ? '+' : ''}${r.net_profit.toFixed(2)} (${r.return_pct}%)</div>
-            <div class="sub">Saldo Final: ${r.final_equity.toFixed(2)}</div>
+          <div class="telemetry-cell">
+            <div class="telemetry-label"><span>Resultado líquido (${r.symbol})</span></div>
+            <div class="telemetry-value" style="color:${isPos ? 'var(--emerald)' : 'var(--crimson)'};">${isPos ? '+' : ''}${r.net_profit.toFixed(2)} (${r.return_pct}%)</div>
+            <div class="telemetry-sub">Patrimônio final: ${r.final_equity.toFixed(2)}</div>
           </div>
-          <div class="kpi">
-            <div class="label">TAXA DE ACERTO (WIN RATE)</div>
-            <div class="val">${r.win_rate_pct}%</div>
-            <div class="sub">${r.winning_trades} Gains / ${r.losing_trades} Losses (${r.total_trades} trades)</div>
+          <div class="telemetry-cell">
+            <div class="telemetry-label"><span>Taxa de acerto (Win Rate)</span></div>
+            <div class="telemetry-value">${r.win_rate_pct}%</div>
+            <div class="telemetry-sub">${r.winning_trades} ganhos / ${r.losing_trades} perdas (${r.total_trades} operações)</div>
           </div>
-          <div class="kpi">
-            <div class="label">PROFIT FACTOR (FATOR DE LUCRO)</div>
-            <div class="val" style="color:var(--gold);">${r.profit_factor}</div>
-            <div class="sub">Bruto: +${r.gross_profit} / -${r.gross_loss}</div>
+          <div class="telemetry-cell">
+            <div class="telemetry-label"><span>Fator de lucro (Profit Factor)</span></div>
+            <div class="telemetry-value" style="color:var(--bullion);">${r.profit_factor}</div>
+            <div class="telemetry-sub">Lucro bruto: +${r.gross_profit} / Perda bruta: -${r.gross_loss}</div>
           </div>
-          <div class="kpi">
-            <div class="label">DRAWDOWN MÁXIMO</div>
-            <div class="val" style="color:var(--red);">-${r.max_drawdown.toFixed(2)}</div>
-            <div class="sub">${r.ticks_processed} ticks processados</div>
+          <div class="telemetry-cell">
+            <div class="telemetry-label"><span>Drawdown máximo</span></div>
+            <div class="telemetry-value" style="color:var(--crimson);">-${r.max_drawdown.toFixed(2)}</div>
+            <div class="telemetry-sub">${r.ticks_processed} ticks avaliados</div>
           </div>
         `;
         const tbody = document.getElementById('btTradesBody');
         const trades = r.trades || [];
         if (trades.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);">Nenhum trade disparado com esses limiares.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma operação disparada com esses parâmetros. Reduza o Z-Score para aumentar a sensibilidade.</td></tr>';
         } else {
           tbody.innerHTML = trades.map(t => `
             <tr>
-              <td>#${t.id}</td>
-              <td><span class="pill ${t.type === 'BUY' ? 'pill-up' : 'pill-down'}">${t.type}</span></td>
-              <td><code>${t.signal}</code></td>
-              <td>${t.entry}</td>
-              <td>${t.exit}</td>
-              <td style="font-weight:700;color:${t.pnl >= 0 ? 'var(--green)' : 'var(--red)'};">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}</td>
-              <td><strong>${t.equity_after.toFixed(2)}</strong></td>
+              <td class="num">#${t.id}</td>
+              <td><span class="tag ${t.type === 'BUY' ? 'tag-up' : 'tag-down'}">${t.type}</span></td>
+              <td class="num">${t.signal}</td>
+              <td class="num-col">${t.entry}</td>
+              <td class="num-col">${t.exit}</td>
+              <td class="num-col" style="font-weight:600;color:${t.pnl >= 0 ? 'var(--emerald)' : 'var(--crimson)'};">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}</td>
+              <td class="num-col"><strong>${t.equity_after.toFixed(2)}</strong></td>
             </tr>
           `).join('');
         }
-        showToast(`Backtest concluído em ${r.symbol}: ${r.total_trades} operações simuladas!`);
+        showToast(`Backtest concluído em ${r.symbol}: ${r.total_trades} operações.`);
       }
     }
 
@@ -1390,7 +1729,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       });
       const data = await res.json();
       if (data.ok) {
-        showToast(action === 'START' ? 'Robô em execução automática!' : (action === 'STOP' ? 'Robô pausado.' : 'Robô removido.'));
+        const msgMap = {
+          'START': 'Robô iniciado.',
+          'STOP': 'Robô pausado.',
+          'DELETE': 'Robô apagado.',
+          'FIRE_BUY': 'Ordem de compra disparada.',
+          'FIRE_SELL': 'Ordem de venda disparada.'
+        };
+        showToast(msgMap[action] || 'Ação executada.');
         refreshStatus();
       }
     }
@@ -1410,7 +1756,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         document.getElementById('new_cat_symbols').value = '';
         renderCategoriesAndAccounts(data.categories, currentConfig.accounts, currentConfig.active_account_id);
         await loadBrokerSymbols();
-        showToast(`Categoria "${category_name}" salva!`);
+        showToast(`Categoria "${category_name}" salva.`);
       }
     }
 
@@ -1424,7 +1770,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok) {
         renderCategoriesAndAccounts(data.categories, currentConfig.accounts, currentConfig.active_account_id);
         await loadBrokerSymbols();
-        showToast(`Categoria "${catName}" removida.`);
+        showToast(`Categoria "${catName}" apagada.`);
       }
     }
 
@@ -1454,7 +1800,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, data.account.account_id);
         await loadBrokerServersCatalog();
         await loadBrokerSymbols();
-        showToast(`Conta [${data.account.account_type}] "${data.account.label}" salva e conectada!`);
+        showToast(`Conta "${data.account.label}" salva e conectada.`);
         refreshStatus();
       }
     }
@@ -1467,14 +1813,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({auto_trading_enabled: nextState})
       });
-      showToast(nextState ? 'Chave Geral ATIVADA!' : 'Chave Geral PAUSADA!');
+      showToast(nextState ? 'Execução automática ativada.' : 'Execução automática pausada.');
       refreshStatus();
     }
 
     async function panicFlatten() {
       const res = await fetch('/api/flatten', {method: 'POST'});
       const data = await res.json();
-      showToast(data.message || 'Ordens zeradas!');
+      showToast(data.message || 'Todas as posições foram encerradas.');
       refreshStatus();
     }
 
@@ -1485,7 +1831,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         body: JSON.stringify({ticket})
       });
       const data = await res.json();
-      showToast(data.message || `Posição #${ticket} encerrada!`);
+      showToast(data.message || `Posição #${ticket} encerrada.`);
       refreshStatus();
     }
 
