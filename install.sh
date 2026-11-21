@@ -36,14 +36,12 @@ echo "[1/6] Atualizando pacotes do Ubuntu e instalando Python 3 + Docker + depen
 apt-get update -y
 apt-get install -y python3 python3-venv python3-pip git curl ufw docker.io || apt-get install -y python3 python3-venv python3-pip git curl ufw
 
-echo "[2/6] Criando ambiente virtual Python (.venv) e instalando pacotes (incluindo ponte MetaTrader5)..."
+echo "[2/6] Criando ambiente virtual Python (.venv) e instalando pacotes (rpyc + pytest)..."
 sudo -u "${RUN_USER}" python3 -m venv "${APP_DIR}/.venv"
 "${APP_DIR}/.venv/bin/pip" install --upgrade pip
 "${APP_DIR}/.venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
-# Se o wheel MetaTrader5 estiver disponível para a plataforma, instala também diretamente
-"${APP_DIR}/.venv/bin/pip" install MetaTrader5 || true
 
-echo "[3/6] Configurando e iniciando o ambiente MetaTrader5 Python no Ubuntu (Container Wine + MetaTrader5 Python Package)..."
+echo "[3/6] Configurando e iniciando o container MetaTrader5 Python no Ubuntu (Wine + MetaTrader5 Python Package na porta 18812)..."
 if command -v docker >/dev/null 2>&1; then
     systemctl enable --now docker || true
     bash "${APP_DIR}/scripts/setup_mt5_wine_docker.sh" || echo "[AVISO] Container MT5 poderá ser iniciado depois com: sudo bash scripts/setup_mt5_wine_docker.sh"
