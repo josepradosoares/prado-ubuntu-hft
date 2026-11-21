@@ -1,4 +1,4 @@
-"""HTML templates for Prado Institutional HFT Login & Multi-Robot Command Center."""
+"""HTML templates for Prado Institutional HFT Login & Pure Mathematical Multi-Robot Command Center."""
 from __future__ import annotations
 
 LOGIN_HTML = """<!DOCTYPE html>
@@ -97,16 +97,16 @@ LOGIN_HTML = """<!DOCTYPE html>
 </head>
 <body>
   <div class="card">
-    <span class="badge">Wall Street Desk • Ubuntu MetaTrader 5</span>
+    <span class="badge">Motor 100% Matemático • Ubuntu MetaTrader 5</span>
     <h1>Prado Institutional HFT</h1>
-    <p class="sub">Central Multi-Robôs VWAP + Fluxo de Agressão (B3, Forex, Índices &amp; Cripto)</p>
+    <p class="sub">Central Quantitativa Multi-Robôs (Sem Gráficos • Execução Direta por Matemática VWAP &amp; Z-Score)</p>
     <div id="errBox" class="err"></div>
     <form id="loginForm">
       <label for="username">USUÁRIO DO PAINEL</label>
       <input id="username" name="username" type="text" value="admin" required autocomplete="username" />
       <label for="password">SENHA DE ACESSO</label>
       <input id="password" name="password" type="password" placeholder="••••••••" required autocomplete="current-password" />
-      <button type="submit">ACESSAR CENTRAL DE ROBÔS</button>
+      <button type="submit">ACESSAR CENTRAL QUANTITATIVA</button>
     </form>
     <div class="hint">Credencial padrão inicial: <strong>admin</strong> / <strong>prado2026</strong></div>
   </div>
@@ -145,7 +145,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prado Institutional HFT &amp; VWAP Universal — Ubuntu Multi-Robot Command Center</title>
+  <title>Prado Institutional HFT — Motor 100% Matemático (Ubuntu Server)</title>
   <style>
     :root {
       --bg: #070b12;
@@ -171,7 +171,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       justify-content: space-between;
       gap: 12px;
     }
-    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .brand-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 12px var(--gold); }
     .brand h1 { font-size: 18px; font-weight: 700; color: #fff; }
     .brand span { font-size: 12px; color: var(--gold); background: rgba(245,185,66,0.12); padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(245,185,66,0.3); }
@@ -193,9 +193,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .btn-danger:hover { background: var(--red); color: #fff; }
     .btn-green { background: rgba(16,185,129,0.18); color: #6ee7b7; border-color: rgba(16,185,129,0.45); }
     .btn-green:hover { background: var(--green); color: #05130d; }
+    .btn-cyan { background: rgba(34,211,238,0.16); color: #22d3ee; border-color: rgba(34,211,238,0.4); }
 
     .container { max-width: 1440px; margin: 20px auto; padding: 0 20px; display: grid; gap: 20px; }
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
     .kpi {
       background: var(--panel);
       border: 1px solid var(--border);
@@ -208,7 +209,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     .tabs { display: flex; gap: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px; flex-wrap: wrap; }
     .tab-btn {
-      padding: 10px 18px;
+      padding: 10px 16px;
       border-radius: 8px;
       border: 1px solid var(--border);
       background: var(--panel);
@@ -253,6 +254,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .pill-up { background: rgba(16,185,129,0.16); color: #34d399; border: 1px solid rgba(16,185,129,0.4); }
     .pill-down { background: rgba(239,68,68,0.16); color: #f87171; border: 1px solid rgba(239,68,68,0.4); }
     .pill-hft { background: rgba(34,211,238,0.16); color: #22d3ee; border: 1px solid rgba(34,211,238,0.4); }
+    .pill-gold { background: rgba(245,185,66,0.16); color: var(--gold); border: 1px solid rgba(245,185,66,0.4); }
     .pill-wait { background: rgba(148,163,184,0.14); color: #94a3b8; }
 
     .form-grid {
@@ -283,6 +285,25 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       color: var(--muted);
     }
     .mode-btn.active { background: var(--gold); color: #090d16; }
+    .formula-box {
+      background: #060911;
+      border: 1px solid #1e2d4a;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-family: 'Consolas', monospace;
+      font-size: 12px;
+      color: var(--cyan);
+      margin: 12px 0;
+    }
+    .quote-box {
+      background: rgba(245,185,66,0.07);
+      border-left: 3px solid var(--gold);
+      padding: 12px 16px;
+      font-size: 12px;
+      color: #cbd5e1;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
     .toast {
       position: fixed;
       bottom: 20px;
@@ -297,25 +318,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       box-shadow: 0 10px 25px rgba(0,0,0,0.5);
       z-index: 1000;
     }
-    .quote-box {
-      background: rgba(245,185,66,0.07);
-      border-left: 3px solid var(--gold);
-      padding: 12px 16px;
-      font-size: 12px;
-      color: #cbd5e1;
-      margin-bottom: 16px;
-      line-height: 1.5;
-    }
   </style>
 </head>
 <body>
   <header>
     <div class="brand">
       <div class="brand-dot"></div>
-      <h1>PRADO INSTITUTIONAL HFT &amp; VWAP UNIVERSAL</h1>
+      <h1>PRADO INSTITUTIONAL HFT • MOTOR 100% MATEMÁTICO (SEM GRÁFICOS)</h1>
       <span id="connBadge">CONECTANDO...</span>
     </div>
     <div class="top-actions">
+      <div style="display:flex;align-items:center;gap:6px;background:#080d17;padding:4px 10px;border-radius:8px;border:1px solid var(--border);">
+        <span style="font-size:11px;color:var(--muted);font-weight:700;">CONTA EM USO:</span>
+        <select id="headerAccountSelect" onchange="quickSwitchAccount(this.value)" style="background:transparent;color:var(--gold);border:none;font-weight:700;font-size:12px;outline:none;cursor:pointer;"></select>
+      </div>
       <button class="btn btn-green" id="toggleAutoBtn" onclick="toggleAutoTrading()">CHAVE GERAL: ATIVA</button>
       <button class="btn btn-danger" onclick="panicFlatten()">🚨 ZERAR TUDO AGORA</button>
       <button class="btn" onclick="logout()">SAIR</button>
@@ -325,7 +341,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <div class="container">
     <div class="kpi-grid">
       <div class="kpi">
-        <div class="label">CONTA METATRADER 5 ATIVA</div>
+        <div class="label">CONTA ATIVA (DEMO / REAL)</div>
         <div class="val" id="kpiAccount">---</div>
         <div class="sub" id="kpiServer">Servidor: ---</div>
       </div>
@@ -335,47 +351,46 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <div class="sub" id="kpiBalance">Saldo: R$ 0,00</div>
       </div>
       <div class="kpi">
-        <div class="label">ROBÔS RODANDO AGORA</div>
+        <div class="label">ROBÔS MATEMÁTICOS RODANDO</div>
         <div class="val" id="kpiBotsRunning" style="color:var(--gold);">0</div>
         <div class="sub" id="kpiRiskStatus">Status: OPERACIONAL</div>
       </div>
       <div class="kpi">
-        <div class="label">BÚSSOLA DE CORRELAÇÃO (CESTA)</div>
+        <div class="label">VETOR DE CORRELAÇÃO (CESTA)</div>
         <div class="val" id="kpiCorr">0.0%</div>
-        <div class="sub">Filtro Institucional Multi-Ativo</div>
+        <div class="sub">Cálculo Matricial Multi-Ativo</div>
       </div>
     </div>
 
     <div class="tabs">
       <button class="tab-btn active" onclick="switchTab('running-bots', this)">🤖 Robôs Rodando (<span id="tabBotCount">0</span>)</button>
-      <button class="tab-btn" onclick="switchTab('create-bot', this)">🚀 Criar &amp; Executar Novo Robô</button>
+      <button class="tab-btn" onclick="switchTab('create-bot', this)">🧮 Criar Robô Matemático (Catálogo de Bots)</button>
+      <button class="tab-btn" onclick="switchTab('backtest', this)">🧪 Backtest Matemático Tick-a-Tick</button>
       <button class="tab-btn" onclick="switchTab('categories', this)">🗂️ Categorias de Ativos da Corretora</button>
-      <button class="tab-btn" onclick="switchTab('monitor', this)">📊 Radar VWAP &amp; Fluxo Geral</button>
-      <button class="tab-btn" onclick="switchTab('mt5', this)">🔌 Contas MetaTrader 5 (Python)</button>
-      <button class="tab-btn" onclick="switchTab('strategy', this)">🏛️ Regras Globais do Broker (.txt)</button>
+      <button class="tab-btn" onclick="switchTab('mt5', this)">🔌 Contas DEMO &amp; REAL (MetaTrader 5)</button>
+      <button class="tab-btn" onclick="switchTab('monitor', this)">📐 Matriz Matemática VWAP &amp; Z-Score</button>
     </div>
 
     <!-- ABA 1: ROBÔS RODANDO -->
     <div id="tab-running-bots" class="tab-content active">
       <div class="card">
         <h2>
-          <span>🤖 FROTA DE ROBÔS EM EXECUÇÃO AUTOMÁTICA (PYTHON + METATRADER 5)</span>
-          <button class="btn btn-gold" onclick="switchTab('create-bot', document.querySelectorAll('.tab-btn')[1])">+ NOVO ROBÔ</button>
+          <span>🤖 FROTA DE ROBÔS MATEMÁTICOS EM EXECUÇÃO (SEM CARREGAR GRÁFICOS • EXECUÇÃO PURA VIA PYTHON MT5)</span>
+          <button class="btn btn-gold" onclick="switchTab('create-bot', document.querySelectorAll('.tab-btn')[1])">+ ESCOLHER &amp; CRIAR NOVO ROBÔ</button>
         </h2>
         <table>
           <thead>
             <tr>
-              <th>Nome do Robô</th>
-              <th>Conta MT5</th>
-              <th>Ativo / Categoria</th>
-              <th>Modo (.txt)</th>
+              <th>Robô / Algoritmo Matemático</th>
+              <th>Ambiente / Conta</th>
+              <th>Ativo</th>
               <th>Lote</th>
-              <th>Preço / VWAP</th>
+              <th>Preço / VWAP (&Sigma;PV/&Sigma;V)</th>
               <th>Z-Score / Imbalance</th>
-              <th>Regime Atual</th>
-              <th>Sinal</th>
+              <th>Estado Matemático</th>
+              <th>Decisão</th>
               <th>Status</th>
-              <th>Ações</th>
+              <th>Controle</th>
             </tr>
           </thead>
           <tbody id="runningBotsBody"></tbody>
@@ -383,7 +398,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
 
       <div class="card">
-        <h2>POSIÇÕES ABERTAS NO METATRADER 5</h2>
+        <h2>ORDENS &amp; POSIÇÕES ABERTAS NO METATRADER 5</h2>
         <table>
           <thead>
             <tr>
@@ -393,10 +408,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <th>Lote</th>
               <th>Preço Entrada</th>
               <th>Preço Atual</th>
-              <th>Stop Loss</th>
-              <th>Take Profit</th>
+              <th>Stop Loss (&sigma;)</th>
+              <th>Take Profit (&sigma;)</th>
               <th>Lucro / Prejuízo</th>
-              <th>Robô / Origem</th>
+              <th>Robô</th>
             </tr>
           </thead>
           <tbody id="positionsBody"></tbody>
@@ -404,29 +419,33 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- ABA 2: CRIAR & EXECUTAR ROBÔ -->
+    <!-- ABA 2: CRIAR & EXECUTAR ROBÔ MATEMÁTICO -->
     <div id="tab-create-bot" class="tab-content">
       <div class="card">
         <h2>
-          <span>🚀 LANÇAR NOVO ROBÔ HFT / VWAP NA CONTA METATRADER 5</span>
+          <span>🧮 CATÁLOGO DE ROBÔS 100% MATEMÁTICOS (ZERO GRÁFICOS • PURA ESTATÍSTICA &amp; FLUXO)</span>
           <div class="mode-switch">
             <button type="button" id="btnModeMain" class="mode-btn active" onclick="setSymbolMode('PRINCIPAIS')">⭐ Ativos Principais</button>
             <button type="button" id="btnModeAll" class="mode-btn" onclick="setSymbolMode('TODOS')">🌐 Todos os Ativos da Corretora</button>
           </div>
         </h2>
         <div class="quote-box">
-          Selecione a <strong>Conta MetaTrader 5</strong>, filtre os ativos por <strong>Principais</strong>, <strong>Todos da Corretora</strong> ou por uma <strong>Categoria Personalizada</strong>, calibre o operacional e clique em <strong>▶ CRIAR E EXECUTAR ROBÔ AUTOMATICAMENTE</strong>.
+          Nenhum gráfico pesado é carregado: os robôs operam diretamente sobre arrays numéricos de ticks da biblioteca <code>MetaTrader5</code> em Python. Escolha abaixo o <strong>Modelo Matemático do Bot</strong>, a <strong>Conta (DEMO ou REAL)</strong> e o <strong>Ativo</strong>, e clique em <strong>▶ EXECUTAR ROBÔ AUTOMATICAMENTE</strong>.
         </div>
+
         <form id="createBotForm" onsubmit="createAndRunBot(event)">
           <div class="form-grid">
-            <div class="field">
-              <label>Nome Identificador do Robô</label>
-              <input type="text" id="bot_name" placeholder="Ex: Robô Mini Índice Institucional" required />
+            <div class="field" style="grid-column: span 2;">
+              <label>Escolher Modelo Matemático do Robô (Todos os Bots Disponíveis)</label>
+              <select id="bot_template_id" onchange="onBotTemplateChange()"></select>
             </div>
             <div class="field">
-              <label>Selecionar Conta MetaTrader 5</label>
+              <label>Nome Personalizado do Robô</label>
+              <input type="text" id="bot_name" placeholder="Ex: Bot WIN Institucional #1" required />
+            </div>
+            <div class="field">
+              <label>Escolher Conta MetaTrader 5 (DEMO ou REAL)</label>
               <select id="bot_account_id"></select>
-              <small>Cadastre novas contas na aba "Contas MetaTrader 5".</small>
             </div>
             <div class="field">
               <label>Filtrar por Categoria da Corretora</label>
@@ -437,39 +456,41 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <div class="field">
               <label>Selecionar Ativo da Corretora (<span id="symModeLabel">PRINCIPAIS</span>)</label>
               <select id="bot_symbol"></select>
-              <small id="symCountHint">Carregando ativos da corretora...</small>
+              <small id="symCountHint">Carregando ativos...</small>
             </div>
             <div class="field">
-              <label>Modo Operacional (Regras do Broker .txt)</label>
-              <select id="bot_operation_mode">
-                <option value="BOTH">AMBOS (Fala 1: Trem Institucional + Fala 2: Giro HFT na Média)</option>
-                <option value="TREND_ONLY">FALA 1: SOMENTE TREM INSTITUCIONAL (Fluxo VWAP)</option>
-                <option value="REVERT_ONLY">FALA 2: SOMENTE GIRO HFT NA MÉDIA (Bandas &plusmn;2&sigma;)</option>
-              </select>
-            </div>
-            <div class="field">
-              <label>Volume / Lote da Ordem</label>
+              <label>Volume / Lote por Operação</label>
               <input type="number" step="0.01" id="bot_lot_size" value="1.0" required />
             </div>
             <div class="field">
-              <label>Limiar Z-Score de Agressão (Trem Institucional)</label>
+              <label>Janela de Amostragem (w Ticks)</label>
+              <input type="number" id="bot_window_ticks" value="120" required />
+            </div>
+            <div class="field">
+              <label>Limiar Estatístico Z-Score (|Z|)</label>
               <input type="number" step="0.1" id="bot_zscore" value="1.8" required />
             </div>
             <div class="field">
-              <label>Desequilíbrio Mínimo (Imbalance 0.1 a 0.9)</label>
+              <label>Coeficiente de Desequilíbrio (Imbalance)</label>
               <input type="number" step="0.05" id="bot_imbalance" value="0.35" required />
             </div>
             <div class="field">
-              <label>Banda de Desvio Padrão p/ Giro HFT (&sigma;)</label>
+              <label>Desvio Padrão de Reversão (&plusmn;k&middot;&sigma;)</label>
               <input type="number" step="0.1" id="bot_revert_sigma" value="2.0" required />
             </div>
             <div class="field">
-              <label>Cesta de Correlação Bússola (separada por vírgula)</label>
+              <label>Vetor Cesta de Correlação (Ativos)</label>
               <input type="text" id="bot_corr_basket" value="PETR4, VALE3" />
             </div>
           </div>
-          <div style="margin-top: 20px; display:flex; gap:12px;">
-            <button type="submit" class="btn btn-gold" style="font-size:14px;padding:12px 22px;">
+
+          <div class="formula-box" id="botFormulaDisplay">
+            Fórmula Matemática: VWAP = Σ(Pᵢ·Vᵢ)/ΣVᵢ | Z = (μ_w - μ)/(σ/√(w/4))
+          </div>
+          <p id="botDescDisplay" style="font-size:12px;color:var(--muted);margin-bottom:16px;"></p>
+
+          <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <button type="submit" class="btn btn-gold" style="font-size:14px;padding:12px 24px;">
               ▶ CRIAR E EXECUTAR ROBÔ AUTOMATICAMENTE
             </button>
           </div>
@@ -477,32 +498,99 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- ABA 3: CATEGORIAS DE ATIVOS DA CORRETORA -->
+    <!-- ABA 3: BACKTEST MATEMÁTICO -->
+    <div id="tab-backtest" class="tab-content">
+      <div class="card">
+        <h2>🧪 SIMULADOR &amp; BACKTESTER MATEMÁTICO TICK-A-TICK (ALTA VELOCIDADE • SEM GRÁFICOS)</h2>
+        <div class="quote-box">
+          Teste qualquer um dos algoritmos matemáticos sobre a série de ticks do ativo antes de colocá-lo para rodar na Conta Demo ou Conta Real. O motor calcula lucro líquido, taxa de acerto (Win Rate), Fator de Lucro (Profit Factor) e Drawdown Máximo puramente via código.
+        </div>
+        <form onsubmit="runMathBacktest(event)">
+          <div class="form-grid">
+            <div class="field">
+              <label>Algoritmo Matemático do Robô</label>
+              <select id="bt_template_id"></select>
+            </div>
+            <div class="field">
+              <label>Ativo para Backtest</label>
+              <select id="bt_symbol"></select>
+            </div>
+            <div class="field">
+              <label>Amostra de Ticks (Histórico)</label>
+              <input type="number" id="bt_ticks" value="1200" min="200" max="5000" required />
+            </div>
+            <div class="field">
+              <label>Capital Inicial Simulado (R$ / USD)</label>
+              <input type="number" id="bt_capital" value="50000" required />
+            </div>
+            <div class="field">
+              <label>Lote Simulado</label>
+              <input type="number" step="0.01" id="bt_lots" value="2.0" required />
+            </div>
+            <div class="field">
+              <label>Limiar Z-Score</label>
+              <input type="number" step="0.1" id="bt_zscore" value="1.5" required />
+            </div>
+            <div class="field">
+              <label>Imbalance Mínimo</label>
+              <input type="number" step="0.05" id="bt_imbalance" value="0.25" required />
+            </div>
+            <div class="field">
+              <label>Desvio Padrão Reversão (&sigma;)</label>
+              <input type="number" step="0.1" id="bt_sigma" value="1.8" required />
+            </div>
+          </div>
+          <div style="margin-top:18px;">
+            <button type="submit" class="btn btn-gold" style="padding:11px 22px;font-size:13px;">⚡ EXECUTAR BACKTEST MATEMÁTICO AGORA</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card" id="btResultCard" style="display:none;">
+        <h2>📈 RESULTADO ESTATÍSTICO DO BACKTEST</h2>
+        <div class="kpi-grid" id="btKpiGrid" style="margin-bottom:16px;"></div>
+        <div class="formula-box" id="btFormulaUsed"></div>
+        <h3 style="font-size:13px;color:var(--gold);margin:14px 0 8px;">ÚLTIMAS OPERAÇÕES MATEMÁTICAS DO BACKTEST</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Tipo</th>
+              <th>Gatilho Matemático</th>
+              <th>Preço Entrada</th>
+              <th>Preço Saída</th>
+              <th>Resultado Financeiro</th>
+              <th>Saldo Acumulado</th>
+            </tr>
+          </thead>
+          <tbody id="btTradesBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ABA 4: CATEGORIAS DE ATIVOS DA CORRETORA -->
     <div id="tab-categories" class="tab-content">
       <div class="card">
-        <h2>🗂️ CRIAR / EDITAR CATEGORIA PERSONALIZADA DE ATIVOS DA CORRETORA</h2>
-        <div class="quote-box">
-          Agrupe os ativos da sua corretora por setor ou estratégia (ex.: <em>"Futuros B3 Liquidez Alta"</em>, <em>"Cesta Gringa NY"</em>, <em>"Cripto Scalping"</em>) para selecionar rapidamente na criação dos robôs.
-        </div>
+        <h2>🗂️ CRIAR / EDITAR CATEGORIA DE ATIVOS DA CORRETORA</h2>
         <form onsubmit="saveCustomCategory(event)">
           <div class="form-grid">
             <div class="field">
-              <label>Nome da Categoria da Corretora</label>
-              <input type="text" id="new_cat_name" placeholder="Ex: Minha Carteira B3 Institucional" required />
+              <label>Nome da Categoria</label>
+              <input type="text" id="new_cat_name" placeholder="Ex: Futuros B3 Liquidez Institucional" required />
             </div>
             <div class="field">
-              <label>Ativos da Categoria (separados por vírgula)</label>
-              <input type="text" id="new_cat_symbols" placeholder="Ex: WIN$N, WDO$N, PETR4, VALE3, ITUB4" required />
+              <label>Códigos dos Ativos (separados por vírgula)</label>
+              <input type="text" id="new_cat_symbols" placeholder="Ex: WIN$N, WDO$N, IND$N, DOL$N" required />
             </div>
           </div>
           <div style="margin-top:14px;">
-            <button type="submit" class="btn btn-gold">💾 SALVAR CATEGORIA DE ATIVOS</button>
+            <button type="submit" class="btn btn-gold">💾 SALVAR CATEGORIA</button>
           </div>
         </form>
       </div>
 
       <div class="card">
-        <h2>CATEGORIAS CADASTRADAS NO SISTEMA</h2>
+        <h2>CATEGORIAS DISPONÍVEIS PARA OS ROBÔS</h2>
         <table>
           <thead>
             <tr>
@@ -516,26 +604,83 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- ABA 4: RADAR VWAP & FLUXO GERAL -->
+    <!-- ABA 5: CONTAS DEMO & REAL METATRADER 5 -->
+    <div id="tab-mt5" class="tab-content">
+      <div class="card">
+        <h2>🔌 GERENCIADOR DE CONTAS DEMO &amp; REAL METATRADER 5 (CONEXÃO PYTHON)</h2>
+        <div class="quote-box">
+          Cadastre tanto a sua <strong>Conta DEMO (Treinamento / Validação)</strong> quanto a sua <strong>Conta REAL (Produção)</strong> da corretora. Você pode alternar com 1 clique qual conta está ativa no topo do painel ou escolher a conta individualmente para cada robô criado.
+        </div>
+        <form id="mt5Form" onsubmit="saveMt5Account(event)">
+          <div class="form-grid">
+            <div class="field">
+              <label>Tipo da Conta (DEMO ou REAL)</label>
+              <select id="acc_type">
+                <option value="DEMO">🧪 CONTA DEMO (Simulação / Homologação na Corretora)</option>
+                <option value="REAL">💰 CONTA REAL (Produção / Dinheiro Real na Corretora)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Apelido de Identificação</label>
+              <input type="text" id="acc_label" placeholder="Ex: XP Conta Demo HFT ou XP Conta Real" required />
+            </div>
+            <div class="field">
+              <label>Login da Conta MT5 (Número)</label>
+              <input type="text" id="mt5_login" placeholder="Ex: 10293847" required />
+            </div>
+            <div class="field">
+              <label>Senha da Conta MT5</label>
+              <input type="password" id="mt5_password" placeholder="Senha da conta no MT5" required />
+            </div>
+            <div class="field">
+              <label>Servidor da Corretora no MT5</label>
+              <input type="text" id="mt5_server" placeholder="Ex: XPInvestimentos-DEMO ou XPInvestimentos-PRD" required />
+            </div>
+          </div>
+          <div style="margin-top: 18px;">
+            <button type="submit" class="btn btn-gold">💾 SALVAR CONTA (DEMO / REAL) &amp; CONECTAR</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>CONTAS CADASTRADAS — ESCOLHA QUAL USAR</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Ambiente</th>
+              <th>Nome da Conta</th>
+              <th>Login MT5</th>
+              <th>Servidor da Corretora</th>
+              <th>Status</th>
+              <th>Escolher Conta</th>
+            </tr>
+          </thead>
+          <tbody id="accountsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ABA 6: MATRIZ MATEMÁTICA VWAP & Z-SCORE -->
     <div id="tab-monitor" class="tab-content">
       <div class="card">
         <h2>
-          <span>📊 RADAR QUANTITATIVO EM TEMPO REAL — VWAP, DESVIO PADRÃO (&plusmn;1&sigma; / &plusmn;2&sigma;) &amp; Z-SCORE</span>
+          <span>📐 MATRIZ MATEMÁTICA PURA EM TEMPO REAL — VWAP, DESVIO PADRÃO (&plusmn;1&sigma; / &plusmn;2&sigma;) &amp; Z-SCORE</span>
           <span id="lastUpdate" style="font-size:12px;color:var(--muted);font-weight:400;"></span>
         </h2>
         <table>
           <thead>
             <tr>
               <th>Ativo</th>
-              <th>Preço Atual</th>
-              <th>VWAP Intraday</th>
-              <th>Banda -2&sigma;</th>
-              <th>Banda +2&sigma;</th>
-              <th>Distância (&sigma;)</th>
-              <th>Imbalance (Delta)</th>
-              <th>Z-Score Agressão</th>
-              <th>Regime Institucional</th>
-              <th>Sinal / Ação</th>
+              <th>Preço (P)</th>
+              <th>VWAP (&Sigma;PV/&Sigma;V)</th>
+              <th>-2&sigma;</th>
+              <th>+2&sigma;</th>
+              <th>Desvio (&sigma;)</th>
+              <th>Imbalance</th>
+              <th>Z-Score</th>
+              <th>Estado Matemático</th>
+              <th>Vetor de Ação</th>
             </tr>
           </thead>
           <tbody id="symbolsBody"></tbody>
@@ -543,7 +688,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
 
       <div class="card">
-        <h2>LOG DE EXECUÇÃO &amp; GUARDA-COSTAS HFT</h2>
+        <h2>LOG DO MOTOR MATEMÁTICO &amp; GUARDA-COSTAS DE RISCO</h2>
         <table>
           <thead>
             <tr>
@@ -556,95 +701,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </table>
       </div>
     </div>
-
-    <!-- ABA 5: CONTAS METATRADER 5 -->
-    <div id="tab-mt5" class="tab-content">
-      <div class="card">
-        <h2>🔌 CADASTRAR &amp; CONECTAR CONTA METATRADER 5 (BIBLIOTECA PYTHON METATRADER5)</h2>
-        <div class="quote-box">
-          Ao executar o <code>install.sh</code> no Ubuntu, a biblioteca oficial <code>MetaTrader5</code> + ponte Wine/Python são instaladas e configuradas automaticamente. Cadastre abaixo uma ou mais contas MT5 para usar nos seus robôs.
-        </div>
-        <form id="mt5Form" onsubmit="saveMt5Account(event)">
-          <div class="form-grid">
-            <div class="field">
-              <label>Nome / Apelido da Conta</label>
-              <input type="text" id="acc_label" placeholder="Ex: Conta XP B3 Principal" required />
-            </div>
-            <div class="field">
-              <label>Login da Conta MT5 (Número)</label>
-              <input type="text" id="mt5_login" placeholder="Ex: 10293847" required />
-            </div>
-            <div class="field">
-              <label>Senha da Conta MT5</label>
-              <input type="password" id="mt5_password" placeholder="Senha da conta na corretora" required />
-            </div>
-            <div class="field">
-              <label>Servidor da Corretora no MT5</label>
-              <input type="text" id="mt5_server" placeholder="Ex: XPInvestimentos-PRD ou MetaQuotes-Demo" required />
-            </div>
-            <div class="field">
-              <label>Modo de Conexão Python</label>
-              <select id="mt5_connection_mode">
-                <option value="AUTO_MT5_WINE">Biblioteca Oficial MetaTrader5 (Nativo / Ubuntu Wine Python)</option>
-                <option value="SIMULATION">Simulação Quantitativa (Teste sem corretora)</option>
-              </select>
-            </div>
-          </div>
-          <div style="margin-top: 18px;">
-            <button type="submit" class="btn btn-gold">💾 SALVAR &amp; CONECTAR CONTA METATRADER 5</button>
-          </div>
-        </form>
-      </div>
-
-      <div class="card">
-        <h2>CONTAS METATRADER 5 SALVAS</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Identificação</th>
-              <th>Login MT5</th>
-              <th>Servidor da Corretora</th>
-            </tr>
-          </thead>
-          <tbody id="accountsBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- ABA 6: REGRAS GLOBAIS DO BROKER (.TXT) -->
-    <div id="tab-strategy" class="tab-content">
-      <div class="card">
-        <h2>🏛️ PARÂMETROS GLOBAIS DE RISCO &amp; HORÁRIO ("HFT SEMPRE DORME ZERADO")</h2>
-        <form id="strategyForm" onsubmit="saveStrategyConfig(event)">
-          <div class="form-grid">
-            <div class="field">
-              <label>Limite Global de Perda Diária (Moeda da Conta)</label>
-              <input type="number" step="10" id="max_daily_loss_money" />
-            </div>
-            <div class="field">
-              <label>Meta Global de Lucro Diário (Moeda da Conta)</label>
-              <input type="number" step="10" id="daily_target_money" />
-            </div>
-            <div class="field">
-              <label>Horário de Zeração Obrigatória ("HFT Dorme Zerado")</label>
-              <input type="text" id="eod_flatten_time" placeholder="17:35" />
-            </div>
-            <div class="field">
-              <label>Bloqueio de Correlação Contrária (0.1 a 0.9)</label>
-              <input type="number" step="0.05" id="correlation_block_threshold" />
-            </div>
-            <div class="field">
-              <label>Nova Senha de Login Web (opcional)</label>
-              <input type="password" id="new_admin_password" placeholder="Deixe em branco para manter a atual" />
-            </div>
-          </div>
-          <div style="margin-top: 18px;">
-            <button type="submit" class="btn btn-gold">💾 SALVAR REGRAS GLOBAIS</button>
-          </div>
-        </form>
-      </div>
-    </div>
   </div>
 
   <div id="toast" class="toast">Salvo!</div>
@@ -652,12 +708,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <script>
     let currentConfig = {};
     let currentSymbolMode = 'PRINCIPAIS';
+    let botTemplates = [];
 
     function showToast(msg) {
       const t = document.getElementById('toast');
       t.textContent = msg;
       t.style.display = 'block';
-      setTimeout(() => { t.style.display = 'none'; }, 3200);
+      setTimeout(() => { t.style.display = 'none'; }, 3400);
     }
 
     function switchTab(name, btn) {
@@ -668,16 +725,41 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     function regimePill(regime) {
-      if (regime === 'INSTITUTIONAL_TREND_UP') return '<span class="pill pill-up">TREM INSTITUCIONAL ALTA</span>';
-      if (regime === 'INSTITUTIONAL_TREND_DOWN') return '<span class="pill pill-down">TREM INSTITUCIONAL BAIXA</span>';
-      if (regime === 'HFT_MEAN_REVERSION') return '<span class="pill pill-hft">GIRO HFT NA MÉDIA (&plusmn;2&sigma;)</span>';
-      return '<span class="pill pill-wait">NEUTRO / AGUARDANDO</span>';
+      if (regime === 'INSTITUTIONAL_TREND_UP') return '<span class="pill pill-up">TREM VWAP (+Z)</span>';
+      if (regime === 'INSTITUTIONAL_TREND_DOWN') return '<span class="pill pill-down">TREM VWAP (-Z)</span>';
+      if (regime === 'HFT_MEAN_REVERSION') return '<span class="pill pill-hft">REVERSÃO HFT (&plusmn;2&sigma;)</span>';
+      return '<span class="pill pill-wait">EQUILÍBRIO (0)</span>';
     }
 
     function actionPill(action) {
       if ((action || '').startsWith('BUY')) return `<span class="pill pill-up">${action}</span>`;
       if ((action || '').startsWith('SELL')) return `<span class="pill pill-down">${action}</span>`;
       return `<span class="pill pill-wait">${action || 'WAIT'}</span>`;
+    }
+
+    async function loadBotTemplates() {
+      const res = await fetch('/api/bot-templates');
+      if (!res.ok) return;
+      const data = await res.json();
+      botTemplates = data.templates || [];
+      const selCreate = document.getElementById('bot_template_id');
+      const selBt = document.getElementById('bt_template_id');
+      const opts = botTemplates.map(t => `<option value="${t.template_id}">${t.name}</option>`).join('');
+      selCreate.innerHTML = opts;
+      selBt.innerHTML = opts;
+      onBotTemplateChange();
+    }
+
+    function onBotTemplateChange() {
+      const id = document.getElementById('bot_template_id').value;
+      const tpl = botTemplates.find(t => t.template_id === id) || botTemplates[0];
+      if (!tpl) return;
+      document.getElementById('bot_window_ticks').value = tpl.window_ticks;
+      document.getElementById('bot_zscore').value = tpl.zscore_threshold;
+      document.getElementById('bot_imbalance').value = tpl.imbalance_threshold;
+      document.getElementById('bot_revert_sigma').value = tpl.revert_sigma;
+      document.getElementById('botFormulaDisplay').textContent = `Fórmula Matemática: ${tpl.formula}`;
+      document.getElementById('botDescDisplay').textContent = tpl.description;
     }
 
     async function setSymbolMode(mode) {
@@ -694,14 +776,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const res = await fetch(url);
       if (!res.ok) return;
       const data = await res.json();
-      const sel = document.getElementById('bot_symbol');
       const syms = data.symbols || [];
-      sel.innerHTML = syms.map(s => `<option value="${s.name}">${s.name} — ${s.description || s.category}</option>`).join('');
-      document.getElementById('symCountHint').textContent = `${syms.length} ativo(s) carregado(s) no modo ${currentSymbolMode}.`;
+      const htmlOpts = syms.map(s => `<option value="${s.name}">${s.name} — ${s.description || s.category}</option>`).join('');
+      document.getElementById('bot_symbol').innerHTML = htmlOpts;
+      const btSym = document.getElementById('bt_symbol');
+      if (!btSym.innerHTML) btSym.innerHTML = htmlOpts;
+      document.getElementById('symCountHint').textContent = `${syms.length} ativo(s) disponível(is) no modo ${currentSymbolMode}.`;
     }
 
-    function renderCategoriesAndAccounts(categories, accounts) {
-      // Categories dropdown & table
+    function renderCategoriesAndAccounts(categories, accounts, activeAccountId) {
       const catSel = document.getElementById('bot_category_filter');
       const prevCat = catSel.value;
       const catNames = Object.keys(categories || {});
@@ -720,29 +803,62 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </tr>
       `).join('');
 
-      // Accounts dropdown & table
       const accSel = document.getElementById('bot_account_id');
-      const prevAcc = accSel.value;
+      const hdrSel = document.getElementById('headerAccountSelect');
       const list = accounts || [];
       if (list.length === 0) {
-        accSel.innerHTML = '<option value="default">Conta Principal MT5</option>';
+        const defOpt = '<option value="default">[DEMO] Conta Padrão Simulador</option>';
+        accSel.innerHTML = defOpt;
+        hdrSel.innerHTML = defOpt;
       } else {
-        accSel.innerHTML = list.map(a => `<option value="${a.account_id}">${a.label} (${a.mt5_login} @ ${a.mt5_server})</option>`).join('');
-        if (list.some(a => a.account_id === prevAcc)) accSel.value = prevAcc;
+        const opts = list.map(a => {
+          const badge = a.account_type === 'REAL' ? '💰 REAL' : '🧪 DEMO';
+          const selected = a.account_id === activeAccountId ? 'selected' : '';
+          return `<option value="${a.account_id}" ${selected}>[${badge}] ${a.label} (${a.mt5_login})</option>`;
+        }).join('');
+        accSel.innerHTML = opts;
+        hdrSel.innerHTML = opts;
       }
 
       const accBody = document.getElementById('accountsBody');
       if (list.length === 0) {
-        accBody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);text-align:center;">Nenhuma conta extra cadastrada ainda.</td></tr>';
+        accBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;">Nenhuma conta DEMO ou REAL cadastrada ainda. Cadastre no formulário acima!</td></tr>';
       } else {
-        accBody.innerHTML = list.map(a => `
-          <tr>
-            <td><code>${a.account_id}</code></td>
-            <td><strong>${a.label}</strong></td>
-            <td>${a.mt5_login}</td>
-            <td>${a.mt5_server}</td>
-          </tr>
-        `).join('');
+        accBody.innerHTML = list.map(a => {
+          const isReal = a.account_type === 'REAL';
+          const isActive = a.account_id === activeAccountId;
+          return `
+            <tr>
+              <td><span class="pill ${isReal ? 'pill-gold' : 'pill-hft'}">${isReal ? '💰 CONTA REAL' : '🧪 CONTA DEMO'}</span></td>
+              <td><strong>${a.label}</strong></td>
+              <td><code>${a.mt5_login}</code></td>
+              <td>${a.mt5_server}</td>
+              <td>${isActive ? '<span class="pill pill-up">● EM USO AGORA</span>' : '<span class="pill pill-wait">DISPONÍVEL</span>'}</td>
+              <td>
+                ${isActive
+                  ? '<button class="btn" disabled>Conectada</button>'
+                  : `<button class="btn btn-gold" onclick="quickSwitchAccount('${a.account_id}')">Usar Esta Conta</button>`
+                }
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+    async function quickSwitchAccount(accountId) {
+      if (!accountId || accountId === 'default') return;
+      const res = await fetch('/api/accounts/select', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({account_id: accountId})
+      });
+      const data = await res.json();
+      if (data.ok) {
+        currentConfig.active_account_id = accountId;
+        renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, accountId);
+        showToast(`Conta ativa alterada para [${data.active_account.account_type}] ${data.active_account.label}!`);
+        refreshStatus();
       }
     }
 
@@ -751,15 +867,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (res.status === 401) { window.location.href = '/login'; return; }
       const data = await res.json();
       currentConfig = data.config || {};
-      document.getElementById('mt5_connection_mode').value = currentConfig.mt5_connection_mode || 'AUTO_MT5_WINE';
-      document.getElementById('mt5_login').value = currentConfig.mt5_login || '';
-      document.getElementById('mt5_server').value = currentConfig.mt5_server || '';
-      document.getElementById('correlation_block_threshold').value = currentConfig.correlation_block_threshold || 0.40;
-      document.getElementById('max_daily_loss_money').value = currentConfig.max_daily_loss_money || 500;
-      document.getElementById('daily_target_money').value = currentConfig.daily_target_money || 1000;
-      document.getElementById('eod_flatten_time').value = currentConfig.eod_flatten_time || '17:35';
-
-      renderCategoriesAndAccounts(currentConfig.custom_categories, currentConfig.accounts);
+      await loadBotTemplates();
+      renderCategoriesAndAccounts(
+        currentConfig.custom_categories,
+        currentConfig.accounts,
+        currentConfig.active_account_id
+      );
       await loadBrokerSymbols();
     }
 
@@ -769,8 +882,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (res.status === 401) { window.location.href = '/login'; return; }
         const snap = await res.json();
         const acc = snap.account || {};
-        document.getElementById('connBadge').textContent = `${acc.backend || 'ONLINE'} • ${acc.login || ''}`;
-        document.getElementById('kpiAccount').textContent = `${acc.login || '---'}`;
+        const accType = acc.account_type || 'DEMO';
+        document.getElementById('connBadge').textContent = `[${accType}] ${acc.backend || 'ONLINE'} • ${acc.login || ''}`;
+        document.getElementById('kpiAccount').innerHTML = `<span class="pill ${accType === 'REAL' ? 'pill-gold' : 'pill-hft'}">${accType}</span> ${acc.login || '---'}`;
         document.getElementById('kpiServer').textContent = `Servidor: ${acc.server || '---'}`;
         document.getElementById('kpiEquity').textContent = `${acc.currency || 'R$'} ${(acc.equity || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
         document.getElementById('kpiBalance').textContent = `Saldo: ${(acc.balance || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
@@ -795,21 +909,24 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           autoBtn.className = 'btn btn-danger';
         }
 
-        // Render Running Bots Table
         const botsBody = document.getElementById('runningBotsBody');
         if (bots.length === 0) {
-          botsBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:22px;">Nenhum robô criado ainda. Clique em <strong>"🚀 Criar &amp; Executar Novo Robô"</strong> para lançar seu primeiro robô automático!</td></tr>';
+          botsBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:22px;">Nenhum robô matemático em execução. Clique na aba <strong>"🧮 Criar Robô Matemático"</strong> para escolher um algoritmo e iniciar!</td></tr>';
         } else {
           botsBody.innerHTML = bots.map(b => {
             const isRun = b.status === 'RUNNING';
+            const bType = b.account_type || 'DEMO';
             return `
               <tr>
-                <td><strong>${b.name}</strong><br/><small style="color:var(--muted)">Ordens: ${b.trades_executed || 0}</small></td>
-                <td>${b.account_label || b.account_id}</td>
+                <td>
+                  <strong>${b.name}</strong><br/>
+                  <small style="color:var(--cyan);font-family:monospace;">${b.bot_template_name || b.operation_mode}</small><br/>
+                  <small style="color:var(--muted)">Trades executados: ${b.trades_executed || 0}</small>
+                </td>
+                <td><span class="pill ${bType === 'REAL' ? 'pill-gold' : 'pill-hft'}">${bType}</span><br/><small>${b.account_label || ''}</small></td>
                 <td><strong>${b.symbol}</strong><br/><small style="color:var(--muted)">${b.category || ''}</small></td>
-                <td><span class="pill pill-wait">${b.operation_mode}</span></td>
                 <td>${b.lot_size}</td>
-                <td><strong>${b.last_price || '---'}</strong><br/><small style="color:var(--gold)">VWAP: ${b.vwap || '---'}</small></td>
+                <td>P: <strong>${b.last_price || '---'}</strong><br/><small style="color:var(--gold)">VWAP: ${b.vwap || '---'}</small></td>
                 <td>Z: <strong>${Number(b.aggression_zscore || 0).toFixed(2)}</strong><br/>Imb: ${(Number(b.imbalance_ratio || 0) * 100).toFixed(1)}%</td>
                 <td>${regimePill(b.last_regime)}</td>
                 <td>${actionPill(b.last_signal)}</td>
@@ -830,13 +947,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           }).join('');
         }
 
-        document.getElementById('lastUpdate').textContent = `Atualizado: ${snap.timestamp || ''}`;
+        document.getElementById('lastUpdate').textContent = `Ciclo: ${snap.timestamp || ''}`;
 
         const symBody = document.getElementById('symbolsBody');
         const syms = Object.values(snap.symbols || {});
         symBody.innerHTML = syms.map(s => `
           <tr>
-            <td><strong>${s.symbol}</strong> <small style="color:var(--muted)">${s.is_real_volume ? 'B3 RealVol' : 'TickVol'}</small></td>
+            <td><strong>${s.symbol}</strong></td>
             <td><strong>${s.last_price}</strong></td>
             <td style="color:var(--gold);font-weight:700;">${s.vwap}</td>
             <td style="color:var(--green);">${s.lower_2}</td>
@@ -876,7 +993,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         evBody.innerHTML = (snap.events || []).map(ev => `
           <tr>
             <td style="color:var(--muted);width:110px;">${ev.time}</td>
-            <td style="width:140px;"><span class="pill pill-wait">${ev.category}</span></td>
+            <td style="width:150px;"><span class="pill pill-wait">${ev.category}</span></td>
             <td>${ev.message}</td>
           </tr>
         `).join('');
@@ -889,12 +1006,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       e.preventDefault();
       const catSel = document.getElementById('bot_category_filter');
       const payload = {
+        bot_template_id: document.getElementById('bot_template_id').value,
         name: document.getElementById('bot_name').value.trim(),
         account_id: document.getElementById('bot_account_id').value,
         symbol: document.getElementById('bot_symbol').value,
         category: catSel.value || 'Corretora MT5',
-        operation_mode: document.getElementById('bot_operation_mode').value,
         lot_size: Number(document.getElementById('bot_lot_size').value || 1.0),
+        window_ticks: Number(document.getElementById('bot_window_ticks').value || 120),
         zscore_threshold: Number(document.getElementById('bot_zscore').value || 1.8),
         imbalance_threshold: Number(document.getElementById('bot_imbalance').value || 0.35),
         revert_sigma: Number(document.getElementById('bot_revert_sigma').value || 2.0),
@@ -908,10 +1026,76 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       });
       const data = await res.json();
       if (data.ok) {
-        showToast(`Robô "${data.bot.name}" criado e EXECUTANDO automaticamente!`);
+        showToast(`Robô Matemático "${data.bot.name}" criado e RODANDO automaticamente!`);
         document.getElementById('bot_name').value = '';
         switchTab('running-bots', document.querySelectorAll('.tab-btn')[0]);
         refreshStatus();
+      }
+    }
+
+    async function runMathBacktest(e) {
+      e.preventDefault();
+      const payload = {
+        bot_template_id: document.getElementById('bt_template_id').value,
+        symbol: document.getElementById('bt_symbol').value,
+        tick_count: Number(document.getElementById('bt_ticks').value || 1200),
+        initial_capital: Number(document.getElementById('bt_capital').value || 50000),
+        lot_size: Number(document.getElementById('bt_lots').value || 2.0),
+        zscore_threshold: Number(document.getElementById('bt_zscore').value || 1.5),
+        imbalance_threshold: Number(document.getElementById('bt_imbalance').value || 0.25),
+        revert_sigma: Number(document.getElementById('bt_sigma').value || 1.8)
+      };
+      const res = await fetch('/api/backtest', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.ok && data.report) {
+        const r = data.report;
+        document.getElementById('btResultCard').style.display = 'block';
+        document.getElementById('btFormulaUsed').textContent = `Modelo Testado: ${r.bot_template_name} | Fórmula: ${r.formula}`;
+        const isPos = r.net_profit >= 0;
+        document.getElementById('btKpiGrid').innerHTML = `
+          <div class="kpi">
+            <div class="label">LUCRO LÍQUIDO (${r.symbol})</div>
+            <div class="val" style="color:${isPos ? 'var(--green)' : 'var(--red)'};">${isPos ? '+' : ''}${r.net_profit.toFixed(2)} (${r.return_pct}%)</div>
+            <div class="sub">Saldo Final: ${r.final_equity.toFixed(2)}</div>
+          </div>
+          <div class="kpi">
+            <div class="label">TAXA DE ACERTO (WIN RATE)</div>
+            <div class="val">${r.win_rate_pct}%</div>
+            <div class="sub">${r.winning_trades} Gains / ${r.losing_trades} Losses (${r.total_trades} trades)</div>
+          </div>
+          <div class="kpi">
+            <div class="label">PROFIT FACTOR (FATOR DE LUCRO)</div>
+            <div class="val" style="color:var(--gold);">${r.profit_factor}</div>
+            <div class="sub">Bruto: +${r.gross_profit} / -${r.gross_loss}</div>
+          </div>
+          <div class="kpi">
+            <div class="label">DRAWDOWN MÁXIMO</div>
+            <div class="val" style="color:var(--red);">-${r.max_drawdown.toFixed(2)}</div>
+            <div class="sub">${r.ticks_processed} ticks processados</div>
+          </div>
+        `;
+        const tbody = document.getElementById('btTradesBody');
+        const trades = r.trades || [];
+        if (trades.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);">Nenhum trade disparado com esses limiares. Reduza o Z-Score ou Imbalance para testar maior frequência.</td></tr>';
+        } else {
+          tbody.innerHTML = trades.map(t => `
+            <tr>
+              <td>#${t.id}</td>
+              <td><span class="pill ${t.type === 'BUY' ? 'pill-up' : 'pill-down'}">${t.type}</span></td>
+              <td><code>${t.signal}</code></td>
+              <td>${t.entry}</td>
+              <td>${t.exit}</td>
+              <td style="font-weight:700;color:${t.pnl >= 0 ? 'var(--green)' : 'var(--red)'};">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}</td>
+              <td><strong>${t.equity_after.toFixed(2)}</strong></td>
+            </tr>
+          `).join('');
+        }
+        showToast(`Backtest concluído em ${r.symbol}: ${r.total_trades} operações simuladas!`);
       }
     }
 
@@ -941,7 +1125,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok) {
         document.getElementById('new_cat_name').value = '';
         document.getElementById('new_cat_symbols').value = '';
-        renderCategoriesAndAccounts(data.categories, currentConfig.accounts);
+        renderCategoriesAndAccounts(data.categories, currentConfig.accounts, currentConfig.active_account_id);
         await loadBrokerSymbols();
         showToast(`Categoria "${category_name}" salva!`);
       }
@@ -955,7 +1139,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       });
       const data = await res.json();
       if (data.ok) {
-        renderCategoriesAndAccounts(data.categories, currentConfig.accounts);
+        renderCategoriesAndAccounts(data.categories, currentConfig.accounts, currentConfig.active_account_id);
         await loadBrokerSymbols();
         showToast(`Categoria "${catName}" removida.`);
       }
@@ -964,6 +1148,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     async function saveMt5Account(e) {
       e.preventDefault();
       const payload = {
+        account_type: document.getElementById('acc_type').value,
         label: document.getElementById('acc_label').value.trim(),
         mt5_login: document.getElementById('mt5_login').value.trim(),
         mt5_password: document.getElementById('mt5_password').value,
@@ -978,31 +1163,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const data = await res.json();
       if (data.ok) {
         currentConfig.accounts = data.accounts;
-        renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts);
+        currentConfig.active_account_id = data.account.account_id;
+        renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, data.account.account_id);
         await loadBrokerSymbols();
-        showToast('Conta MetaTrader 5 salva e conectada via Python!');
+        showToast(`Conta [${data.account.account_type}] "${data.account.label}" salva e selecionada!`);
         refreshStatus();
       }
-    }
-
-    async function saveStrategyConfig(e) {
-      e.preventDefault();
-      const payload = {
-        correlation_block_threshold: Number(document.getElementById('correlation_block_threshold').value),
-        max_daily_loss_money: Number(document.getElementById('max_daily_loss_money').value),
-        daily_target_money: Number(document.getElementById('daily_target_money').value),
-        eod_flatten_time: document.getElementById('eod_flatten_time').value.trim()
-      };
-      const newPwd = document.getElementById('new_admin_password').value;
-      if (newPwd) payload.new_admin_password = newPwd;
-
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-      });
-      showToast('Regras globais atualizadas!');
-      refreshStatus();
     }
 
     async function toggleAutoTrading() {

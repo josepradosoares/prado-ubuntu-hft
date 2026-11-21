@@ -228,3 +228,97 @@ def test_accounts_symbol_modes_custom_categories_and_multi_bot_fleet(tmp_path: P
     assert json.loads(body)["bot"]["status"] == "RUNNING"
 
 
+def test_demo_and_real_account_switching_math_bot_catalog_and_backtester(tmp_path: Path):
+    from prado_linux.web_app import PradoWebApp
+
+    cfg_path = tmp_path / "config.json"
+    app = PradoWebApp(config_path=cfg_path)
+
+    # Login
+    login_payload = json.dumps({"username": "admin", "password": "prado2026"}).encode("utf-8")
+    _, _, resp_headers = app.handle_request(
+        "POST", "/api/login", headers={"Content-Type": "application/json"}, body=login_payload
+    )
+    cookie_header = resp_headers.get("Set-Cookie", "")
+    auth_headers = {"Cookie": cookie_header, "Content-Type": "application/json"}
+
+    # 1. Save DEMO and REAL MT5 accounts and switch between them
+    demo_payload = json.dumps(
+        {
+            "account_id": "acc_demo_1",
+            "account_type": "DEMO",
+            "label": "XP Demo Quant",
+            "mt5_login": "99001122",
+            "mt5_password": "demo_pass",
+            "mt5_server": "XPInvestimentos-DEMO",
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=demo_payload)
+    assert code == 200
+
+    real_payload = json.dumps(
+        {
+            "account_id": "acc_real_1",
+            "account_type": "REAL",
+            "label": "XP Real Institucional",
+            "mt5_login": "11223344",
+            "mt5_password": "real_pass",
+            "mt5_server": "XPInvestimentos-PRD",
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=real_payload)
+    assert code == 200
+
+    # Switch active environment to DEMO account
+    switch_payload = json.dumps({"account_id": "acc_demo_1"}).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/accounts/select", headers=auth_headers, body=switch_payload)
+    assert code == 200
+    sw_resp = json.loads(body)
+    assert sw_resp["ok"] is True
+    assert sw_resp["active_account"]["account_type"] == "DEMO"
+    assert sw_resp["active_account"]["account_id"] == "acc_demo_1"
+
+    # Switch active environment to REAL account
+    switch_payload = json.dumps({"account_id": "acc_real_1"}).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/accounts/select", headers=auth_headers, body=switch_payload)
+    assert code == 200
+    sw_resp = json.loads(body)
+    assert sw_resp["active_account"]["account_type"] == "REAL"
+
+    # 2. Fetch Pure Mathematical Bot Algorithms Catalog (No charts required)
+    code, body, _ = app.handle_request("GET", "/api/bot-templates", headers=auth_headers, body=b"")
+    assert code == 200
+    tpl_resp = json.loads(body)
+    assert tpl_resp["ok"] is True
+    assert len(tpl_resp["templates"]) >= 4
+
+    # 3. Run Pure Mathematical Tick-by-Tick Backtest
+    bt_payload = json.dumps(
+        {
+            "symbol": "WIN$N",
+            "bot_template_id": "WALL_STREET_HYBRID_BOTH",
+            "account_type": "DEMO",
+            "tick_count": 600,
+            "initial_capital": 50000.0,
+            "lot_size": 2.0,
+            "zscore_threshold": 1.4,
+            "imbalance_threshold": 0.25,
+            "revert_sigma": 1.6,
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/backtest", headers=auth_headers, body=bt_payload)
+    assert code == 200
+    bt_resp = json.loads(body)
+    assert bt_resp["ok"] is True
+    report = bt_resp["report"]
+    assert report["symbol"] == "WIN$N"
+    assert report["ticks_processed"] == 600
+    assert "total_trades" in report
+    assert "win_rate_pct" in report
+    assert "net_profit" in report
+    assert "profit_factor" in report
+    assert "max_drawdown" in report
+    assert "final_equity" in report
+
+
+

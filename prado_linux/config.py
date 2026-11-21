@@ -1,4 +1,4 @@
-"""Configuration persistence for Prado Institutional HFT Ubuntu Server (Accounts, Categories & Multi-Bot Fleet)."""
+"""Configuration persistence for Prado Institutional HFT Ubuntu Server (Demo/Real Accounts, Math Bots & Backtester)."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -17,6 +17,74 @@ DEFAULT_CATEGORIES: dict[str, list[str]] = {
     "Forex & Commodities": ["EURUSD", "GBPUSD", "USDJPY", "GOLD#", "SILVER#", "WTI#"],
 }
 
+MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
+    {
+        "template_id": "WALL_STREET_HYBRID_BOTH",
+        "name": "1. Híbrido Institucional Completo (Fala 1: Trem VWAP + Fala 2: Giro HFT ±2σ)",
+        "operation_mode": "BOTH",
+        "formula": "VWAP = Σ(Pᵢ·Vᵢ)/ΣVᵢ | Z = (μ_w - μ)/(σ/√(w/4)) | Entrada Fluxo (|Z|≥Z_min) + Reversão (|P - VWAP|≥k·σ)",
+        "description": "Combina as duas lógicas matemáticas da entrevista do Broker de Wall Street: segue o fluxo institucional a favor da VWAP e opera retorno à média nas bandas externas.",
+        "window_ticks": 120,
+        "zscore_threshold": 1.8,
+        "imbalance_threshold": 0.35,
+        "revert_sigma": 2.0,
+        "sl_sigma_mult": 1.0,
+        "tp_sigma_mult": 1.8,
+    },
+    {
+        "template_id": "FIX_VWAP_TREND_TRAIN",
+        "name": "2. Fala 1 — Trem Institucional FIX VWAP (Seguidor Puro de Fluxo de Agressão)",
+        "operation_mode": "TREND_ONLY",
+        "formula": "Sinal = sign(ΔVol) quando |Z_agressão| ≥ 1.8 ∧ |Imbalance| ≥ 0.35 ∧ sign(P - VWAP) == sign(Z)",
+        "description": "Detecta quando algoritmos institucionais (protocolo FIX) calibram agressividade máxima na pedra a favor da VWAP.",
+        "window_ticks": 100,
+        "zscore_threshold": 1.8,
+        "imbalance_threshold": 0.35,
+        "revert_sigma": 2.5,
+        "sl_sigma_mult": 1.0,
+        "tp_sigma_mult": 2.2,
+    },
+    {
+        "template_id": "HFT_MEAN_REVERSION_2SIGMA",
+        "name": "3. Fala 2 — Giro HFT Provedor de Liquidez (Reversão Matemática à Média ±2σ)",
+        "operation_mode": "REVERT_ONLY",
+        "formula": "Venda se P ≥ VWAP + 2σ ∧ Imbalance ≤ 0 | Compra se P ≤ VWAP - 2σ ∧ Imbalance ≥ 0 (Alvo = VWAP)",
+        "description": "Matemática pura dos HFTs não-direcionais: fornece liquidez nos extremos de desvio padrão quando o fluxo agressor perde força.",
+        "window_ticks": 80,
+        "zscore_threshold": 2.0,
+        "imbalance_threshold": 0.25,
+        "revert_sigma": 2.0,
+        "sl_sigma_mult": 0.9,
+        "tp_sigma_mult": 1.5,
+    },
+    {
+        "template_id": "ULTRA_SCALPER_ZSCORE_BURST",
+        "name": "4. HFT Explosão de Agressão (Scalper Estatístico de Curto Alcance)",
+        "operation_mode": "TREND_ONLY",
+        "formula": "Janela curta w=50 ticks | Disparo em micro-explosão Z ≥ 2.2 ∧ Imbalance ≥ 0.45 | Alvo rápido 1.2σ",
+        "description": "Focado em explosões súbitas de agressão no Times & Trades com realização rápida em poucos segundos.",
+        "window_ticks": 50,
+        "zscore_threshold": 2.2,
+        "imbalance_threshold": 0.45,
+        "revert_sigma": 2.0,
+        "sl_sigma_mult": 0.8,
+        "tp_sigma_mult": 1.2,
+    },
+    {
+        "template_id": "STAT_ARB_CORRELATION_BASKET",
+        "name": "5. Arbitragem Estatística & Correlação de Cesta (B3 WIN/PETR4/VALE3 & Cripto)",
+        "operation_mode": "BOTH",
+        "formula": "Bias_Cesta = (1/N)·Σ Imbalance(Ativo_k) | Opera somente alinhado ao vetor matemático da cesta",
+        "description": "Cruza a matemática da cesta correlacionada com o desvio padrão da VWAP do ativo-alvo sem precisar abrir nenhum gráfico.",
+        "window_ticks": 140,
+        "zscore_threshold": 1.6,
+        "imbalance_threshold": 0.30,
+        "revert_sigma": 1.8,
+        "sl_sigma_mult": 1.0,
+        "tp_sigma_mult": 1.8,
+    },
+]
+
 
 @dataclass
 class PradoServerConfig:
@@ -26,8 +94,10 @@ class PradoServerConfig:
     secret_key: str = ""
     web_port: int = 8080
 
-    # Primary MetaTrader 5 Credentials & Connection Mode
+    # Primary MetaTrader 5 Credentials & Active Account Selection (DEMO vs REAL)
     mt5_connection_mode: str = "AUTO_MT5_WINE"
+    active_account_id: str = ""
+    active_account_type: str = "DEMO"  # "DEMO" or "REAL"
     mt5_login: str = ""
     mt5_password: str = ""
     mt5_server: str = ""
@@ -37,7 +107,7 @@ class PradoServerConfig:
     metaapi_token: str = ""
     metaapi_account_id: str = ""
 
-    # Multiple Saved MT5 Accounts
+    # Saved MT5 Accounts (Both DEMO and REAL)
     accounts: list[dict[str, Any]] = field(default_factory=list)
 
     # Symbol Selection Mode ("PRINCIPAIS" vs "TODOS") and Custom Broker Categories
@@ -46,6 +116,9 @@ class PradoServerConfig:
 
     # Active Running / Configured Robot Fleet
     bots: list[dict[str, Any]] = field(default_factory=list)
+
+    # Last Backtest Results History
+    backtest_history: list[dict[str, Any]] = field(default_factory=list)
 
     # Operational Rules from Wall Street Institutional Broker Transcript ("Fio")
     auto_trading_enabled: bool = True

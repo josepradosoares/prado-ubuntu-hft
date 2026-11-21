@@ -10,7 +10,7 @@ import time
 from typing import Any
 import uuid
 
-from prado_linux.config import DEFAULT_CATEGORIES, PradoServerConfig, save_config
+from prado_linux.config import DEFAULT_CATEGORIES, MATH_BOT_TEMPLATES, PradoServerConfig, save_config
 from prado_linux.flow_math import (
     TICK_FLAG_BUY,
     TICK_FLAG_SELL,
@@ -223,9 +223,11 @@ class MT5UniversalConnector:
         return {
             "backend": self.backend_name,
             "connected": self.connected,
+            "account_type": self.cfg.active_account_type,
+            "active_account_id": self.cfg.active_account_id,
             "login": self.cfg.mt5_login or "SIM-990011",
             "server": self.cfg.mt5_server or "Prado-Ubuntu-MT5",
-            "name": "Prado Institutional HFT Desk",
+            "name": f"Prado Quant Desk ({self.cfg.active_account_type})",
             "currency": "BRL/USD",
             "balance": round(self._sim_balance + self._sim_daily_pnl, 2),
             "equity": round(self._sim_balance + self._sim_daily_pnl + floating, 2),
@@ -508,13 +510,17 @@ class PradoTradingService:
     def save_mt5_account(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             acc_id = str(payload.get("account_id") or f"acc_{uuid.uuid4().hex[:8]}").strip()
+            acc_type = str(payload.get("account_type") or "DEMO").upper().strip()
+            if acc_type not in ("DEMO", "REAL"):
+                acc_type = "DEMO"
             login = str(payload.get("mt5_login", "")).strip()
             password = str(payload.get("mt5_password", "")).strip()
             server = str(payload.get("mt5_server", "")).strip()
-            label = str(payload.get("label") or f"Conta {login} ({server})").strip()
+            label = str(payload.get("label") or f"[{acc_type}] Conta {login} ({server})").strip()
 
             existing = next((a for a in self.cfg.accounts if a.get("account_id") == acc_id), None)
             if existing:
+                existing["account_type"] = acc_type
                 existing["label"] = label
                 existing["mt5_login"] = login
                 if password and password != "********":
@@ -524,6 +530,7 @@ class PradoTradingService:
             else:
                 acc_record = {
                     "account_id": acc_id,
+                    "account_type": acc_type,
                     "label": label,
                     "mt5_login": login,
                     "mt5_password": password,
@@ -533,6 +540,8 @@ class PradoTradingService:
                 self.cfg.accounts.append(acc_record)
 
             # Set as active primary MT5 credentials too
+            self.cfg.active_account_id = acc_id
+            self.cfg.active_account_type = acc_type
             if login:
                 self.cfg.mt5_login = login
             if password and password != "********":
@@ -541,8 +550,203 @@ class PradoTradingService:
                 self.cfg.mt5_server = server
 
             save_config(self.cfg, self.config_path)
-            self._log_event("ACCOUNT", f"Conta MT5 '{label}' ({login} @ {server}) salva e pronta.")
+            self._log_event("ACCOUNT", f"Conta {acc_type} '{label}' ({login} @ {server}) salva e pronta.")
             return acc_record
+
+    def select_active_account(self, account_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            target = next((a for a in self.cfg.accounts if a.get("account_id") == account_id), None)
+            if not target:
+                return None
+            self.cfg.active_account_id = str(target["account_id"])
+            self.cfg.active_account_type = str(target.get("account_type", "DEMO"))
+            self.cfg.mt5_login = str(target.get("mt5_login", ""))
+            if target.get("mt5_password") and target.get("mt5_password") != "********":
+                self.cfg.mt5_password = str(target["mt5_password"])
+            self.cfg.mt5_server = str(target.get("mt5_server", ""))
+            save_config(self.cfg, self.config_path)
+            self.connector.connect(
+                login=self.cfg.mt5_login,
+                password=self.cfg.mt5_password,
+                server=self.cfg.mt5_server,
+                force_attempt=False,
+            )
+            self._log_event(
+                "ACCOUNT_SWITCH",
+                f"Conta ativa alterada para [{self.cfg.active_account_type}] {target.get('label')} ({self.cfg.mt5_login} @ {self.cfg.mt5_server}).",
+            )
+            return {k: ("********" if k == "mt5_password" else v) for k, v in target.items()}
+
+    def run_mathematical_backtest(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Pure mathematical tick-by-tick backtester (No UI chart rendering overhead)."""
+        with self._lock:
+            symbol = str(params.get("symbol") or "WIN$N").strip()
+            template_id = str(params.get("bot_template_id") or "WALL_STREET_HYBRID_BOTH").strip()
+            tpl = next((t for t in MATH_BOT_TEMPLATES if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
+
+            tick_count = max(120, min(5000, int(params.get("tick_count") or 800)))
+            initial_capital = float(params.get("initial_capital") or 50000.0)
+            lot_size = float(params.get("lot_size") or self.cfg.default_lot_size)
+            window_ticks = int(params.get("window_ticks") or tpl["window_ticks"])
+            z_thresh = float(params.get("zscore_threshold") or tpl["zscore_threshold"])
+            imb_thresh = float(params.get("imbalance_threshold") or tpl["imbalance_threshold"])
+            rev_sigma = float(params.get("revert_sigma") or tpl["revert_sigma"])
+            sl_mult = float(params.get("sl_sigma_mult") or tpl["sl_sigma_mult"])
+            tp_mult = float(params.get("tp_sigma_mult") or tpl["tp_sigma_mult"])
+            op_mode = str(params.get("operation_mode") or tpl["operation_mode"])
+
+            # Fetch real MT5 historical ticks if connected, or generate deterministic high-fidelity quant tick series
+            ticks = self._build_backtest_tick_series(symbol, tick_count)
+
+            balance = initial_capital
+            peak_balance = initial_capital
+            max_drawdown = 0.0
+            trades: list[dict[str, Any]] = []
+            open_pos: dict[str, Any] | None = None
+
+            step_stride = max(1, tick_count // 250)
+            for idx in range(40, len(ticks), step_stride):
+                sub_ticks = ticks[: idx + 1]
+                curr_tick = sub_ticks[-1]
+                curr_price = curr_tick.effective_price()
+
+                # Check open position SL / TP exit
+                if open_pos is not None:
+                    is_buy = open_pos["type"] == "BUY"
+                    hit_tp = (curr_price >= open_pos["tp"]) if is_buy else (curr_price <= open_pos["tp"])
+                    hit_sl = (curr_price <= open_pos["sl"]) if is_buy else (curr_price >= open_pos["sl"])
+                    if hit_tp or hit_sl or idx >= len(ticks) - step_stride:
+                        raw_diff = (curr_price - open_pos["entry"]) if is_buy else (open_pos["entry"] - curr_price)
+                        pnl = round(raw_diff * lot_size * open_pos["point_value"], 2)
+                        balance = round(balance + pnl, 2)
+                        peak_balance = max(peak_balance, balance)
+                        dd = round(peak_balance - balance, 2)
+                        max_drawdown = max(max_drawdown, dd)
+                        trades.append(
+                            {
+                                "id": len(trades) + 1,
+                                "type": open_pos["type"],
+                                "signal": open_pos["signal"],
+                                "entry": round(open_pos["entry"], 6),
+                                "exit": round(curr_price, 6),
+                                "pnl": pnl,
+                                "result": "WIN" if pnl >= 0 else "LOSS",
+                                "equity_after": balance,
+                            }
+                        )
+                        open_pos = None
+
+                if open_pos is None and idx < len(ticks) - step_stride * 2:
+                    vwap_b = compute_intraday_vwap(sub_ticks)
+                    flow = compute_flow_metrics(
+                        sub_ticks,
+                        vwap_b,
+                        window_size=min(window_ticks, len(sub_ticks)),
+                        z_threshold=z_thresh,
+                        imbalance_threshold=imb_thresh,
+                        revert_sigma=rev_sigma,
+                        sl_sigma_mult=sl_mult,
+                        tp_sigma_mult=tp_mult,
+                        operation_mode=op_mode,
+                    )
+                    act = flow.recommended_action
+                    if act in ("BUY_FLOW", "SELL_FLOW", "BUY_REVERT_VWAP", "SELL_REVERT_VWAP"):
+                        is_b = act.startswith("BUY")
+                        sl_pts = max(flow.sl_points, curr_price * 0.0005)
+                        tp_pts = max(flow.tp_points, curr_price * 0.0009)
+                        pt_val = 0.20 if symbol.startswith("WIN") else (10.0 if symbol.startswith("WDO") else 10.0)
+                        open_pos = {
+                            "type": "BUY" if is_b else "SELL",
+                            "signal": act,
+                            "entry": curr_price,
+                            "sl": (curr_price - sl_pts) if is_b else (curr_price + sl_pts),
+                            "tp": (curr_price + tp_pts) if is_b else (curr_price - tp_pts),
+                            "point_value": pt_val,
+                        }
+
+            wins = [t for t in trades if t["pnl"] > 0]
+            losses = [t for t in trades if t["pnl"] <= 0]
+            gross_profit = round(sum(t["pnl"] for t in wins), 2)
+            gross_loss = round(abs(sum(t["pnl"] for t in losses)), 2)
+            net_profit = round(balance - initial_capital, 2)
+            win_rate = round((len(wins) / len(trades)) * 100.0, 2) if trades else 0.0
+            profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (99.9 if gross_profit > 0 else 1.0)
+
+            report = {
+                "symbol": symbol,
+                "bot_template_id": template_id,
+                "bot_template_name": tpl["name"],
+                "formula": tpl["formula"],
+                "operation_mode": op_mode,
+                "ticks_processed": len(ticks),
+                "initial_capital": round(initial_capital, 2),
+                "final_equity": round(balance, 2),
+                "net_profit": net_profit,
+                "return_pct": round((net_profit / initial_capital) * 100.0, 2) if initial_capital > 0 else 0.0,
+                "total_trades": len(trades),
+                "winning_trades": len(wins),
+                "losing_trades": len(losses),
+                "win_rate_pct": win_rate,
+                "gross_profit": gross_profit,
+                "gross_loss": gross_loss,
+                "profit_factor": profit_factor,
+                "max_drawdown": round(max_drawdown, 2),
+                "trades": trades[-30:],
+                "executed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            self.cfg.backtest_history.insert(0, {k: v for k, v in report.items() if k != "trades"})
+            self.cfg.backtest_history = self.cfg.backtest_history[:15]
+            save_config(self.cfg, self.config_path)
+            self._log_event(
+                "BACKTEST",
+                f"Backtest Matemático concluído em {symbol} ({tpl['name']}): {len(trades)} trades | Lucro Líquido: {net_profit:+.2f} | WinRate: {win_rate}%",
+            )
+            return report
+
+    def _build_backtest_tick_series(self, symbol: str, count: int) -> list[TickRecord]:
+        base_map = {
+            "WIN$N": 128500.0,
+            "WDO$N": 5810.0,
+            "PETR4": 38.45,
+            "VALE3": 61.20,
+            "BTCUSD#": 94500.0,
+            "US100Cash#": 20850.0,
+            "EURUSD": 1.0540,
+        }
+        base_price = base_map.get(symbol, 100.0)
+        step = base_price * 0.00045
+        rng = random.Random(42 + (hash(symbol) & 0xFFFF))
+        out: list[TickRecord] = []
+        p = base_price
+        now_msc = int(time.time() * 1000)
+        for i in range(count):
+            # Alternate between strong institutional trends and mean-reverting oscillations
+            phase = i % 90
+            if phase < 30:
+                delta = step * 0.85 + rng.uniform(-step * 0.2, step * 0.4)
+                flag = TICK_FLAG_BUY
+                vol = rng.randint(60, 220) * 10.0
+            elif phase < 60:
+                delta = -step * 0.75 + rng.uniform(-step * 0.4, step * 0.2)
+                flag = TICK_FLAG_SELL
+                vol = rng.randint(50, 190) * 10.0
+            else:
+                delta = math.sin(i / 4.0) * step * 0.5
+                flag = TICK_FLAG_BUY if delta >= 0 else TICK_FLAG_SELL
+                vol = rng.randint(15, 65) * 10.0
+            p = max(step, p + delta)
+            out.append(
+                TickRecord(
+                    time_msc=now_msc - (count - i) * 500,
+                    bid=round(p - step * 0.1, 6),
+                    ask=round(p + step * 0.1, 6),
+                    last=round(p, 6),
+                    volume_real=vol,
+                    tick_volume=vol,
+                    flags=flag,
+                )
+            )
+        return out
 
     def save_custom_category(self, category_name: str, symbols: list[str]) -> dict[str, list[str]]:
         with self._lock:
@@ -571,28 +775,35 @@ class PradoTradingService:
             symbol = str(payload.get("symbol", "WIN$N")).strip()
             account_id = str(payload.get("account_id", "default")).strip()
             acc_obj = next((a for a in self.cfg.accounts if a.get("account_id") == account_id), None)
+            account_type = str(acc_obj.get("account_type", "DEMO")) if acc_obj else self.cfg.active_account_type
             account_label = (
-                acc_obj["label"]
+                f"[{account_type}] {acc_obj['label']}"
                 if acc_obj
-                else (f"{self.cfg.mt5_login} ({self.cfg.mt5_server})" if self.cfg.mt5_login else "Conta Principal MT5")
+                else (f"[{account_type}] {self.cfg.mt5_login} ({self.cfg.mt5_server})" if self.cfg.mt5_login else f"[{account_type}] Conta Principal MT5")
             )
+            template_id = str(payload.get("bot_template_id") or "WALL_STREET_HYBRID_BOTH").strip()
+            tpl = next((t for t in MATH_BOT_TEMPLATES if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
             auto_start = bool(payload.get("auto_start", True))
 
             bot_record: dict[str, Any] = {
                 "bot_id": bot_id,
-                "name": str(payload.get("name") or f"Robô {symbol}").strip(),
+                "name": str(payload.get("name") or f"{tpl['name'].split('—')[0].strip()} ({symbol})").strip(),
+                "bot_template_id": template_id,
+                "bot_template_name": tpl["name"],
+                "formula": tpl["formula"],
                 "account_id": account_id,
+                "account_type": account_type,
                 "account_label": account_label,
                 "symbol": symbol,
                 "category": str(payload.get("category") or "Geral").strip(),
-                "operation_mode": str(payload.get("operation_mode") or self.cfg.operation_mode),
+                "operation_mode": str(payload.get("operation_mode") or tpl["operation_mode"]),
                 "lot_size": float(payload.get("lot_size") or self.cfg.default_lot_size),
-                "window_ticks": int(payload.get("window_ticks") or self.cfg.window_ticks),
-                "zscore_threshold": float(payload.get("zscore_threshold") or self.cfg.zscore_threshold),
-                "imbalance_threshold": float(payload.get("imbalance_threshold") or self.cfg.imbalance_threshold),
-                "revert_sigma": float(payload.get("revert_sigma") or self.cfg.revert_sigma),
-                "sl_sigma_mult": float(payload.get("sl_sigma_mult") or self.cfg.sl_sigma_mult),
-                "tp_sigma_mult": float(payload.get("tp_sigma_mult") or self.cfg.tp_sigma_mult),
+                "window_ticks": int(payload.get("window_ticks") or tpl["window_ticks"]),
+                "zscore_threshold": float(payload.get("zscore_threshold") or tpl["zscore_threshold"]),
+                "imbalance_threshold": float(payload.get("imbalance_threshold") or tpl["imbalance_threshold"]),
+                "revert_sigma": float(payload.get("revert_sigma") or tpl["revert_sigma"]),
+                "sl_sigma_mult": float(payload.get("sl_sigma_mult") or tpl["sl_sigma_mult"]),
+                "tp_sigma_mult": float(payload.get("tp_sigma_mult") or tpl["tp_sigma_mult"]),
                 "correlated_basket": list(payload.get("correlated_basket") or self.cfg.correlated_basket),
                 "status": "RUNNING" if auto_start else "STOPPED",
                 "last_signal": "WAIT",

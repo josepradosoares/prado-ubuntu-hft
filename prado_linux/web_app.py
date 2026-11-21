@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from prado_linux.auth import create_session_token, hash_password, verify_password, verify_session_token
-from prado_linux.config import load_config
+from prado_linux.config import MATH_BOT_TEMPLATES, load_config
 from prado_linux.engine import PradoTradingService
 from prado_linux.templates import DASHBOARD_HTML, LOGIN_HTML
 
@@ -178,6 +178,51 @@ class PradoWebApp:
                         "account": {k: ("********" if k == "mt5_password" else v) for k, v in acc.items()},
                         "accounts": self._safe_config_dict()["accounts"],
                     },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/accounts/select":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            acc_id = str(payload.get("account_id", "")).strip()
+            selected = self.service.select_active_account(acc_id)
+            if selected is None:
+                return 404, json.dumps({"ok": False, "error": "Conta nao encontrada"}), {"Content-Type": "application/json"}
+            self.service.step_once()
+            return (
+                200,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "active_account": selected,
+                        "accounts": self._safe_config_dict()["accounts"],
+                    },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "GET" and clean_path == "/api/bot-templates":
+            return (
+                200,
+                json.dumps({"ok": True, "templates": MATH_BOT_TEMPLATES}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/backtest":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            report = self.service.run_mathematical_backtest(payload)
+            return (
+                200,
+                json.dumps(
+                    {"ok": True, "report": report, "history": self.cfg.backtest_history},
                     ensure_ascii=False,
                 ),
                 {"Content-Type": "application/json"},
