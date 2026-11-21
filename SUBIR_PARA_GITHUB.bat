@@ -10,7 +10,7 @@ git remote add origin https://github.com/josepradosoares/prado-ubuntu-hft.git
 git branch -M main
 echo.
 echo Iniciando login e envio (se abrir a janela do GitHub no navegador, clique em Authorize)...
-git push -u origin main
+git push -f -u origin main
 echo.
 echo ===================================================================
 echo   PROCESSO FINALIZADO!
