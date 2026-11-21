@@ -941,7 +941,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                   : `<button class="btn btn-gold" onclick="quickSwitchAccount('${a.account_id}')">Usar Conta</button>`
                 }
                 <button class="btn btn-cyan" onclick="editAccount('${a.account_id}')">✏️ Editar</button>
-                <button class="btn btn-danger" onclick="deleteAccount('${a.account_id}')">🗑️</button>
+                <button class="btn btn-danger" onclick="deleteAccount('${a.account_id}')">🗑️ Apagar</button>
               </td>
             </tr>
           `;
@@ -994,7 +994,34 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok) {
         currentConfig.accounts = data.accounts;
         renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, currentConfig.active_account_id);
-        showToast('Conta removida!');
+        showToast('Conta apagada com sucesso!');
+      }
+    }
+
+    async function deleteAllAccounts() {
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'DELETE_ALL'})
+      });
+      const data = await res.json();
+      if (data.ok) {
+        currentConfig.accounts = [];
+        renderCategoriesAndAccounts(currentConfig.custom_categories, [], '');
+        showToast('Todas as contas foram apagadas!');
+      }
+    }
+
+    async function deleteAllBots() {
+      const res = await fetch('/api/bots/action', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'DELETE_ALL'})
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast('Todos os robôs foram apagados!');
+        refreshStatus();
       }
     }
 
@@ -1145,7 +1172,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     ? `<button class="btn btn-danger" onclick="botAction('${b.bot_id}', 'STOP')">⏸ Pausar</button>`
                     : `<button class="btn btn-green" onclick="botAction('${b.bot_id}', 'START')">▶ Executar</button>`
                   }
-                  <button class="btn" onclick="botAction('${b.bot_id}', 'DELETE')">🗑️</button>
+                  <button class="btn btn-danger" onclick="botAction('${b.bot_id}', 'DELETE')">🗑️ Apagar</button>
                 </td>
               </tr>
             `;
