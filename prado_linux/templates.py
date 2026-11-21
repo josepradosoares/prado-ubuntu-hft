@@ -1,6 +1,8 @@
 """HTML templates for Prado Institutional HFT Login & Pure Mathematical Multi-Robot Command Center.
-Designed following the frontend-design skill: institutional quant desk identity, tabular precision,
-sentence-case clarity, and split-pane workspace hierarchy without generic SaaS-card clutter.
+Architected strictly under the anthropics/frontend-design skill:
+- No generic SaaS rounded card kits, no ALL-CAPS eyebrow labels, no emoji clutter, no wrapping 3-line button clusters.
+- Precision hairline grid layout inspired by institutional execution desks (LSEG / Bloomberg / Jane Street).
+- Sentence-case typography (Plus Jakarta Sans) paired with right-aligned tabular figures (IBM Plex Mono).
 """
 from __future__ import annotations
 
@@ -15,69 +17,71 @@ LOGIN_HTML = """<!DOCTYPE html>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --obsidian: #0a0e14;
-      --slate: #111722;
-      --hairline: #1e2838;
-      --bullion: #d4a853;
-      --emerald: #10b981;
-      --crimson: #e11d48;
-      --text: #eef2f6;
-      --muted: #8b9bb4;
+      --canvas: #080b10;
+      --surface: #0e131b;
+      --rule: #1c2533;
+      --gold: #c89d42;
+      --bid: #0ca678;
+      --ask: #e03131;
+      --ink: #ecf0f5;
+      --muted: #7f8ea3;
+      --mono: 'IBM Plex Mono', Consolas, monospace;
+      --sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background-color: var(--obsidian);
+      background-color: var(--canvas);
       background-image:
-        linear-gradient(to right, rgba(30, 40, 56, 0.25) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(30, 40, 56, 0.25) 1px, transparent 1px);
-      background-size: 48px 48px;
-      color: var(--text);
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        linear-gradient(to right, rgba(28, 37, 51, 0.28) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(28, 37, 51, 0.28) 1px, transparent 1px);
+      background-size: 40px 40px;
+      color: var(--ink);
+      font-family: var(--sans);
       min-height: 100vh;
       display: grid;
       place-items: center;
       padding: 24px;
     }
-    .login-shell {
+    .login-frame {
       width: 100%;
-      max-width: 440px;
-      background: var(--slate);
-      border: 1px solid var(--hairline);
-      border-top: 2px solid var(--bullion);
+      max-width: 420px;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-top: 2px solid var(--gold);
     }
-    .login-header {
+    .login-head {
       padding: 28px 32px 20px;
-      border-bottom: 1px solid var(--hairline);
+      border-bottom: 1px solid var(--rule);
     }
-    .desk-tag {
-      font-family: 'IBM Plex Mono', monospace;
+    .status-line {
+      font-family: var(--mono);
       font-size: 12px;
-      color: var(--bullion);
-      margin-bottom: 8px;
+      color: var(--gold);
+      margin-bottom: 10px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    .desk-tag::before {
+    .status-line::before {
       content: "";
       width: 6px;
       height: 6px;
-      background: var(--emerald);
+      background: var(--bid);
       display: inline-block;
     }
     h1 {
-      font-size: 22px;
+      font-size: 21px;
       font-weight: 700;
       letter-spacing: -0.02em;
       color: #fff;
       margin-bottom: 6px;
     }
-    .subtitle {
+    .lead {
       color: var(--muted);
       font-size: 13px;
       line-height: 1.5;
     }
-    .login-body {
+    .login-form-wrap {
       padding: 24px 32px 28px;
     }
     .field {
@@ -87,52 +91,51 @@ LOGIN_HTML = """<!DOCTYPE html>
       display: block;
       font-size: 13px;
       font-weight: 500;
-      color: var(--text);
+      color: var(--ink);
       margin-bottom: 6px;
     }
     input {
       width: 100%;
-      background: var(--obsidian);
-      border: 1px solid var(--hairline);
+      background: var(--canvas);
+      border: 1px solid var(--rule);
       color: #fff;
-      padding: 11px 13px;
+      padding: 10px 12px;
       font-size: 14px;
-      font-family: 'IBM Plex Mono', monospace;
+      font-family: var(--mono);
       outline: none;
       transition: border-color 0.15s;
     }
     input:focus {
-      border-color: var(--bullion);
+      border-color: var(--gold);
     }
     button {
       width: 100%;
-      background: var(--bullion);
+      background: var(--gold);
       color: #080b10;
       border: none;
-      padding: 12px 16px;
-      font-family: 'Plus Jakarta Sans', sans-serif;
+      padding: 11px 16px;
+      font-family: var(--sans);
       font-weight: 700;
       font-size: 14px;
       cursor: pointer;
-      transition: filter 0.15s;
     }
     button:hover {
       filter: brightness(1.08);
     }
     .err {
-      color: #fda4af;
-      background: rgba(225, 29, 72, 0.12);
-      border-left: 3px solid var(--crimson);
+      color: #ffc9c9;
+      background: rgba(224, 49, 49, 0.14);
+      border-left: 2px solid var(--ask);
       padding: 10px 12px;
       font-size: 13px;
       margin-bottom: 18px;
       display: none;
     }
-    .login-footer {
-      padding: 14px 32px;
-      background: rgba(10, 14, 20, 0.55);
-      border-top: 1px solid var(--hairline);
-      font-family: 'IBM Plex Mono', monospace;
+    .login-foot {
+      padding: 12px 32px;
+      background: var(--canvas);
+      border-top: 1px solid var(--rule);
+      font-family: var(--mono);
       font-size: 12px;
       color: var(--muted);
       display: flex;
@@ -141,29 +144,29 @@ LOGIN_HTML = """<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <main class="login-shell">
-    <div class="login-header">
-      <div class="desk-tag">Motor quantitativo • Ubuntu Server</div>
+  <main class="login-frame">
+    <div class="login-head">
+      <div class="status-line">Motor quantitativo • Ubuntu Server</div>
       <h1>Prado Institutional HFT</h1>
-      <p class="subtitle">Execução matemática pura de VWAP, bandas de desvio padrão e fluxo de agressão via Python MetaTrader 5.</p>
+      <p class="lead">Execução algorítmica de VWAP, desvio padrão e fluxo de agressão via Python MetaTrader 5.</p>
     </div>
-    <div class="login-body">
+    <div class="login-form-wrap">
       <div id="errBox" class="err"></div>
       <form id="loginForm">
         <div class="field">
-          <label for="username">Usuário do operador</label>
+          <label for="username">Usuário</label>
           <input id="username" name="username" type="text" value="admin" required autocomplete="username" />
         </div>
         <div class="field">
-          <label for="password">Senha de acesso</label>
+          <label for="password">Senha</label>
           <input id="password" name="password" type="password" placeholder="••••••••" required autocomplete="current-password" />
         </div>
         <button type="submit">Entrar na mesa de execução</button>
       </form>
     </div>
-    <div class="login-footer">
-      <span>Acesso inicial: admin</span>
-      <span>Senha: prado2026</span>
+    <div class="login-foot">
+      <span>Operador: admin</span>
+      <span>Credencial: prado2026</span>
     </div>
   </main>
   <script>
@@ -183,11 +186,11 @@ LOGIN_HTML = """<!DOCTYPE html>
         if (res.ok && data.ok) {
           window.location.href = '/';
         } else {
-          errBox.textContent = data.error || 'Credenciais inválidas. Verifique usuário e senha.';
+          errBox.textContent = data.error || 'Usuário ou senha incorretos.';
           errBox.style.display = 'block';
         }
       } catch (err) {
-        errBox.textContent = 'Não foi possível comunicar com o servidor Ubuntu.';
+        errBox.textContent = 'Falha de comunicação com o servidor Ubuntu.';
         errBox.style.display = 'block';
       }
     });
@@ -201,333 +204,402 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prado Institutional HFT — Mesa Quantitativa Multi-Robôs</title>
+  <title>Prado Institutional HFT — Mesa Quantitativa</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --obsidian: #0a0e14;
-      --slate: #101620;
-      --slate-hover: #161e2c;
-      --hairline: #1e2838;
-      --bullion: #d4a853;
-      --emerald: #10b981;
-      --crimson: #e11d48;
+      --canvas: #080b10;
+      --surface: #0e131b;
+      --elevated: #141b26;
+      --rule: #1c2533;
+      --gold: #c89d42;
+      --bid: #0ca678;
+      --ask: #e03131;
       --cyan: #38bdf8;
-      --text: #eef2f6;
-      --muted: #8b9bb4;
+      --ink: #ecf0f5;
+      --muted: #7f8ea3;
       --mono: 'IBM Plex Mono', Consolas, monospace;
       --sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: var(--obsidian);
-      color: var(--text);
+      background: var(--canvas);
+      color: var(--ink);
       font-family: var(--sans);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       font-size: 13px;
-    }
-    .num {
-      font-family: var(--mono);
-      font-variant-numeric: tabular-nums;
+      line-height: 1.4;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* 1. Top Command & Telemetry Strip (Hero) */
-    .command-bar {
-      background: var(--slate);
-      border-bottom: 1px solid var(--hairline);
-      padding: 10px 20px;
+    /* 1. Top Command Header */
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--rule);
+      height: 48px;
+      padding: 0 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 14px;
+      gap: 16px;
     }
-    .identity {
+    .topbar-left {
       display: flex;
       align-items: center;
       gap: 12px;
+      min-width: 0;
     }
-    .live-pulse {
-      width: 8px;
-      height: 8px;
-      background: var(--emerald);
-      box-shadow: 0 0 8px var(--emerald);
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--bid);
+      flex-shrink: 0;
     }
-    .identity-title {
-      font-size: 15px;
+    .desk-name {
+      font-size: 14px;
       font-weight: 700;
       letter-spacing: -0.01em;
       color: #fff;
+      white-space: nowrap;
     }
-    .engine-badge {
+    .feed-indicator {
       font-family: var(--mono);
       font-size: 11px;
-      color: var(--bullion);
-      background: rgba(212, 168, 83, 0.1);
-      border: 1px solid rgba(212, 168, 83, 0.35);
-      padding: 2px 8px;
+      color: var(--muted);
+      border-left: 1px solid var(--rule);
+      padding-left: 12px;
+      white-space: nowrap;
     }
-    .command-controls {
+    .topbar-right {
       display: flex;
       align-items: center;
       gap: 8px;
-      flex-wrap: wrap;
     }
-    .account-switcher {
+    .account-picker {
       display: flex;
       align-items: center;
       gap: 8px;
-      background: var(--obsidian);
-      border: 1px solid var(--hairline);
-      padding: 5px 10px;
+      background: var(--canvas);
+      border: 1px solid var(--rule);
+      height: 30px;
+      padding: 0 10px;
     }
-    .account-switcher span {
+    .account-picker span {
       font-size: 12px;
       color: var(--muted);
+      white-space: nowrap;
     }
-    .account-switcher select {
+    .account-picker select {
       background: transparent;
-      color: var(--bullion);
+      color: var(--gold);
       border: none;
       font-family: var(--mono);
-      font-weight: 600;
       font-size: 12px;
+      font-weight: 500;
       outline: none;
       cursor: pointer;
     }
-    .account-switcher select option {
-      background: var(--slate);
-      color: var(--text);
+    .account-picker select option {
+      background: var(--surface);
+      color: var(--ink);
     }
 
-    /* Telemetry Strip (Replaces generic SaaS KPI cards) */
-    .telemetry-strip {
+    /* 2. Hero Ledger Bar (Full-bleed hairline grid) */
+    .ledger-strip {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      background: #0d121a;
-      border-bottom: 1px solid var(--hairline);
+      grid-template-columns: repeat(4, 1fr);
+      background: var(--canvas);
+      border-bottom: 1px solid var(--rule);
     }
-    .telemetry-cell {
+    @media (max-width: 960px) {
+      .ledger-strip { grid-template-columns: repeat(2, 1fr); }
+      .topbar { height: auto; padding: 10px 16px; flex-wrap: wrap; }
+      .topbar-right { flex-wrap: wrap; }
+    }
+    .ledger-cell {
       padding: 12px 20px;
-      border-right: 1px solid var(--hairline);
+      border-right: 1px solid var(--rule);
       display: flex;
       flex-direction: column;
-      justify-content: center;
+      gap: 2px;
     }
-    .telemetry-cell:last-child { border-right: none; }
-    .telemetry-label {
+    .ledger-cell:last-child { border-right: none; }
+    .ledger-head {
       font-size: 12px;
       color: var(--muted);
-      margin-bottom: 4px;
       display: flex;
       align-items: center;
       justify-content: space-between;
     }
-    .telemetry-value {
+    .ledger-figure {
       font-family: var(--mono);
       font-variant-numeric: tabular-nums;
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 600;
       color: #fff;
     }
-    .telemetry-sub {
+    .ledger-meta {
       font-family: var(--mono);
       font-size: 11px;
       color: var(--muted);
-      margin-top: 2px;
     }
 
-    /* Navigation Bar */
-    .workspace-nav {
-      background: var(--slate);
-      border-bottom: 1px solid var(--hairline);
+    /* 3. Navigation Tabs */
+    .nav-strip {
+      background: var(--surface);
+      border-bottom: 1px solid var(--rule);
       padding: 0 20px;
       display: flex;
-      gap: 4px;
+      gap: 2px;
       overflow-x: auto;
     }
-    .tab-btn {
-      padding: 11px 16px;
+    .nav-tab {
+      padding: 10px 16px;
       background: transparent;
       border: none;
       border-bottom: 2px solid transparent;
       color: var(--muted);
       font-family: var(--sans);
-      font-weight: 600;
       font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
-      transition: color 0.15s, border-color 0.15s;
+      transition: color 0.12s, border-color 0.12s;
     }
-    .tab-btn:hover {
-      color: var(--text);
+    .nav-tab:hover { color: var(--ink); }
+    .nav-tab.active {
+      color: #fff;
+      border-bottom-color: var(--gold);
+      background: rgba(200, 157, 66, 0.06);
     }
-    .tab-btn.active {
-      color: var(--bullion);
-      border-bottom-color: var(--bullion);
-      background: rgba(212, 168, 83, 0.05);
+    .nav-count {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--gold);
+      margin-left: 4px;
     }
 
-    /* Buttons */
+    /* 4. Buttons & Segmented Action Strips */
     .btn {
-      padding: 7px 12px;
+      height: 30px;
+      padding: 0 11px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       font-family: var(--sans);
       font-size: 12px;
       font-weight: 600;
-      border: 1px solid var(--hairline);
-      background: var(--slate);
-      color: var(--text);
+      border: 1px solid var(--rule);
+      background: var(--elevated);
+      color: var(--ink);
       cursor: pointer;
-      transition: border-color 0.15s, background 0.15s;
+      white-space: nowrap;
+      transition: border-color 0.12s, background 0.12s;
     }
-    .btn:hover { border-color: var(--bullion); }
-    .btn-gold {
-      background: var(--bullion);
+    .btn:hover { border-color: var(--gold); }
+    .btn-primary {
+      background: var(--gold);
       color: #080b10;
-      border-color: var(--bullion);
+      border-color: var(--gold);
       font-weight: 700;
     }
-    .btn-gold:hover { filter: brightness(1.08); }
-    .btn-green {
-      background: rgba(16, 185, 129, 0.14);
-      color: #34d399;
-      border-color: rgba(16, 185, 129, 0.4);
+    .btn-primary:hover { filter: brightness(1.07); }
+    .btn-bid {
+      background: rgba(12, 166, 120, 0.12);
+      color: #38d9a9;
+      border-color: rgba(12, 166, 120, 0.4);
     }
-    .btn-green:hover { background: var(--emerald); color: #04130d; }
-    .btn-danger {
-      background: rgba(225, 29, 72, 0.14);
-      color: #fda4af;
-      border-color: rgba(225, 29, 72, 0.4);
+    .btn-bid:hover { background: var(--bid); color: #04130e; }
+    .btn-ask {
+      background: rgba(224, 49, 49, 0.12);
+      color: #ffa8a8;
+      border-color: rgba(224, 49, 49, 0.4);
     }
-    .btn-danger:hover { background: var(--crimson); color: #fff; }
-    .btn-cyan {
-      background: rgba(56, 189, 248, 0.12);
-      color: var(--cyan);
-      border-color: rgba(56, 189, 248, 0.35);
+    .btn-ask:hover { background: var(--ask); color: #fff; }
+    .btn-quiet {
+      background: transparent;
+      color: var(--muted);
+      border-color: var(--rule);
     }
-    .btn-cyan:hover { background: var(--cyan); color: #06131f; }
+    .btn-quiet:hover { color: var(--ink); border-color: var(--muted); }
 
-    /* Main Workspace Panels */
+    /* Single-line Segmented Action Bar inside tables (never wraps into 3 lines) */
+    .action-strip {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--rule);
+      background: var(--canvas);
+      white-space: nowrap;
+    }
+    .action-strip button {
+      height: 26px;
+      padding: 0 9px;
+      border: none;
+      border-right: 1px solid var(--rule);
+      background: transparent;
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .action-strip button:last-child { border-right: none; }
+    .action-strip button:hover { background: var(--elevated); }
+    .action-strip button.act-bid { color: #38d9a9; }
+    .action-strip button.act-bid:hover { background: var(--bid); color: #04130e; }
+    .action-strip button.act-ask { color: #ffa8a8; }
+    .action-strip button.act-ask:hover { background: var(--ask); color: #fff; }
+    .action-strip button.act-edit { color: var(--cyan); }
+    .action-strip button.act-del { color: var(--muted); }
+    .action-strip button.act-del:hover { background: var(--ask); color: #fff; }
+
+    /* 5. Main Workspace Sections */
     .workspace {
-      max-width: 1600px;
-      width: 100%;
-      margin: 0 auto;
-      padding: 20px;
       flex: 1;
+      width: 100%;
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 16px 20px 36px;
     }
-    .tab-content { display: none; }
-    .tab-content.active { display: grid; gap: 20px; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: grid; gap: 16px; }
 
-    .panel {
-      background: var(--slate);
-      border: 1px solid var(--hairline);
+    .section-block {
+      background: var(--surface);
+      border: 1px solid var(--rule);
     }
-    .panel-header {
-      padding: 12px 18px;
-      border-bottom: 1px solid var(--hairline);
+    .section-bar {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--rule);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 10px;
-      background: rgba(10, 14, 20, 0.35);
+      gap: 12px;
+      background: rgba(8, 11, 16, 0.45);
     }
-    .panel-title {
-      font-size: 14px;
+    .section-title {
+      font-size: 13px;
       font-weight: 700;
       color: #fff;
     }
-    .panel-subtitle {
+    .section-hint {
       font-size: 12px;
       color: var(--muted);
+      margin-left: 10px;
       font-weight: 400;
     }
-    .panel-body {
-      padding: 18px;
+    .section-body {
+      padding: 16px;
       overflow-x: auto;
     }
-    .panel-body.flush {
+    .section-body.bleed {
       padding: 0;
     }
 
-    /* Data Tables */
+    /* 6. Data Tables — Strict Right-Aligned Tabular Figures */
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 13px;
+      font-size: 12.5px;
     }
     th, td {
-      padding: 10px 14px;
+      padding: 9px 14px;
       text-align: left;
-      border-bottom: 1px solid var(--hairline);
+      border-bottom: 1px solid var(--rule);
+      vertical-align: middle;
     }
     th {
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 600;
       color: var(--muted);
-      background: rgba(10, 14, 20, 0.45);
+      background: var(--canvas);
       white-space: nowrap;
     }
-    th.num-col, td.num-col {
+    th.num, td.num {
       text-align: right;
       font-family: var(--mono);
       font-variant-numeric: tabular-nums;
+      white-space: nowrap;
     }
-    tr.clickable-row {
+    td.code {
+      font-family: var(--mono);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    tr.interactive-row {
       cursor: pointer;
-      transition: background 0.12s;
     }
-    tr.clickable-row:hover td {
-      background: var(--slate-hover);
+    tr.interactive-row:hover td {
+      background: var(--elevated);
     }
 
-    /* Status Badges */
-    .tag {
-      display: inline-block;
-      padding: 2px 8px;
+    /* Rectangular Precision Badges (No bloated pill borders) */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 7px;
       font-family: var(--mono);
       font-size: 11px;
-      font-weight: 600;
-      border: 1px solid transparent;
+      font-weight: 500;
+      border-left: 2px solid transparent;
+      background: rgba(127, 142, 163, 0.1);
+      color: var(--muted);
+      white-space: nowrap;
     }
-    .tag-up { background: rgba(16, 185, 129, 0.14); color: #34d399; border-color: rgba(16, 185, 129, 0.35); }
-    .tag-down { background: rgba(225, 29, 72, 0.14); color: #fda4af; border-color: rgba(225, 29, 72, 0.35); }
-    .tag-hft { background: rgba(56, 189, 248, 0.14); color: var(--cyan); border-color: rgba(56, 189, 248, 0.35); }
-    .tag-gold { background: rgba(212, 168, 83, 0.15); color: var(--bullion); border-color: rgba(212, 168, 83, 0.4); }
-    .tag-neutral { background: rgba(139, 155, 180, 0.12); color: var(--muted); border-color: rgba(139, 155, 180, 0.25); }
+    .badge-bid {
+      border-left-color: var(--bid);
+      background: rgba(12, 166, 120, 0.12);
+      color: #38d9a9;
+    }
+    .badge-ask {
+      border-left-color: var(--ask);
+      background: rgba(224, 49, 49, 0.12);
+      color: #ffa8a8;
+    }
+    .badge-hft {
+      border-left-color: var(--cyan);
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--cyan);
+    }
+    .badge-gold {
+      border-left-color: var(--gold);
+      background: rgba(200, 157, 66, 0.14);
+      color: var(--gold);
+    }
 
-    /* Forms */
+    /* 7. Forms & Broker Autocomplete */
     .form-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 14px;
     }
     .field { position: relative; }
     .field label {
       display: block;
       font-size: 12px;
       font-weight: 600;
-      color: var(--text);
-      margin-bottom: 6px;
+      color: var(--ink);
+      margin-bottom: 5px;
     }
     .field input, .field select {
       width: 100%;
-      background: var(--obsidian);
-      border: 1px solid var(--hairline);
+      height: 34px;
+      background: var(--canvas);
+      border: 1px solid var(--rule);
       color: #fff;
-      padding: 9px 12px;
+      padding: 0 10px;
       font-size: 13px;
       font-family: var(--sans);
     }
-    .field input.mono-input {
-      font-family: var(--mono);
-    }
+    .field input.mono { font-family: var(--mono); }
     .field input:focus, .field select:focus {
-      border-color: var(--bullion);
+      border-color: var(--gold);
       outline: none;
     }
     .field small {
@@ -537,173 +609,148 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       margin-top: 4px;
     }
 
-    /* Broker Server Autocomplete Dropdown */
-    .autocomplete-box {
+    .autocomplete-menu {
       position: absolute;
-      top: 64px;
+      top: 60px;
       left: 0;
       right: 0;
-      background: #0c111a;
-      border: 1px solid var(--bullion);
-      max-height: 220px;
+      background: var(--surface);
+      border: 1px solid var(--gold);
+      max-height: 210px;
       overflow-y: auto;
-      z-index: 600;
+      z-index: 700;
       display: none;
-      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.75);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.8);
     }
-    .autocomplete-item {
-      padding: 9px 12px;
+    .autocomplete-option {
+      padding: 8px 12px;
       font-family: var(--mono);
       font-size: 12px;
       cursor: pointer;
-      border-bottom: 1px solid var(--hairline);
+      border-bottom: 1px solid var(--rule);
       display: flex;
       justify-content: space-between;
     }
-    .autocomplete-item:hover {
-      background: rgba(212, 168, 83, 0.18);
-      color: var(--bullion);
+    .autocomplete-option:hover {
+      background: var(--elevated);
+      color: var(--gold);
     }
 
-    .mode-switch {
-      display: inline-flex;
-      border: 1px solid var(--hairline);
-      background: var(--obsidian);
-    }
-    .mode-btn {
-      padding: 6px 12px;
-      border: none;
-      font-family: var(--sans);
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      background: transparent;
-      color: var(--muted);
-    }
-    .mode-btn.active {
-      background: var(--bullion);
-      color: #080b10;
-    }
-
-    .formula-banner {
-      background: var(--obsidian);
-      border: 1px solid var(--hairline);
-      border-left: 3px solid var(--cyan);
-      padding: 12px 16px;
+    .equation-bar {
+      background: var(--canvas);
+      border: 1px solid var(--rule);
+      border-left: 2px solid var(--gold);
+      padding: 10px 14px;
       font-family: var(--mono);
       font-size: 12px;
-      color: var(--cyan);
+      color: var(--gold);
       margin: 14px 0 8px;
-    }
-    .brief-note {
-      background: rgba(212, 168, 83, 0.06);
-      border-left: 3px solid var(--bullion);
-      padding: 10px 14px;
-      font-size: 12px;
-      color: #cbd5e1;
-      margin-bottom: 16px;
-      line-height: 1.5;
     }
     .toast {
       position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background: var(--emerald);
-      color: #04120c;
-      padding: 11px 18px;
-      font-weight: 700;
-      font-size: 13px;
+      bottom: 18px;
+      right: 18px;
+      background: var(--surface);
+      color: var(--ink);
+      border: 1px solid var(--rule);
+      border-left: 3px solid var(--bid);
+      padding: 10px 16px;
+      font-size: 12.5px;
+      font-weight: 600;
       display: none;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.7);
       z-index: 1000;
     }
   </style>
 </head>
 <body>
-  <!-- Top Command Strip -->
-  <header class="command-bar">
-    <div class="identity">
-      <div class="live-pulse"></div>
-      <span class="identity-title">Prado Institutional HFT</span>
-      <span class="engine-badge" id="connBadge">Inicializando motor...</span>
+  <!-- 1. Top Command Header -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="status-dot"></span>
+      <span class="desk-name">Prado Institutional HFT</span>
+      <span class="feed-indicator" id="connBadge">Conectando ao motor...</span>
     </div>
-    <div class="command-controls">
-      <div class="account-switcher">
-        <span>Conta ativa:</span>
+    <div class="topbar-right">
+      <div class="account-picker">
+        <span>Conta em operação:</span>
         <select id="headerAccountSelect" onchange="quickSwitchAccount(this.value)"></select>
       </div>
-      <button class="btn btn-cyan" onclick="resetDailyRisk()">Destravar risco diário</button>
-      <button class="btn btn-green" id="toggleAutoBtn" onclick="toggleAutoTrading()">Execução automática: Ativa</button>
-      <button class="btn btn-danger" onclick="panicFlatten()">Zerar todas as posições</button>
-      <button class="btn" onclick="logout()">Sair</button>
+      <button class="btn btn-quiet" onclick="resetDailyRisk()">Destravar limite diário</button>
+      <button class="btn btn-bid" id="toggleAutoBtn" onclick="toggleAutoTrading()">Execução automática: Ativa</button>
+      <button class="btn btn-ask" onclick="panicFlatten()">Zerar todas as posições</button>
+      <button class="btn btn-quiet" onclick="logout()">Sair</button>
     </div>
   </header>
 
-  <!-- Live Telemetry Strip -->
-  <section class="telemetry-strip">
-    <div class="telemetry-cell">
-      <div class="telemetry-label">
+  <!-- 2. Hero Ledger Bar -->
+  <section class="ledger-strip">
+    <div class="ledger-cell">
+      <div class="ledger-head">
         <span>Credencial MetaTrader 5</span>
-        <span id="kpiAccBadge" class="tag tag-hft">DEMO</span>
+        <span id="kpiAccBadge" class="badge badge-hft">Demo</span>
       </div>
-      <div class="telemetry-value" id="kpiAccount">---</div>
-      <div class="telemetry-sub" id="kpiServer">Servidor: ---</div>
+      <div class="ledger-figure" id="kpiAccount">---</div>
+      <div class="ledger-meta" id="kpiServer">Servidor: ---</div>
     </div>
-    <div class="telemetry-cell">
-      <div class="telemetry-label"><span>Patrimônio líquido (Equity)</span></div>
-      <div class="telemetry-value" id="kpiEquity">R$ 0,00</div>
-      <div class="telemetry-sub" id="kpiBalance">Saldo base: R$ 0,00</div>
+    <div class="ledger-cell">
+      <div class="ledger-head"><span>Patrimônio líquido (Equity)</span></div>
+      <div class="ledger-figure" id="kpiEquity">R$ 0,00</div>
+      <div class="ledger-meta" id="kpiBalance">Saldo base: R$ 0,00</div>
     </div>
-    <div class="telemetry-cell">
-      <div class="telemetry-label"><span>Frota de robôs matemáticos</span></div>
-      <div class="telemetry-value" id="kpiBotsRunning" style="color:var(--bullion);">0 / 0</div>
-      <div class="telemetry-sub" id="kpiRiskStatus">Guarda-costas: Operacional</div>
+    <div class="ledger-cell">
+      <div class="ledger-head"><span>Robôs matemáticos ativos</span></div>
+      <div class="ledger-figure" id="kpiBotsRunning" style="color:var(--gold);">0 / 0</div>
+      <div class="ledger-meta" id="kpiRiskStatus">Risco diário: Operacional</div>
     </div>
-    <div class="telemetry-cell">
-      <div class="telemetry-label"><span>Vetor de correlação da cesta</span></div>
-      <div class="telemetry-value" id="kpiCorr">0.0%</div>
-      <div class="telemetry-sub" id="lastUpdate">Sincronizando ticks...</div>
+    <div class="ledger-cell">
+      <div class="ledger-head"><span>Vetor de correlação da cesta</span></div>
+      <div class="ledger-figure" id="kpiCorr">0.0%</div>
+      <div class="ledger-meta" id="lastUpdate">Sincronizando...</div>
     </div>
   </section>
 
-  <!-- Workspace Navigation -->
-  <nav class="workspace-nav">
-    <button class="tab-btn active" onclick="switchTab('running-bots', this)">Robôs em execução (<span id="tabBotCount">0</span>)</button>
-    <button class="tab-btn" onclick="switchTab('create-bot', this)">Criar ou editar robô</button>
-    <button class="tab-btn" onclick="switchTab('backtest', this)">Backtest matemático tick a tick</button>
-    <button class="tab-btn" onclick="switchTab('categories', this)">Categorias de ativos</button>
-    <button class="tab-btn" onclick="switchTab('mt5', this)">Contas Demo e Real (MT5)</button>
-    <button class="tab-btn" onclick="switchTab('monitor', this)">Matriz matemática VWAP e Z-Score</button>
+  <!-- 3. Navigation Strip -->
+  <nav class="nav-strip">
+    <button class="nav-tab active" onclick="switchTab('running-bots', this)">Mesa de execução e robôs <span class="nav-count" id="tabBotCount">0</span></button>
+    <button class="nav-tab" onclick="switchTab('create-bot', this)">Configurar robô matemático</button>
+    <button class="nav-tab" onclick="switchTab('backtest', this)">Backtest tick a tick</button>
+    <button class="nav-tab" onclick="switchTab('categories', this)">Categorias de ativos</button>
+    <button class="nav-tab" onclick="switchTab('mt5', this)">Contas Demo e Real (MT5)</button>
+    <button class="nav-tab" onclick="switchTab('monitor', this)">Matriz VWAP e Z-Score</button>
   </nav>
 
+  <!-- 4. Main Workspace -->
   <main class="workspace">
-    <!-- TAB 1: RUNNING BOTS & POSITIONS -->
-    <div id="tab-running-bots" class="tab-content active">
-      <section class="panel">
-        <div class="panel-header">
+    <!-- PANE 1: RUNNING BOTS, LIVE POSITIONS, CLOSED DEALS -->
+    <div id="tab-running-bots" class="tab-pane active">
+      <section class="section-block">
+        <div class="section-bar">
           <div>
-            <div class="panel-title">Frota de robôs matemáticos em execução</div>
-            <div class="panel-subtitle">Clique em qualquer linha para editar lote, conta ou parâmetros do robô</div>
+            <span class="section-title">Frota de robôs matemáticos</span>
+            <span class="section-hint">Clique em qualquer linha para editar lote, conta ou parâmetros</span>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn btn-gold" onclick="startNewBotForm()">Novo robô matemático</button>
-            <button class="btn btn-danger" onclick="deleteAllBots()">Apagar todos os robôs</button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="startNewBotForm()">Novo robô matemático</button>
+            <button class="btn btn-quiet" onclick="deleteAllBots()">Limpar frota</button>
           </div>
         </div>
-        <div class="panel-body flush">
+        <div class="section-body bleed">
           <table>
             <thead>
               <tr>
-                <th>Robô e modelo matemático</th>
+                <th>Robô / Modelo matemático</th>
                 <th>Conta vinculada</th>
                 <th>Ativo</th>
-                <th class="num-col">Lote</th>
-                <th class="num-col">Preço / VWAP (&Sigma;PV/&Sigma;V)</th>
-                <th class="num-col">Z-Score / Imbalance</th>
-                <th>Regime detectado</th>
-                <th>Decisão</th>
+                <th class="num">Lote</th>
+                <th class="num">Preço atual</th>
+                <th class="num">VWAP (&Sigma;PV/&Sigma;V)</th>
+                <th class="num">Z-Score</th>
+                <th class="num">Imbalance</th>
+                <th>Regime estatístico</th>
+                <th>Sinal</th>
                 <th>Estado</th>
-                <th>Controles operacionais</th>
+                <th style="text-align:right;">Operações e edição</th>
               </tr>
             </thead>
             <tbody id="runningBotsBody"></tbody>
@@ -711,28 +758,28 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </div>
       </section>
 
-      <section class="panel">
-        <div class="panel-header">
+      <section class="section-block">
+        <div class="section-bar">
           <div>
-            <div class="panel-title">Posições abertas no MetaTrader 5</div>
-            <div class="panel-subtitle">Acompanhamento em tempo real com Stop Loss e Take Profit baseados no desvio padrão (&sigma;)</div>
+            <span class="section-title">Posições abertas no MetaTrader 5</span>
+            <span class="section-hint">Monitoramento em tempo real com alvos calibrados por desvio padrão (&sigma;)</span>
           </div>
         </div>
-        <div class="panel-body flush">
+        <div class="section-body bleed">
           <table>
             <thead>
               <tr>
                 <th>Bilhete</th>
                 <th>Ativo</th>
-                <th>Direção</th>
-                <th class="num-col">Volume</th>
-                <th class="num-col">Preço de entrada</th>
-                <th class="num-col">Preço atual</th>
-                <th class="num-col">Stop Loss (&sigma;)</th>
-                <th class="num-col">Take Profit (&sigma;)</th>
-                <th class="num-col">Resultado aberto</th>
-                <th>Robô de origem</th>
-                <th>Ação</th>
+                <th>Lado</th>
+                <th class="num">Volume</th>
+                <th class="num">Preço de entrada</th>
+                <th class="num">Preço atual</th>
+                <th class="num">Stop Loss (&sigma;)</th>
+                <th class="num">Take Profit (&sigma;)</th>
+                <th class="num">Resultado aberto</th>
+                <th>Robô</th>
+                <th style="text-align:right;">Comando</th>
               </tr>
             </thead>
             <tbody id="positionsBody"></tbody>
@@ -740,26 +787,26 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </div>
       </section>
 
-      <section class="panel">
-        <div class="panel-header">
+      <section class="section-block">
+        <div class="section-bar">
           <div>
-            <div class="panel-title">Histórico de operações encerradas na sessão</div>
-            <div class="panel-subtitle">Registro auditável de saídas por Take Profit, Stop Loss ou encerramento manual</div>
+            <span class="section-title">Histórico de operações encerradas</span>
+            <span class="section-hint">Saídas executadas por Take Profit, Stop Loss ou encerramento direto</span>
           </div>
         </div>
-        <div class="panel-body flush">
+        <div class="section-body bleed">
           <table>
             <thead>
               <tr>
                 <th>Bilhete</th>
                 <th>Horário</th>
                 <th>Ativo</th>
-                <th>Direção</th>
-                <th class="num-col">Volume</th>
-                <th class="num-col">Entrada</th>
-                <th class="num-col">Saída</th>
-                <th class="num-col">Resultado líquido</th>
-                <th>Motivo do encerramento</th>
+                <th>Lado</th>
+                <th class="num">Volume</th>
+                <th class="num">Preço de entrada</th>
+                <th class="num">Preço de saída</th>
+                <th class="num">Resultado líquido</th>
+                <th>Motivo da saída</th>
                 <th>Robô</th>
               </tr>
             </thead>
@@ -769,29 +816,29 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </section>
     </div>
 
-    <!-- TAB 2: CREATE / EDIT MATHEMATICAL BOT -->
-    <div id="tab-create-bot" class="tab-content">
-      <section class="panel">
-        <div class="panel-header">
+    <!-- PANE 2: CREATE OR EDIT MATHEMATICAL BOT -->
+    <div id="tab-create-bot" class="tab-pane">
+      <section class="section-block">
+        <div class="section-bar">
           <div>
-            <div class="panel-title" id="botFormTitle">Configurar novo robô matemático</div>
-            <div class="panel-subtitle">Operação puramente algorítmica sobre arrays de ticks do MetaTrader 5, sem sobrecarga de gráficos</div>
+            <span class="section-title" id="botFormTitle">Configurar robô matemático</span>
+            <span class="section-hint">Execução direta sobre vetores de ticks via biblioteca Python MetaTrader5</span>
           </div>
-          <div class="mode-switch">
-            <button type="button" id="btnModeMain" class="mode-btn active" onclick="setSymbolMode('PRINCIPAIS')">Ativos principais</button>
-            <button type="button" id="btnModeAll" class="mode-btn" onclick="setSymbolMode('TODOS')">Todos os ativos da corretora</button>
+          <div class="action-strip">
+            <button type="button" id="btnModeMain" class="act-bid" onclick="setSymbolMode('PRINCIPAIS')">Ativos principais</button>
+            <button type="button" id="btnModeAll" onclick="setSymbolMode('TODOS')">Todos os ativos da corretora</button>
           </div>
         </div>
-        <div class="panel-body">
+        <div class="section-body">
           <form id="createBotForm" onsubmit="createAndRunBot(event)">
             <input type="hidden" id="editing_bot_id" value="" />
             <div class="form-grid">
               <div class="field" style="grid-column: span 2;">
-                <label for="bot_template_id">Algoritmo matemático do robô</label>
+                <label for="bot_template_id">Modelo matemático</label>
                 <select id="bot_template_id" onchange="onBotTemplateChange()"></select>
               </div>
               <div class="field">
-                <label for="bot_name">Nome identificador do robô</label>
+                <label for="bot_name">Identificação do robô</label>
                 <input type="text" id="bot_name" placeholder="Ex: Desk BTC Fluxo Institucional" required />
               </div>
               <div class="field">
@@ -799,70 +846,66 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 <select id="bot_account_id"></select>
               </div>
               <div class="field">
-                <label for="bot_category_filter">Filtrar por categoria da corretora</label>
+                <label for="bot_category_filter">Filtro por categoria</label>
                 <select id="bot_category_filter" onchange="loadBrokerSymbols()">
                   <option value="">Todas as categorias</option>
                 </select>
               </div>
               <div class="field">
-                <label for="bot_symbol">Ativo da corretora (<span id="symModeLabel">PRINCIPAIS</span>)</label>
+                <label for="bot_symbol">Ativo (<span id="symModeLabel">PRINCIPAIS</span>)</label>
                 <select id="bot_symbol"></select>
-                <small id="symCountHint">Carregando lista de ativos...</small>
+                <small id="symCountHint">Carregando ativos...</small>
               </div>
               <div class="field">
-                <label for="bot_lot_size">Volume / Lote (ex: 0.01 cripto, 1.0 futuros)</label>
-                <input type="number" step="0.01" id="bot_lot_size" class="mono-input" value="0.10" required />
+                <label for="bot_lot_size">Volume / Lote</label>
+                <input type="number" step="0.01" id="bot_lot_size" class="mono" value="0.10" required />
               </div>
               <div class="field">
                 <label for="bot_window_ticks">Janela de amostragem (ticks)</label>
-                <input type="number" id="bot_window_ticks" class="mono-input" value="120" required />
+                <input type="number" id="bot_window_ticks" class="mono" value="120" required />
               </div>
               <div class="field">
-                <label for="bot_zscore">Limiar estatístico Z-Score (|Z|)</label>
-                <input type="number" step="0.1" id="bot_zscore" class="mono-input" value="1.8" required />
+                <label for="bot_zscore">Limiar Z-Score (|Z|)</label>
+                <input type="number" step="0.1" id="bot_zscore" class="mono" value="1.8" required />
               </div>
               <div class="field">
-                <label for="bot_imbalance">Desequilíbrio mínimo (Imbalance)</label>
-                <input type="number" step="0.05" id="bot_imbalance" class="mono-input" value="0.35" required />
+                <label for="bot_imbalance">Imbalance mínimo</label>
+                <input type="number" step="0.05" id="bot_imbalance" class="mono" value="0.35" required />
               </div>
               <div class="field">
-                <label for="bot_revert_sigma">Banda de reversão à média (&plusmn;k&middot;&sigma;)</label>
-                <input type="number" step="0.1" id="bot_revert_sigma" class="mono-input" value="2.0" required />
+                <label for="bot_revert_sigma">Banda de reversão (&plusmn;k&middot;&sigma;)</label>
+                <input type="number" step="0.1" id="bot_revert_sigma" class="mono" value="2.0" required />
               </div>
               <div class="field">
-                <label for="bot_corr_basket">Cesta de correlação multi-ativo</label>
-                <input type="text" id="bot_corr_basket" class="mono-input" value="PETR4, VALE3, Crypto_10#" />
+                <label for="bot_corr_basket">Cesta de correlação</label>
+                <input type="text" id="bot_corr_basket" class="mono" value="PETR4, VALE3, Crypto_10#" />
               </div>
             </div>
 
-            <div class="formula-banner" id="botFormulaDisplay">
+            <div class="equation-bar" id="botFormulaDisplay">
               Equação: VWAP = Σ(Pᵢ·Vᵢ)/ΣVᵢ | Z = (μ_w - μ)/(σ/√(w/4))
             </div>
-            <p id="botDescDisplay" style="font-size:12px;color:var(--muted);margin-bottom:18px;"></p>
+            <p id="botDescDisplay" style="font-size:12px;color:var(--muted);margin-bottom:16px;"></p>
 
-            <div style="display:flex; gap:10px; flex-wrap:wrap;">
-              <button type="submit" id="botSubmitBtn" class="btn btn-gold" style="padding:10px 20px;font-size:13px;">
-                Criar e iniciar execução automática
-              </button>
-              <button type="button" id="botCancelEditBtn" class="btn" style="display:none;" onclick="cancelBotEdit()">
-                Cancelar edição
-              </button>
+            <div style="display:flex; gap:8px;">
+              <button type="submit" id="botSubmitBtn" class="btn btn-primary">Criar e iniciar execução automática</button>
+              <button type="button" id="botCancelEditBtn" class="btn btn-quiet" style="display:none;" onclick="cancelBotEdit()">Cancelar edição</button>
             </div>
           </form>
         </div>
       </section>
     </div>
 
-    <!-- TAB 3: MATHEMATICAL BACKTESTER -->
-    <div id="tab-backtest" class="tab-content">
-      <section class="panel">
-        <div class="panel-header">
+    <!-- PANE 3: MATHEMATICAL BACKTESTER -->
+    <div id="tab-backtest" class="tab-pane">
+      <section class="section-block">
+        <div class="section-bar">
           <div>
-            <div class="panel-title">Simulador e backtester matemático tick a tick</div>
-            <div class="panel-subtitle">Valide expectativa matemática, taxa de acerto, fator de lucro e drawdown antes de ligar o robô em produção</div>
+            <span class="section-title">Backtester matemático tick a tick</span>
+            <span class="section-hint">Simulação estatística de alta velocidade sobre séries de ticks</span>
           </div>
         </div>
-        <div class="panel-body">
+        <div class="section-body">
           <form onsubmit="runMathBacktest(event)">
             <div class="form-grid">
               <div class="field">
@@ -870,58 +913,58 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 <select id="bt_template_id"></select>
               </div>
               <div class="field">
-                <label for="bt_symbol">Ativo analisado</label>
+                <label for="bt_symbol">Ativo</label>
                 <select id="bt_symbol"></select>
               </div>
               <div class="field">
-                <label for="bt_ticks">Amostra histórica (ticks)</label>
-                <input type="number" id="bt_ticks" class="mono-input" value="1200" min="200" max="5000" required />
+                <label for="bt_ticks">Amostra de ticks</label>
+                <input type="number" id="bt_ticks" class="mono" value="1200" min="200" max="5000" required />
               </div>
               <div class="field">
-                <label for="bt_capital">Capital inicial alocado</label>
-                <input type="number" id="bt_capital" class="mono-input" value="50000" required />
+                <label for="bt_capital">Capital inicial</label>
+                <input type="number" id="bt_capital" class="mono" value="50000" required />
               </div>
               <div class="field">
-                <label for="bt_lots">Volume / Lote simulado</label>
-                <input type="number" step="0.01" id="bt_lots" class="mono-input" value="1.0" required />
+                <label for="bt_lots">Lote simulado</label>
+                <input type="number" step="0.01" id="bt_lots" class="mono" value="1.0" required />
               </div>
               <div class="field">
                 <label for="bt_zscore">Limiar Z-Score</label>
-                <input type="number" step="0.1" id="bt_zscore" class="mono-input" value="1.5" required />
+                <input type="number" step="0.1" id="bt_zscore" class="mono" value="1.5" required />
               </div>
               <div class="field">
                 <label for="bt_imbalance">Imbalance mínimo</label>
-                <input type="number" step="0.05" id="bt_imbalance" class="mono-input" value="0.25" required />
+                <input type="number" step="0.05" id="bt_imbalance" class="mono" value="0.25" required />
               </div>
               <div class="field">
-                <label for="bt_sigma">Desvio padrão de reversão (&sigma;)</label>
-                <input type="number" step="0.1" id="bt_sigma" class="mono-input" value="1.8" required />
+                <label for="bt_sigma">Banda de reversão (&sigma;)</label>
+                <input type="number" step="0.1" id="bt_sigma" class="mono" value="1.8" required />
               </div>
             </div>
-            <div style="margin-top:18px;">
-              <button type="submit" class="btn btn-gold" style="padding:10px 20px;">Executar backtest matemático</button>
+            <div style="margin-top:16px;">
+              <button type="submit" class="btn btn-primary">Executar backtest matemático</button>
             </div>
           </form>
         </div>
       </section>
 
-      <section class="panel" id="btResultCard" style="display:none;">
-        <div class="panel-header">
-          <div class="panel-title">Relatório estatístico do backtest</div>
+      <section class="section-block" id="btResultCard" style="display:none;">
+        <div class="section-bar">
+          <span class="section-title">Relatório estatístico do backtest</span>
         </div>
-        <div class="telemetry-strip" id="btKpiGrid" style="border-top:none;"></div>
-        <div class="panel-body">
-          <div class="formula-banner" id="btFormulaUsed" style="margin-top:0;"></div>
+        <div class="ledger-strip" id="btKpiGrid"></div>
+        <div class="section-body">
+          <div class="equation-bar" id="btFormulaUsed" style="margin-top:0;"></div>
           <table>
             <thead>
               <tr>
                 <th>#</th>
-                <th>Direção</th>
+                <th>Lado</th>
                 <th>Gatilho matemático</th>
-                <th class="num-col">Preço de entrada</th>
-                <th class="num-col">Preço de saída</th>
-                <th class="num-col">Resultado líquido</th>
-                <th class="num-col">Curva de patrimônio</th>
+                <th class="num">Preço de entrada</th>
+                <th class="num">Preço de saída</th>
+                <th class="num">Resultado líquido</th>
+                <th class="num">Patrimônio acumulado</th>
               </tr>
             </thead>
             <tbody id="btTradesBody"></tbody>
@@ -930,45 +973,45 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </section>
     </div>
 
-    <!-- TAB 4: BROKER SYMBOL CATEGORIES -->
-    <div id="tab-categories" class="tab-content">
-      <section class="panel">
-        <div class="panel-header">
+    <!-- PANE 4: CATEGORIES -->
+    <div id="tab-categories" class="tab-pane">
+      <section class="section-block">
+        <div class="section-bar">
           <div>
-            <div class="panel-title">Criar ou editar categoria de ativos da corretora</div>
-            <div class="panel-subtitle">Clique em qualquer categoria da lista abaixo para carregar seus ativos e editar</div>
+            <span class="section-title">Categorias de ativos da corretora</span>
+            <span class="section-hint">Clique em qualquer categoria abaixo para editar seus símbolos</span>
           </div>
         </div>
-        <div class="panel-body">
+        <div class="section-body">
           <form onsubmit="saveCustomCategory(event)">
             <div class="form-grid">
               <div class="field">
                 <label for="new_cat_name">Nome da categoria</label>
-                <input type="text" id="new_cat_name" placeholder="Ex: Futuros B3 Alta Liquidez" required />
+                <input type="text" id="new_cat_name" placeholder="Ex: Futuros B3 Liquidez Institucional" required />
               </div>
               <div class="field">
                 <label for="new_cat_symbols">Símbolos vinculados (separados por vírgula)</label>
-                <input type="text" id="new_cat_symbols" class="mono-input" placeholder="Ex: WIN$N, WDO$N, IND$N, DOL$N" required />
+                <input type="text" id="new_cat_symbols" class="mono" placeholder="Ex: WIN$N, WDO$N, IND$N, DOL$N" required />
               </div>
             </div>
             <div style="margin-top:14px;">
-              <button type="submit" class="btn btn-gold">Salvar categoria de ativos</button>
+              <button type="submit" class="btn btn-primary">Salvar categoria</button>
             </div>
           </form>
         </div>
       </section>
 
-      <section class="panel">
-        <div class="panel-header">
-          <div class="panel-title">Categorias cadastradas</div>
+      <section class="section-block">
+        <div class="section-bar">
+          <span class="section-title">Categorias cadastradas</span>
         </div>
-        <div class="panel-body flush">
+        <div class="section-body bleed">
           <table>
             <thead>
               <tr>
                 <th>Categoria</th>
                 <th>Ativos vinculados</th>
-                <th>Controles</th>
+                <th style="text-align:right;">Controles</th>
               </tr>
             </thead>
             <tbody id="categoriesBody"></tbody>
@@ -977,73 +1020,72 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </section>
     </div>
 
-    <!-- TAB 5: DEMO & REAL MT5 ACCOUNTS -->
-    <div id="tab-mt5" class="tab-content">
-      <section class="panel">
-        <div class="panel-header">
+    <!-- PANE 5: DEMO & REAL MT5 ACCOUNTS -->
+    <div id="tab-mt5" class="tab-pane">
+      <section class="section-block">
+        <div class="section-bar">
           <div>
-            <div class="panel-title" id="accountFormTitle">Contas Demo e Real do MetaTrader 5</div>
-            <div class="panel-subtitle">Suas contas XM Global Demo (346595704) e Real (382177116) já estão cadastradas. Clique em qualquer conta para editar.</div>
+            <span class="section-title" id="accountFormTitle">Contas Demo e Real do MetaTrader 5</span>
+            <span class="section-hint">Suas contas XM Global Demo (346595704) e Real (382177116) já estão configuradas</span>
           </div>
         </div>
-        <div class="panel-body">
+        <div class="section-body">
           <form id="mt5Form" onsubmit="saveMt5Account(event)">
             <input type="hidden" id="editing_account_id" value="" />
             <div class="form-grid">
               <div class="field">
                 <label for="acc_type">Ambiente da conta</label>
                 <select id="acc_type">
-                  <option value="DEMO">Conta Demo (Homologação / Simulação)</option>
-                  <option value="REAL">Conta Real (Produção na Corretora)</option>
+                  <option value="DEMO">Conta Demo (Homologação)</option>
+                  <option value="REAL">Conta Real (Produção)</option>
                 </select>
               </div>
               <div class="field">
-                <label for="acc_label">Nome de identificação</label>
+                <label for="acc_label">Identificação da conta</label>
                 <input type="text" id="acc_label" placeholder="Ex: Jose XM Global Demo" required />
               </div>
               <div class="field">
-                <label for="mt5_login">Login da conta MT5</label>
-                <input type="text" id="mt5_login" class="mono-input" placeholder="Ex: 346595704" required />
+                <label for="mt5_login">Login MT5</label>
+                <input type="text" id="mt5_login" class="mono" placeholder="Ex: 346595704" required />
               </div>
               <div class="field">
-                <label for="mt5_password">Senha da conta MT5</label>
-                <input type="password" id="mt5_password" class="mono-input" placeholder="Deixe em branco ao editar para manter a atual" />
+                <label for="mt5_password">Senha MT5</label>
+                <input type="password" id="mt5_password" class="mono" placeholder="Em branco mantém a senha atual" />
               </div>
               <div class="field">
-                <label for="mt5_server">Servidor da corretora (autocompletar ao digitar)</label>
+                <label for="mt5_server">Servidor da corretora (autocompletar)</label>
                 <input
                   type="text"
                   id="mt5_server"
-                  class="mono-input"
+                  class="mono"
                   list="brokerServersDatalist"
-                  placeholder="Digite XMGlobal, XP, Clear, ICMarkets..."
+                  placeholder="Digite XMGlobal, XP, Clear..."
                   autocomplete="off"
                   oninput="onServerInputAutocomplete(this.value)"
                   onfocus="onServerInputAutocomplete(this.value)"
                   required
                 />
                 <datalist id="brokerServersDatalist"></datalist>
-                <div id="serverAutocompleteBox" class="autocomplete-box"></div>
-                <small>Digite as primeiras letras da corretora para carregar os servidores oficiais.</small>
+                <div id="serverAutocompleteBox" class="autocomplete-menu"></div>
               </div>
             </div>
-            <div style="margin-top: 18px; display:flex; gap:10px;">
-              <button type="submit" id="accSubmitBtn" class="btn btn-gold">Salvar conta e conectar</button>
-              <button type="button" id="accCancelEditBtn" class="btn" style="display:none;" onclick="cancelAccountEdit()">Cancelar edição</button>
+            <div style="margin-top: 16px; display:flex; gap:8px;">
+              <button type="submit" id="accSubmitBtn" class="btn btn-primary">Salvar conta e conectar</button>
+              <button type="button" id="accCancelEditBtn" class="btn btn-quiet" style="display:none;" onclick="cancelAccountEdit()">Cancelar edição</button>
             </div>
           </form>
         </div>
       </section>
 
-      <section class="panel">
-        <div class="panel-header">
+      <section class="section-block">
+        <div class="section-bar">
           <div>
-            <div class="panel-title">Contas disponíveis para operação</div>
-            <div class="panel-subtitle">Alterne entre Demo e Real com um clique ou edite/apague credenciais</div>
+            <span class="section-title">Contas registradas</span>
+            <span class="section-hint">Clique em qualquer conta para editar ou alternar o ambiente ativo</span>
           </div>
-          <button class="btn btn-danger" onclick="deleteAllAccounts()">Apagar todas as contas</button>
+          <button class="btn btn-quiet" onclick="deleteAllAccounts()">Limpar contas</button>
         </div>
-        <div class="panel-body flush">
+        <div class="section-body bleed">
           <table>
             <thead>
               <tr>
@@ -1051,8 +1093,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 <th>Identificação</th>
                 <th>Login MT5</th>
                 <th>Servidor da corretora</th>
-                <th>Status</th>
-                <th>Controles</th>
+                <th>Estado</th>
+                <th style="text-align:right;">Controles</th>
               </tr>
             </thead>
             <tbody id="accountsBody"></tbody>
@@ -1061,27 +1103,27 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </section>
     </div>
 
-    <!-- TAB 6: VWAP & Z-SCORE MATHEMATICAL MATRIX -->
-    <div id="tab-monitor" class="tab-content">
-      <section class="panel">
-        <div class="panel-header">
+    <!-- PANE 6: VWAP & Z-SCORE MATRIX -->
+    <div id="tab-monitor" class="tab-pane">
+      <section class="section-block">
+        <div class="section-bar">
           <div>
-            <div class="panel-title">Matriz matemática em tempo real — VWAP, Bandas (&plusmn;1&sigma; / &plusmn;2&sigma;) e Z-Score</div>
-            <div class="panel-subtitle">Leitura contínua de fluxo de agressão e desvio padrão para todos os ativos monitorados</div>
+            <span class="section-title">Matriz matemática — VWAP, Bandas (&plusmn;1&sigma; / &plusmn;2&sigma;) e Z-Score</span>
+            <span class="section-hint">Cálculo contínuo sobre todos os símbolos monitorados</span>
           </div>
         </div>
-        <div class="panel-body flush">
+        <div class="section-body bleed">
           <table>
             <thead>
               <tr>
                 <th>Ativo</th>
-                <th class="num-col">Preço atual (P)</th>
-                <th class="num-col">VWAP (&Sigma;PV/&Sigma;V)</th>
-                <th class="num-col">Banda -2&sigma;</th>
-                <th class="num-col">Banda +2&sigma;</th>
-                <th class="num-col">Desvio (&sigma;)</th>
-                <th class="num-col">Imbalance</th>
-                <th class="num-col">Z-Score</th>
+                <th class="num">Preço atual (P)</th>
+                <th class="num">VWAP (&Sigma;PV/&Sigma;V)</th>
+                <th class="num">Banda -2&sigma;</th>
+                <th class="num">Banda +2&sigma;</th>
+                <th class="num">Desvio (&sigma;)</th>
+                <th class="num">Imbalance</th>
+                <th class="num">Z-Score</th>
                 <th>Regime estatístico</th>
                 <th>Sinal calculado</th>
               </tr>
@@ -1091,17 +1133,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </div>
       </section>
 
-      <section class="panel">
-        <div class="panel-header">
-          <div class="panel-title">Registro de eventos do motor e guarda-costas de risco</div>
+      <section class="section-block">
+        <div class="section-bar">
+          <span class="section-title">Diário de execução do motor quantitativo</span>
         </div>
-        <div class="panel-body flush">
+        <div class="section-body bleed">
           <table>
             <thead>
               <tr>
                 <th>Horário</th>
-                <th>Subsistema</th>
-                <th>Descrição do evento</th>
+                <th>Módulo</th>
+                <th>Registro</th>
               </tr>
             </thead>
             <tbody id="eventsBody"></tbody>
@@ -1111,7 +1153,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     </div>
   </main>
 
-  <div id="toast" class="toast">Alterações salvas.</div>
+  <div id="toast" class="toast">Operação concluída.</div>
 
   <script>
     let currentConfig = {};
@@ -1124,27 +1166,27 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const t = document.getElementById('toast');
       t.textContent = msg;
       t.style.display = 'block';
-      setTimeout(() => { t.style.display = 'none'; }, 3400);
+      setTimeout(() => { t.style.display = 'none'; }, 3200);
     }
 
     function switchTab(name, btn) {
-      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
       document.getElementById('tab-' + name).classList.add('active');
       if (btn) btn.classList.add('active');
     }
 
-    function regimePill(regime) {
-      if (regime === 'INSTITUTIONAL_TREND_UP') return '<span class="tag tag-up">Trem VWAP (+Z)</span>';
-      if (regime === 'INSTITUTIONAL_TREND_DOWN') return '<span class="tag tag-down">Trem VWAP (-Z)</span>';
-      if (regime === 'HFT_MEAN_REVERSION') return '<span class="tag tag-hft">Reversão HFT (&plusmn;2&sigma;)</span>';
-      return '<span class="tag tag-neutral">Equilíbrio (0)</span>';
+    function regimeBadge(regime) {
+      if (regime === 'INSTITUTIONAL_TREND_UP') return '<span class="badge badge-bid">Trem VWAP (+Z)</span>';
+      if (regime === 'INSTITUTIONAL_TREND_DOWN') return '<span class="badge badge-ask">Trem VWAP (-Z)</span>';
+      if (regime === 'HFT_MEAN_REVERSION') return '<span class="badge badge-hft">Reversão HFT (&plusmn;2&sigma;)</span>';
+      return '<span class="badge">Equilíbrio (0)</span>';
     }
 
-    function actionPill(action) {
-      if ((action || '').startsWith('BUY')) return `<span class="tag tag-up">${action}</span>`;
-      if ((action || '').startsWith('SELL')) return `<span class="tag tag-down">${action}</span>`;
-      return `<span class="tag tag-neutral">${action || 'WAIT'}</span>`;
+    function actionBadge(action) {
+      if ((action || '').startsWith('BUY')) return `<span class="badge badge-bid">${action}</span>`;
+      if ((action || '').startsWith('SELL')) return `<span class="badge badge-ask">${action}</span>`;
+      return `<span class="badge">${action || 'WAIT'}</span>`;
     }
 
     async function loadBrokerServersCatalog() {
@@ -1161,15 +1203,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const q = (query || '').trim().toLowerCase();
       const matches = q
         ? allBrokerServers.filter(s => s.toLowerCase().includes(q))
-        : allBrokerServers.slice(0, 18);
+        : allBrokerServers.slice(0, 16);
       if (matches.length === 0) {
         box.style.display = 'none';
         return;
       }
       box.innerHTML = matches.map(s => `
-        <div class="autocomplete-item" onmousedown="selectBrokerServer('${s.replace(/'/g, "\\'")}')">
+        <div class="autocomplete-option" onmousedown="selectBrokerServer('${s.replace(/'/g, "\\'")}')">
           <span>${s}</span>
-          <span style="color:var(--muted);">MT5 Server</span>
+          <span style="color:var(--muted);">MT5</span>
         </div>
       `).join('');
       box.style.display = 'block';
@@ -1218,8 +1260,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     async function setSymbolMode(mode) {
       currentSymbolMode = mode;
       document.getElementById('symModeLabel').textContent = mode;
-      document.getElementById('btnModeMain').classList.toggle('active', mode === 'PRINCIPAIS');
-      document.getElementById('btnModeAll').classList.toggle('active', mode === 'TODOS');
+      document.getElementById('btnModeMain').className = mode === 'PRINCIPAIS' ? 'act-bid' : '';
+      document.getElementById('btnModeAll').className = mode === 'TODOS' ? 'act-bid' : '';
       await loadBrokerSymbols();
     }
 
@@ -1236,7 +1278,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (selectedSymbol) botSymSel.value = selectedSymbol;
       const btSym = document.getElementById('bt_symbol');
       if (!btSym.innerHTML) btSym.innerHTML = htmlOpts;
-      document.getElementById('symCountHint').textContent = `${syms.length} ativo(s) carregado(s) no modo ${currentSymbolMode}.`;
+      document.getElementById('symCountHint').textContent = `${syms.length} ativo(s) disponíveis no modo ${currentSymbolMode}.`;
     }
 
     function renderCategoriesAndAccounts(categories, accounts, activeAccountId) {
@@ -1251,12 +1293,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       catBody.innerHTML = catNames.map(c => {
         const symsStr = (categories[c] || []).join(', ');
         return `
-          <tr class="clickable-row" onclick="editCategory('${c.replace(/'/g, "\\'")}', '${symsStr.replace(/'/g, "\\'")}')">
+          <tr class="interactive-row" onclick="editCategory('${c.replace(/'/g, "\\'")}', '${symsStr.replace(/'/g, "\\'")}')">
             <td><strong>${c}</strong></td>
-            <td>${(categories[c] || []).map(s => `<span class="tag tag-neutral" style="margin:2px;">${s}</span>`).join(' ')}</td>
-            <td onclick="event.stopPropagation();" style="display:flex;gap:6px;">
-              <button class="btn btn-cyan" onclick="editCategory('${c.replace(/'/g, "\\'")}', '${symsStr.replace(/'/g, "\\'")}')">Editar</button>
-              <button class="btn btn-danger" onclick="deleteCategory('${c.replace(/'/g, "\\'")}')">Apagar</button>
+            <td>${(categories[c] || []).map(s => `<span class="badge" style="margin:2px;">${s}</span>`).join(' ')}</td>
+            <td onclick="event.stopPropagation();" style="text-align:right;">
+              <div class="action-strip">
+                <button class="act-edit" onclick="editCategory('${c.replace(/'/g, "\\'")}', '${symsStr.replace(/'/g, "\\'")}')">Editar</button>
+                <button class="act-del" onclick="deleteCategory('${c.replace(/'/g, "\\'")}')">Apagar</button>
+              </div>
             </td>
           </tr>
         `;
@@ -1266,12 +1310,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const hdrSel = document.getElementById('headerAccountSelect');
       const list = accounts || [];
       if (list.length === 0) {
-        const defOpt = '<option value="default">[DEMO] Simulador Quantitativo</option>';
+        const defOpt = '<option value="default">[Demo] Simulador Quantitativo</option>';
         accSel.innerHTML = defOpt;
         hdrSel.innerHTML = defOpt;
       } else {
         const opts = list.map(a => {
-          const badge = a.account_type === 'REAL' ? 'REAL' : 'DEMO';
+          const badge = a.account_type === 'REAL' ? 'Real' : 'Demo';
           const selected = a.account_id === activeAccountId ? 'selected' : '';
           return `<option value="${a.account_id}" ${selected}>[${badge}] ${a.label} (${a.mt5_login} @ ${a.mt5_server})</option>`;
         }).join('');
@@ -1281,25 +1325,27 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
       const accBody = document.getElementById('accountsBody');
       if (list.length === 0) {
-        accBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px;">Nenhuma conta cadastrada. Preencha os dados da corretora acima para adicionar uma conta Demo ou Real.</td></tr>';
+        accBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px;">Nenhuma conta registrada. Utilize o formulário acima para cadastrar sua conta Demo ou Real.</td></tr>';
       } else {
         accBody.innerHTML = list.map(a => {
           const isReal = a.account_type === 'REAL';
           const isActive = a.account_id === activeAccountId;
           return `
-            <tr class="clickable-row" onclick="editAccount('${a.account_id}')">
-              <td><span class="tag ${isReal ? 'tag-gold' : 'tag-hft'}">${isReal ? 'Conta Real' : 'Conta Demo'}</span></td>
+            <tr class="interactive-row" onclick="editAccount('${a.account_id}')">
+              <td><span class="badge ${isReal ? 'badge-gold' : 'badge-hft'}">${isReal ? 'Real' : 'Demo'}</span></td>
               <td><strong>${a.label}</strong></td>
-              <td class="num">${a.mt5_login}</td>
-              <td class="num"><strong>${a.mt5_server}</strong></td>
-              <td>${isActive ? '<span class="tag tag-up">Ativa na mesa</span>' : '<span class="tag tag-neutral">Disponível</span>'}</td>
-              <td onclick="event.stopPropagation();" style="display:flex;gap:6px;flex-wrap:wrap;">
-                ${isActive
-                  ? '<button class="btn" disabled>Em uso</button>'
-                  : `<button class="btn btn-gold" onclick="quickSwitchAccount('${a.account_id}')">Usar conta</button>`
-                }
-                <button class="btn btn-cyan" onclick="editAccount('${a.account_id}')">Editar</button>
-                <button class="btn btn-danger" onclick="deleteAccount('${a.account_id}')">Apagar</button>
+              <td class="code">${a.mt5_login}</td>
+              <td class="code">${a.mt5_server}</td>
+              <td>${isActive ? '<span class="badge badge-bid">Em operação</span>' : '<span class="badge">Disponível</span>'}</td>
+              <td onclick="event.stopPropagation();" style="text-align:right;">
+                <div class="action-strip">
+                  ${isActive
+                    ? '<button disabled style="color:var(--muted);">Ativa</button>'
+                    : `<button class="act-bid" onclick="quickSwitchAccount('${a.account_id}')">Ativar</button>`
+                  }
+                  <button class="act-edit" onclick="editAccount('${a.account_id}')">Editar</button>
+                  <button class="act-del" onclick="deleteAccount('${a.account_id}')">Apagar</button>
+                </div>
               </td>
             </tr>
           `;
@@ -1311,7 +1357,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('new_cat_name').value = catName;
       document.getElementById('new_cat_symbols').value = symsCsv;
       document.getElementById('new_cat_name').focus();
-      showToast(`Editando categoria "${catName}".`);
+      showToast(`Categoria "${catName}" carregada para edição.`);
     }
 
     function editAccount(accountId) {
@@ -1326,8 +1372,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('mt5_server').value = acc.mt5_server || '';
       document.getElementById('accountFormTitle').textContent = `Editando conta: ${acc.label} (${acc.mt5_login})`;
       document.getElementById('accSubmitBtn').textContent = 'Salvar alterações da conta';
-      document.getElementById('accCancelEditBtn').style.display = 'inline-block';
-      switchTab('mt5', document.querySelectorAll('.tab-btn')[4]);
+      document.getElementById('accCancelEditBtn').style.display = 'inline-flex';
+      switchTab('mt5', document.querySelectorAll('.nav-tab')[4]);
       showToast(`Conta ${acc.mt5_login} carregada para edição.`);
     }
 
@@ -1366,7 +1412,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok) {
         currentConfig.accounts = [];
         renderCategoriesAndAccounts(currentConfig.custom_categories, [], '');
-        showToast('Todas as contas foram apagadas.');
+        showToast('Lista de contas limpa.');
       }
     }
 
@@ -1378,14 +1424,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       });
       const data = await res.json();
       if (data.ok) {
-        showToast('Todos os robôs foram apagados.');
+        showToast('Frota de robôs limpa.');
         refreshStatus();
       }
     }
 
     function startNewBotForm() {
       cancelBotEdit();
-      switchTab('create-bot', document.querySelectorAll('.tab-btn')[1]);
+      switchTab('create-bot', document.querySelectorAll('.nav-tab')[1]);
     }
 
     async function editBot(botId) {
@@ -1406,8 +1452,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('bot_corr_basket').value = (bot.correlated_basket || []).join(', ');
       document.getElementById('botFormTitle').textContent = `Editando robô: ${bot.name} (${bot.symbol})`;
       document.getElementById('botSubmitBtn').textContent = 'Salvar alterações do robô';
-      document.getElementById('botCancelEditBtn').style.display = 'inline-block';
-      switchTab('create-bot', document.querySelectorAll('.tab-btn')[1]);
+      document.getElementById('botCancelEditBtn').style.display = 'inline-flex';
+      switchTab('create-bot', document.querySelectorAll('.nav-tab')[1]);
       showToast(`Robô "${bot.name}" carregado para edição.`);
     }
 
@@ -1415,7 +1461,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('editing_bot_id').value = '';
       document.getElementById('bot_name').value = '';
       document.getElementById('bot_lot_size').value = '0.10';
-      document.getElementById('botFormTitle').textContent = 'Configurar novo robô matemático';
+      document.getElementById('botFormTitle').textContent = 'Configurar robô matemático';
       document.getElementById('botSubmitBtn').textContent = 'Criar e iniciar execução automática';
       document.getElementById('botCancelEditBtn').style.display = 'none';
       onBotTemplateChange();
@@ -1425,7 +1471,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const res = await fetch('/api/risk/reset', {method: 'POST'});
       const data = await res.json();
       if (data.ok) {
-        showToast('Trava de perda diária resetada e robôs liberados.');
+        showToast('Limite diário destravado.');
         refreshStatus();
       }
     }
@@ -1468,10 +1514,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const snap = await res.json();
         const acc = snap.account || {};
         const accType = acc.account_type || 'DEMO';
-        document.getElementById('connBadge').textContent = `${acc.backend || 'ONLINE'} • ${acc.login || ''}`;
+        document.getElementById('connBadge').textContent = `${acc.backend || 'ONLINE'} • Conta ${acc.login || ''}`;
         const accBadge = document.getElementById('kpiAccBadge');
-        accBadge.textContent = accType;
-        accBadge.className = `tag ${accType === 'REAL' ? 'tag-gold' : 'tag-hft'}`;
+        accBadge.textContent = accType === 'REAL' ? 'Real' : 'Demo';
+        accBadge.className = `badge ${accType === 'REAL' ? 'badge-gold' : 'badge-hft'}`;
         document.getElementById('kpiAccount').textContent = acc.login || '---';
         document.getElementById('kpiServer').textContent = `Servidor: ${acc.server || '---'}`;
         document.getElementById('kpiEquity').textContent = `${acc.currency || 'R$'} ${(acc.equity || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
@@ -1480,107 +1526,118 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const bots = snap.bots || [];
         latestBotsList = bots;
         const runningCount = bots.filter(b => b.status === 'RUNNING').length;
-        document.getElementById('kpiBotsRunning').textContent = `${runningCount} ativos / ${bots.length} total`;
+        document.getElementById('kpiBotsRunning').textContent = `${runningCount} ativos de ${bots.length}`;
         document.getElementById('tabBotCount').textContent = runningCount;
 
         const rStatus = document.getElementById('kpiRiskStatus');
         rStatus.textContent = snap.risk_status || 'Operacional';
-        rStatus.style.color = snap.risk_locked ? 'var(--crimson)' : 'var(--emerald)';
+        rStatus.style.color = snap.risk_locked ? 'var(--ask)' : 'var(--bid)';
 
         const corr = Number(snap.correlation_bias || 0);
         const kpiCorr = document.getElementById('kpiCorr');
         kpiCorr.textContent = `${corr >= 0 ? '+' : ''}${(corr * 100).toFixed(1)}%`;
-        kpiCorr.style.color = corr > 0.15 ? 'var(--emerald)' : (corr < -0.15 ? 'var(--crimson)' : '#fff');
+        kpiCorr.style.color = corr > 0.15 ? 'var(--bid)' : (corr < -0.15 ? 'var(--ask)' : '#fff');
 
         const autoBtn = document.getElementById('toggleAutoBtn');
         if (snap.auto_trading_enabled) {
           autoBtn.textContent = 'Execução automática: Ativa';
-          autoBtn.className = 'btn btn-green';
+          autoBtn.className = 'btn btn-bid';
         } else {
           autoBtn.textContent = 'Execução automática: Pausada';
-          autoBtn.className = 'btn btn-danger';
+          autoBtn.className = 'btn btn-ask';
         }
 
         const botsBody = document.getElementById('runningBotsBody');
         if (bots.length === 0) {
-          botsBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:24px;">Nenhum robô matemático configurado. Acesse a aba <strong>Criar ou editar robô</strong> para selecionar um algoritmo e iniciar a execução.</td></tr>';
+          botsBody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:24px;">Nenhum robô configurado na mesa. Selecione <strong>Novo robô matemático</strong> para iniciar.</td></tr>';
         } else {
           botsBody.innerHTML = bots.map(b => {
             const isRun = b.status === 'RUNNING';
             const bType = b.account_type || 'DEMO';
+            const cleanAccountName = (b.account_label || '').replace(/^\\[(DEMO|REAL)\\]\\s*/i, '');
             return `
-              <tr class="clickable-row" onclick="editBot('${b.bot_id}')" title="Clique para editar este robô">
+              <tr class="interactive-row" onclick="editBot('${b.bot_id}')" title="Clique para editar este robô">
                 <td>
-                  <strong>${b.name}</strong><br/>
-                  <small style="color:var(--cyan);font-family:var(--mono);">${b.bot_template_name || b.operation_mode}</small><br/>
-                  <small style="color:var(--muted)">Ordens disparadas: ${b.trades_executed || 0}</small>
+                  <strong>${b.name}</strong>
+                  <div style="color:var(--muted);font-size:11.5px;">${b.bot_template_name || b.operation_mode} • ${b.trades_executed || 0} ordens</div>
                 </td>
-                <td><span class="tag ${bType === 'REAL' ? 'tag-gold' : 'tag-hft'}">${bType}</span><br/><small style="color:var(--muted)">${b.account_label || ''}</small></td>
-                <td><strong class="num">${b.symbol}</strong><br/><small style="color:var(--muted)">${b.category || ''}</small></td>
-                <td class="num-col"><strong>${b.lot_size}</strong></td>
-                <td class="num-col"><strong>${b.last_price || '---'}</strong><br/><small style="color:var(--bullion)">VWAP: ${b.vwap || '---'}</small></td>
-                <td class="num-col">Z: <strong>${Number(b.aggression_zscore || 0).toFixed(2)}</strong><br/>Imb: ${(Number(b.imbalance_ratio || 0) * 100).toFixed(1)}%</td>
-                <td>${regimePill(b.last_regime)}</td>
-                <td>${actionPill(b.last_signal)}</td>
                 <td>
-                  <span class="tag ${isRun ? 'tag-up' : 'tag-down'}">
-                    ${isRun ? 'Em execução' : 'Pausado'}
+                  <span class="badge ${bType === 'REAL' ? 'badge-gold' : 'badge-hft'}">${bType === 'REAL' ? 'Real' : 'Demo'}</span>
+                  <span style="color:var(--muted);font-size:12px;margin-left:6px;">${cleanAccountName}</span>
+                </td>
+                <td class="code"><strong>${b.symbol}</strong></td>
+                <td class="num">${b.lot_size}</td>
+                <td class="num"><strong>${b.last_price || '---'}</strong></td>
+                <td class="num" style="color:var(--gold);">${b.vwap || '---'}</td>
+                <td class="num"><strong>${Number(b.aggression_zscore || 0).toFixed(2)}</strong></td>
+                <td class="num">${(Number(b.imbalance_ratio || 0) * 100).toFixed(1)}%</td>
+                <td>${regimeBadge(b.last_regime)}</td>
+                <td>${actionBadge(b.last_signal)}</td>
+                <td>
+                  <span class="badge ${isRun ? 'badge-bid' : 'badge-ask'}">
+                    ${isRun ? 'Ativo' : 'Pausado'}
                   </span>
                 </td>
-                <td onclick="event.stopPropagation();" style="display:flex;gap:5px;flex-wrap:wrap;">
-                  <button class="btn btn-green" title="Disparar compra imediata" onclick="botAction('${b.bot_id}', 'FIRE_BUY')">Comprar</button>
-                  <button class="btn btn-danger" title="Disparar venda imediata" onclick="botAction('${b.bot_id}', 'FIRE_SELL')">Vender</button>
-                  <button class="btn btn-cyan" onclick="editBot('${b.bot_id}')">Editar</button>
-                  ${isRun
-                    ? `<button class="btn btn-danger" onclick="botAction('${b.bot_id}', 'STOP')">Pausar</button>`
-                    : `<button class="btn btn-green" onclick="botAction('${b.bot_id}', 'START')">Iniciar</button>`
-                  }
-                  <button class="btn btn-danger" onclick="botAction('${b.bot_id}', 'DELETE')">Apagar</button>
+                <td onclick="event.stopPropagation();" style="text-align:right;">
+                  <div class="action-strip">
+                    <button class="act-bid" onclick="botAction('${b.bot_id}', 'FIRE_BUY')">Comprar</button>
+                    <button class="act-ask" onclick="botAction('${b.bot_id}', 'FIRE_SELL')">Vender</button>
+                    <button class="act-edit" onclick="editBot('${b.bot_id}')">Editar</button>
+                    ${isRun
+                      ? `<button onclick="botAction('${b.bot_id}', 'STOP')">Pausar</button>`
+                      : `<button class="act-bid" onclick="botAction('${b.bot_id}', 'START')">Iniciar</button>`
+                    }
+                    <button class="act-del" onclick="botAction('${b.bot_id}', 'DELETE')">Apagar</button>
+                  </div>
                 </td>
               </tr>
             `;
           }).join('');
         }
 
-        document.getElementById('lastUpdate').textContent = `Último ciclo: ${snap.timestamp || ''}`;
+        document.getElementById('lastUpdate').textContent = `Ciclo: ${snap.timestamp || ''}`;
 
         const symBody = document.getElementById('symbolsBody');
         const syms = Object.values(snap.symbols || {});
         symBody.innerHTML = syms.map(s => `
           <tr>
-            <td class="num"><strong>${s.symbol}</strong></td>
-            <td class="num-col"><strong>${s.last_price}</strong></td>
-            <td class="num-col" style="color:var(--bullion);font-weight:600;">${s.vwap}</td>
-            <td class="num-col" style="color:var(--emerald);">${s.lower_2}</td>
-            <td class="num-col" style="color:var(--crimson);">${s.upper_2}</td>
-            <td class="num-col">${s.distance_sigma >= 0 ? '+' : ''}${s.distance_sigma}&sigma;</td>
-            <td class="num-col" style="color:${s.imbalance_ratio >= 0 ? 'var(--emerald)' : 'var(--crimson)'};font-weight:600;">
+            <td class="code"><strong>${s.symbol}</strong></td>
+            <td class="num"><strong>${s.last_price}</strong></td>
+            <td class="num" style="color:var(--gold);font-weight:600;">${s.vwap}</td>
+            <td class="num" style="color:var(--bid);">${s.lower_2}</td>
+            <td class="num" style="color:var(--ask);">${s.upper_2}</td>
+            <td class="num">${s.distance_sigma >= 0 ? '+' : ''}${s.distance_sigma}&sigma;</td>
+            <td class="num" style="color:${s.imbalance_ratio >= 0 ? 'var(--bid)' : 'var(--ask)'};font-weight:600;">
               ${(s.imbalance_ratio * 100).toFixed(1)}%
             </td>
-            <td class="num-col" style="font-weight:600;">${s.aggression_zscore.toFixed(2)}</td>
-            <td>${regimePill(s.regime)}</td>
-            <td>${actionPill(s.action)}</td>
+            <td class="num" style="font-weight:600;">${s.aggression_zscore.toFixed(2)}</td>
+            <td>${regimeBadge(s.regime)}</td>
+            <td>${actionBadge(s.action)}</td>
           </tr>
         `).join('');
 
         const posBody = document.getElementById('positionsBody');
         const positions = snap.positions || [];
         if (positions.length === 0) {
-          posBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:18px;">Nenhuma posição aberta no momento. O robô abrirá automaticamente quando o Z-Score e o Imbalance atingirem o limiar, ou clique em Comprar / Vender na linha do robô.</td></tr>';
+          posBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:18px;">Nenhuma posição aberta no momento.</td></tr>';
         } else {
           posBody.innerHTML = positions.map(p => `
             <tr>
-              <td class="num">#${p.ticket}</td>
-              <td class="num"><strong>${p.symbol}</strong></td>
-              <td><span class="tag ${p.type === 'BUY' ? 'tag-up' : 'tag-down'}">${p.type}</span></td>
-              <td class="num-col">${p.volume}</td>
-              <td class="num-col">${p.price_open}</td>
-              <td class="num-col">${p.price_current}</td>
-              <td class="num-col">${p.sl}</td>
-              <td class="num-col">${p.tp}</td>
-              <td class="num-col" style="font-weight:600;color:${p.profit >= 0 ? 'var(--emerald)' : 'var(--crimson)'};">${p.profit >= 0 ? '+' : ''}${p.profit.toFixed(2)}</td>
-              <td>${p.comment}</td>
-              <td><button class="btn btn-danger" onclick="closeSinglePosition(${p.ticket})">Encerrar</button></td>
+              <td class="code">#${p.ticket}</td>
+              <td class="code"><strong>${p.symbol}</strong></td>
+              <td><span class="badge ${p.type === 'BUY' ? 'badge-bid' : 'badge-ask'}">${p.type}</span></td>
+              <td class="num">${p.volume}</td>
+              <td class="num">${p.price_open}</td>
+              <td class="num">${p.price_current}</td>
+              <td class="num">${p.sl}</td>
+              <td class="num">${p.tp}</td>
+              <td class="num" style="font-weight:600;color:${p.profit >= 0 ? 'var(--bid)' : 'var(--ask)'};">${p.profit >= 0 ? '+' : ''}${p.profit.toFixed(2)}</td>
+              <td class="code" style="color:var(--muted);">${p.comment}</td>
+              <td style="text-align:right;">
+                <div class="action-strip">
+                  <button class="act-ask" onclick="closeSinglePosition(${p.ticket})">Encerrar</button>
+                </div>
+              </td>
             </tr>
           `).join('');
         }
@@ -1592,16 +1649,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         } else {
           dealsBody.innerHTML = deals.map(d => `
             <tr>
-              <td class="num">#${d.ticket}</td>
-              <td class="num" style="color:var(--muted);">${d.time}</td>
-              <td class="num"><strong>${d.symbol}</strong></td>
-              <td><span class="tag ${d.type === 'BUY' ? 'tag-up' : 'tag-down'}">${d.type}</span></td>
-              <td class="num-col">${d.volume}</td>
-              <td class="num-col">${d.price_open}</td>
-              <td class="num-col">${d.price_close}</td>
-              <td class="num-col" style="font-weight:600;color:${d.profit >= 0 ? 'var(--emerald)' : 'var(--crimson)'};">${d.profit >= 0 ? '+' : ''}${Number(d.profit).toFixed(2)}</td>
-              <td><span class="tag tag-neutral">${d.reason}</span></td>
-              <td>${d.comment}</td>
+              <td class="code">#${d.ticket}</td>
+              <td class="code" style="color:var(--muted);">${d.time}</td>
+              <td class="code"><strong>${d.symbol}</strong></td>
+              <td><span class="badge ${d.type === 'BUY' ? 'badge-bid' : 'badge-ask'}">${d.type}</span></td>
+              <td class="num">${d.volume}</td>
+              <td class="num">${d.price_open}</td>
+              <td class="num">${d.price_close}</td>
+              <td class="num" style="font-weight:600;color:${d.profit >= 0 ? 'var(--bid)' : 'var(--ask)'};">${d.profit >= 0 ? '+' : ''}${Number(d.profit).toFixed(2)}</td>
+              <td><span class="badge">${d.reason}</span></td>
+              <td class="code" style="color:var(--muted);">${d.comment}</td>
             </tr>
           `).join('');
         }
@@ -1609,8 +1666,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const evBody = document.getElementById('eventsBody');
         evBody.innerHTML = (snap.events || []).map(ev => `
           <tr>
-            <td class="num" style="color:var(--muted);width:110px;">${ev.time}</td>
-            <td style="width:150px;"><span class="tag tag-neutral">${ev.category}</span></td>
+            <td class="code" style="color:var(--muted);width:100px;">${ev.time}</td>
+            <td style="width:140px;"><span class="badge">${ev.category}</span></td>
             <td>${ev.message}</td>
           </tr>
         `).join('');
@@ -1648,9 +1705,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       });
       const data = await res.json();
       if (data.ok) {
-        showToast(editingId ? `Robô "${data.bot.name}" atualizado.` : `Robô "${data.bot.name}" criado e em execução.`);
+        showToast(editingId ? `Robô "${data.bot.name}" atualizado.` : `Robô "${data.bot.name}" em execução.`);
         cancelBotEdit();
-        switchTab('running-bots', document.querySelectorAll('.tab-btn')[0]);
+        switchTab('running-bots', document.querySelectorAll('.nav-tab')[0]);
         refreshStatus();
       }
     }
@@ -1676,44 +1733,44 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok && data.report) {
         const r = data.report;
         document.getElementById('btResultCard').style.display = 'block';
-        document.getElementById('btFormulaUsed').textContent = `Modelo avaliado: ${r.bot_template_name} | Equação: ${r.formula}`;
+        document.getElementById('btFormulaUsed').textContent = `Modelo: ${r.bot_template_name} | Equação: ${r.formula}`;
         const isPos = r.net_profit >= 0;
         document.getElementById('btKpiGrid').innerHTML = `
-          <div class="telemetry-cell">
-            <div class="telemetry-label"><span>Resultado líquido (${r.symbol})</span></div>
-            <div class="telemetry-value" style="color:${isPos ? 'var(--emerald)' : 'var(--crimson)'};">${isPos ? '+' : ''}${r.net_profit.toFixed(2)} (${r.return_pct}%)</div>
-            <div class="telemetry-sub">Patrimônio final: ${r.final_equity.toFixed(2)}</div>
+          <div class="ledger-cell">
+            <div class="ledger-head"><span>Resultado líquido (${r.symbol})</span></div>
+            <div class="ledger-figure" style="color:${isPos ? 'var(--bid)' : 'var(--ask)'};">${isPos ? '+' : ''}${r.net_profit.toFixed(2)} (${r.return_pct}%)</div>
+            <div class="ledger-meta">Patrimônio final: ${r.final_equity.toFixed(2)}</div>
           </div>
-          <div class="telemetry-cell">
-            <div class="telemetry-label"><span>Taxa de acerto (Win Rate)</span></div>
-            <div class="telemetry-value">${r.win_rate_pct}%</div>
-            <div class="telemetry-sub">${r.winning_trades} ganhos / ${r.losing_trades} perdas (${r.total_trades} operações)</div>
+          <div class="ledger-cell">
+            <div class="ledger-head"><span>Taxa de acerto (Win Rate)</span></div>
+            <div class="ledger-figure">${r.win_rate_pct}%</div>
+            <div class="ledger-meta">${r.winning_trades} ganhos / ${r.losing_trades} perdas (${r.total_trades} trades)</div>
           </div>
-          <div class="telemetry-cell">
-            <div class="telemetry-label"><span>Fator de lucro (Profit Factor)</span></div>
-            <div class="telemetry-value" style="color:var(--bullion);">${r.profit_factor}</div>
-            <div class="telemetry-sub">Lucro bruto: +${r.gross_profit} / Perda bruta: -${r.gross_loss}</div>
+          <div class="ledger-cell">
+            <div class="ledger-head"><span>Fator de lucro (Profit Factor)</span></div>
+            <div class="ledger-figure" style="color:var(--gold);">${r.profit_factor}</div>
+            <div class="ledger-meta">Bruto: +${r.gross_profit} / -${r.gross_loss}</div>
           </div>
-          <div class="telemetry-cell">
-            <div class="telemetry-label"><span>Drawdown máximo</span></div>
-            <div class="telemetry-value" style="color:var(--crimson);">-${r.max_drawdown.toFixed(2)}</div>
-            <div class="telemetry-sub">${r.ticks_processed} ticks avaliados</div>
+          <div class="ledger-cell">
+            <div class="ledger-head"><span>Drawdown máximo</span></div>
+            <div class="ledger-figure" style="color:var(--ask);">-${r.max_drawdown.toFixed(2)}</div>
+            <div class="ledger-meta">${r.ticks_processed} ticks processados</div>
           </div>
         `;
         const tbody = document.getElementById('btTradesBody');
         const trades = r.trades || [];
         if (trades.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma operação disparada com esses parâmetros. Reduza o Z-Score para aumentar a sensibilidade.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma operação disparada com esses limiares.</td></tr>';
         } else {
           tbody.innerHTML = trades.map(t => `
             <tr>
-              <td class="num">#${t.id}</td>
-              <td><span class="tag ${t.type === 'BUY' ? 'tag-up' : 'tag-down'}">${t.type}</span></td>
-              <td class="num">${t.signal}</td>
-              <td class="num-col">${t.entry}</td>
-              <td class="num-col">${t.exit}</td>
-              <td class="num-col" style="font-weight:600;color:${t.pnl >= 0 ? 'var(--emerald)' : 'var(--crimson)'};">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}</td>
-              <td class="num-col"><strong>${t.equity_after.toFixed(2)}</strong></td>
+              <td class="code">#${t.id}</td>
+              <td><span class="badge ${t.type === 'BUY' ? 'badge-bid' : 'badge-ask'}">${t.type}</span></td>
+              <td class="code">${t.signal}</td>
+              <td class="num">${t.entry}</td>
+              <td class="num">${t.exit}</td>
+              <td class="num" style="font-weight:600;color:${t.pnl >= 0 ? 'var(--bid)' : 'var(--ask)'};">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}</td>
+              <td class="num"><strong>${t.equity_after.toFixed(2)}</strong></td>
             </tr>
           `).join('');
         }
@@ -1733,10 +1790,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           'START': 'Robô iniciado.',
           'STOP': 'Robô pausado.',
           'DELETE': 'Robô apagado.',
-          'FIRE_BUY': 'Ordem de compra disparada.',
-          'FIRE_SELL': 'Ordem de venda disparada.'
+          'FIRE_BUY': 'Ordem de compra enviada.',
+          'FIRE_SELL': 'Ordem de venda enviada.'
         };
-        showToast(msgMap[action] || 'Ação executada.');
+        showToast(msgMap[action] || 'Comando executado.');
         refreshStatus();
       }
     }
