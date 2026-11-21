@@ -1,12 +1,21 @@
-"""Configuration persistence for Prado Institutional HFT Ubuntu Server."""
+"""Configuration persistence for Prado Institutional HFT Ubuntu Server (Accounts, Categories & Multi-Bot Fleet)."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
 import secrets
+from typing import Any
 
 from prado_linux.auth import hash_password
+
+DEFAULT_CATEGORIES: dict[str, list[str]] = {
+    "B3 Futuros (Mini Índice & Dólar)": ["WIN$N", "WDO$N", "IND$N", "DOL$N"],
+    "B3 Ações Blue Chips": ["PETR4", "VALE3", "ITUB4", "BBDC4", "BBAS3", "B3SA3", "WEGE3"],
+    "Criptomoedas 24/7": ["BTCUSD#", "ETHUSD#", "SOLUSD#", "DOGEUSD#", "Crypto_10#"],
+    "Índices Globais & Wall Street": ["US100Cash#", "US500Cash#", "US30Cash#", "GER40Cash#", "HK50Cash#"],
+    "Forex & Commodities": ["EURUSD", "GBPUSD", "USDJPY", "GOLD#", "SILVER#", "WTI#"],
+}
 
 
 @dataclass
@@ -17,8 +26,7 @@ class PradoServerConfig:
     secret_key: str = ""
     web_port: int = 8080
 
-    # MetaTrader 5 Credentials & Connection Mode
-    # Modes: "AUTO_MT5_WINE" (MT5 local/Wine/rpyc), "METAAPI_CLOUD" (Cloud bridge), "SIMULATION" (Test/Replay)
+    # Primary MetaTrader 5 Credentials & Connection Mode
     mt5_connection_mode: str = "AUTO_MT5_WINE"
     mt5_login: str = ""
     mt5_password: str = ""
@@ -29,9 +37,19 @@ class PradoServerConfig:
     metaapi_token: str = ""
     metaapi_account_id: str = ""
 
+    # Multiple Saved MT5 Accounts
+    accounts: list[dict[str, Any]] = field(default_factory=list)
+
+    # Symbol Selection Mode ("PRINCIPAIS" vs "TODOS") and Custom Broker Categories
+    symbol_selection_mode: str = "PRINCIPAIS"
+    custom_categories: dict[str, list[str]] = field(default_factory=lambda: dict(DEFAULT_CATEGORIES))
+
+    # Active Running / Configured Robot Fleet
+    bots: list[dict[str, Any]] = field(default_factory=list)
+
     # Operational Rules from Wall Street Institutional Broker Transcript ("Fio")
     auto_trading_enabled: bool = True
-    operation_mode: str = "BOTH"  # "BOTH", "TREND_ONLY" (Fala 1 - Trem Institucional), "REVERT_ONLY" (Fala 2 - Giro HFT)
+    operation_mode: str = "BOTH"
     active_symbols: list[str] = field(
         default_factory=lambda: ["WIN$N", "WDO$N", "BTCUSD#", "US100Cash#", "EURUSD"]
     )
@@ -75,6 +93,9 @@ def load_config(config_path: Path) -> PradoServerConfig:
         changed = True
     if not cfg.secret_key:
         cfg.secret_key = secrets.token_hex(32)
+        changed = True
+    if not cfg.custom_categories:
+        cfg.custom_categories = dict(DEFAULT_CATEGORIES)
         changed = True
 
     if changed or not config_path.exists():

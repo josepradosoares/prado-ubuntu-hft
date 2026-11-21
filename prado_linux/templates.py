@@ -1,4 +1,4 @@
-"""HTML templates for Prado Institutional HFT Login & Web Dashboard."""
+"""HTML templates for Prado Institutional HFT Login & Multi-Robot Command Center."""
 from __future__ import annotations
 
 LOGIN_HTML = """<!DOCTYPE html>
@@ -13,7 +13,6 @@ LOGIN_HTML = """<!DOCTYPE html>
       --panel: #101726;
       --border: #1f2b44;
       --gold: #f5b942;
-      --cyan: #22d3ee;
       --text: #e2e8f0;
       --muted: #94a3b8;
       --danger: #ef4444;
@@ -75,10 +74,7 @@ LOGIN_HTML = """<!DOCTYPE html>
       font-weight: 700;
       font-size: 14px;
       cursor: pointer;
-      transition: transform 0.1s, opacity 0.2s;
     }
-    button:hover { opacity: 0.94; }
-    button:active { transform: scale(0.99); }
     .err {
       color: var(--danger);
       background: rgba(239,68,68,0.12);
@@ -101,16 +97,16 @@ LOGIN_HTML = """<!DOCTYPE html>
 </head>
 <body>
   <div class="card">
-    <span class="badge">Wall Street Desk • Ubuntu Server</span>
+    <span class="badge">Wall Street Desk • Ubuntu MetaTrader 5</span>
     <h1>Prado Institutional HFT</h1>
-    <p class="sub">Painel de Controle Quantitativo VWAP + Fluxo de Agressão (B3, Forex, Índices &amp; Cripto)</p>
+    <p class="sub">Central Multi-Robôs VWAP + Fluxo de Agressão (B3, Forex, Índices &amp; Cripto)</p>
     <div id="errBox" class="err"></div>
     <form id="loginForm">
       <label for="username">USUÁRIO DO PAINEL</label>
       <input id="username" name="username" type="text" value="admin" required autocomplete="username" />
       <label for="password">SENHA DE ACESSO</label>
       <input id="password" name="password" type="password" placeholder="••••••••" required autocomplete="current-password" />
-      <button type="submit">ACESSAR MESA INSTITUCIONAL</button>
+      <button type="submit">ACESSAR CENTRAL DE ROBÔS</button>
     </form>
     <div class="hint">Credencial padrão inicial: <strong>admin</strong> / <strong>prado2026</strong></div>
   </div>
@@ -149,7 +145,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prado Institutional HFT &amp; VWAP Universal — Ubuntu Command Center</title>
+  <title>Prado Institutional HFT &amp; VWAP Universal — Ubuntu Multi-Robot Command Center</title>
   <style>
     :root {
       --bg: #070b12;
@@ -196,6 +192,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .btn-danger { background: rgba(239,68,68,0.18); color: #fca5a5; border-color: rgba(239,68,68,0.45); }
     .btn-danger:hover { background: var(--red); color: #fff; }
     .btn-green { background: rgba(16,185,129,0.18); color: #6ee7b7; border-color: rgba(16,185,129,0.45); }
+    .btn-green:hover { background: var(--green); color: #05130d; }
 
     .container { max-width: 1440px; margin: 20px auto; padding: 0 20px; display: grid; gap: 20px; }
     .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
@@ -211,7 +208,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     .tabs { display: flex; gap: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px; flex-wrap: wrap; }
     .tab-btn {
-      padding: 9px 18px;
+      padding: 10px 18px;
       border-radius: 8px;
       border: 1px solid var(--border);
       background: var(--panel);
@@ -239,6 +236,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
     }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
@@ -258,7 +257,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     .form-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
       gap: 16px;
     }
     .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
@@ -272,6 +271,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       font-size: 13px;
     }
     .field small { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
+    .mode-switch { display: inline-flex; gap: 6px; background: #080d17; padding: 4px; border-radius: 8px; border: 1px solid var(--border); }
+    .mode-btn {
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: none;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      background: transparent;
+      color: var(--muted);
+    }
+    .mode-btn.active { background: var(--gold); color: #090d16; }
     .toast {
       position: fixed;
       bottom: 20px;
@@ -305,7 +316,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <span id="connBadge">CONECTANDO...</span>
     </div>
     <div class="top-actions">
-      <button class="btn btn-green" id="toggleAutoBtn" onclick="toggleAutoTrading()">ROBO: ATIVO</button>
+      <button class="btn btn-green" id="toggleAutoBtn" onclick="toggleAutoTrading()">CHAVE GERAL: ATIVA</button>
       <button class="btn btn-danger" onclick="panicFlatten()">🚨 ZERAR TUDO AGORA</button>
       <button class="btn" onclick="logout()">SAIR</button>
     </div>
@@ -314,7 +325,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <div class="container">
     <div class="kpi-grid">
       <div class="kpi">
-        <div class="label">CONTA METATRADER 5</div>
+        <div class="label">CONTA METATRADER 5 ATIVA</div>
         <div class="val" id="kpiAccount">---</div>
         <div class="sub" id="kpiServer">Servidor: ---</div>
       </div>
@@ -324,28 +335,192 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <div class="sub" id="kpiBalance">Saldo: R$ 0,00</div>
       </div>
       <div class="kpi">
-        <div class="label">P&amp;L ABERTO / DIA</div>
-        <div class="val" id="kpiProfit">0.00</div>
+        <div class="label">ROBÔS RODANDO AGORA</div>
+        <div class="val" id="kpiBotsRunning" style="color:var(--gold);">0</div>
         <div class="sub" id="kpiRiskStatus">Status: OPERACIONAL</div>
       </div>
       <div class="kpi">
         <div class="label">BÚSSOLA DE CORRELAÇÃO (CESTA)</div>
-        <div class="val" id="kpiCorr">0.0000</div>
+        <div class="val" id="kpiCorr">0.0%</div>
         <div class="sub">Filtro Institucional Multi-Ativo</div>
       </div>
     </div>
 
     <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab('monitor', this)">📊 Monitoramento VWAP &amp; Fluxo</button>
-      <button class="tab-btn" onclick="switchTab('mt5', this)">🔌 Conta MetaTrader 5 (Conexão Python)</button>
-      <button class="tab-btn" onclick="switchTab('strategy', this)">🏛️ Estratégia do Broker de Wall Street (.txt)</button>
+      <button class="tab-btn active" onclick="switchTab('running-bots', this)">🤖 Robôs Rodando (<span id="tabBotCount">0</span>)</button>
+      <button class="tab-btn" onclick="switchTab('create-bot', this)">🚀 Criar &amp; Executar Novo Robô</button>
+      <button class="tab-btn" onclick="switchTab('categories', this)">🗂️ Categorias de Ativos da Corretora</button>
+      <button class="tab-btn" onclick="switchTab('monitor', this)">📊 Radar VWAP &amp; Fluxo Geral</button>
+      <button class="tab-btn" onclick="switchTab('mt5', this)">🔌 Contas MetaTrader 5 (Python)</button>
+      <button class="tab-btn" onclick="switchTab('strategy', this)">🏛️ Regras Globais do Broker (.txt)</button>
     </div>
 
-    <!-- ABA 1: MONITORAMENTO -->
-    <div id="tab-monitor" class="tab-content active">
+    <!-- ABA 1: ROBÔS RODANDO -->
+    <div id="tab-running-bots" class="tab-content active">
       <div class="card">
         <h2>
-          <span>RADAR QUANTITATIVO EM TEMPO REAL — VWAP, DESVIO PADRÃO (&plusmn;1&sigma; / &plusmn;2&sigma;) &amp; Z-SCORE DE AGRESSÃO</span>
+          <span>🤖 FROTA DE ROBÔS EM EXECUÇÃO AUTOMÁTICA (PYTHON + METATRADER 5)</span>
+          <button class="btn btn-gold" onclick="switchTab('create-bot', document.querySelectorAll('.tab-btn')[1])">+ NOVO ROBÔ</button>
+        </h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Nome do Robô</th>
+              <th>Conta MT5</th>
+              <th>Ativo / Categoria</th>
+              <th>Modo (.txt)</th>
+              <th>Lote</th>
+              <th>Preço / VWAP</th>
+              <th>Z-Score / Imbalance</th>
+              <th>Regime Atual</th>
+              <th>Sinal</th>
+              <th>Status</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="runningBotsBody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>POSIÇÕES ABERTAS NO METATRADER 5</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Ticket</th>
+              <th>Ativo</th>
+              <th>Direção</th>
+              <th>Lote</th>
+              <th>Preço Entrada</th>
+              <th>Preço Atual</th>
+              <th>Stop Loss</th>
+              <th>Take Profit</th>
+              <th>Lucro / Prejuízo</th>
+              <th>Robô / Origem</th>
+            </tr>
+          </thead>
+          <tbody id="positionsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ABA 2: CRIAR & EXECUTAR ROBÔ -->
+    <div id="tab-create-bot" class="tab-content">
+      <div class="card">
+        <h2>
+          <span>🚀 LANÇAR NOVO ROBÔ HFT / VWAP NA CONTA METATRADER 5</span>
+          <div class="mode-switch">
+            <button type="button" id="btnModeMain" class="mode-btn active" onclick="setSymbolMode('PRINCIPAIS')">⭐ Ativos Principais</button>
+            <button type="button" id="btnModeAll" class="mode-btn" onclick="setSymbolMode('TODOS')">🌐 Todos os Ativos da Corretora</button>
+          </div>
+        </h2>
+        <div class="quote-box">
+          Selecione a <strong>Conta MetaTrader 5</strong>, filtre os ativos por <strong>Principais</strong>, <strong>Todos da Corretora</strong> ou por uma <strong>Categoria Personalizada</strong>, calibre o operacional e clique em <strong>▶ CRIAR E EXECUTAR ROBÔ AUTOMATICAMENTE</strong>.
+        </div>
+        <form id="createBotForm" onsubmit="createAndRunBot(event)">
+          <div class="form-grid">
+            <div class="field">
+              <label>Nome Identificador do Robô</label>
+              <input type="text" id="bot_name" placeholder="Ex: Robô Mini Índice Institucional" required />
+            </div>
+            <div class="field">
+              <label>Selecionar Conta MetaTrader 5</label>
+              <select id="bot_account_id"></select>
+              <small>Cadastre novas contas na aba "Contas MetaTrader 5".</small>
+            </div>
+            <div class="field">
+              <label>Filtrar por Categoria da Corretora</label>
+              <select id="bot_category_filter" onchange="loadBrokerSymbols()">
+                <option value="">-- Todas as Categorias --</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Selecionar Ativo da Corretora (<span id="symModeLabel">PRINCIPAIS</span>)</label>
+              <select id="bot_symbol"></select>
+              <small id="symCountHint">Carregando ativos da corretora...</small>
+            </div>
+            <div class="field">
+              <label>Modo Operacional (Regras do Broker .txt)</label>
+              <select id="bot_operation_mode">
+                <option value="BOTH">AMBOS (Fala 1: Trem Institucional + Fala 2: Giro HFT na Média)</option>
+                <option value="TREND_ONLY">FALA 1: SOMENTE TREM INSTITUCIONAL (Fluxo VWAP)</option>
+                <option value="REVERT_ONLY">FALA 2: SOMENTE GIRO HFT NA MÉDIA (Bandas &plusmn;2&sigma;)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Volume / Lote da Ordem</label>
+              <input type="number" step="0.01" id="bot_lot_size" value="1.0" required />
+            </div>
+            <div class="field">
+              <label>Limiar Z-Score de Agressão (Trem Institucional)</label>
+              <input type="number" step="0.1" id="bot_zscore" value="1.8" required />
+            </div>
+            <div class="field">
+              <label>Desequilíbrio Mínimo (Imbalance 0.1 a 0.9)</label>
+              <input type="number" step="0.05" id="bot_imbalance" value="0.35" required />
+            </div>
+            <div class="field">
+              <label>Banda de Desvio Padrão p/ Giro HFT (&sigma;)</label>
+              <input type="number" step="0.1" id="bot_revert_sigma" value="2.0" required />
+            </div>
+            <div class="field">
+              <label>Cesta de Correlação Bússola (separada por vírgula)</label>
+              <input type="text" id="bot_corr_basket" value="PETR4, VALE3" />
+            </div>
+          </div>
+          <div style="margin-top: 20px; display:flex; gap:12px;">
+            <button type="submit" class="btn btn-gold" style="font-size:14px;padding:12px 22px;">
+              ▶ CRIAR E EXECUTAR ROBÔ AUTOMATICAMENTE
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ABA 3: CATEGORIAS DE ATIVOS DA CORRETORA -->
+    <div id="tab-categories" class="tab-content">
+      <div class="card">
+        <h2>🗂️ CRIAR / EDITAR CATEGORIA PERSONALIZADA DE ATIVOS DA CORRETORA</h2>
+        <div class="quote-box">
+          Agrupe os ativos da sua corretora por setor ou estratégia (ex.: <em>"Futuros B3 Liquidez Alta"</em>, <em>"Cesta Gringa NY"</em>, <em>"Cripto Scalping"</em>) para selecionar rapidamente na criação dos robôs.
+        </div>
+        <form onsubmit="saveCustomCategory(event)">
+          <div class="form-grid">
+            <div class="field">
+              <label>Nome da Categoria da Corretora</label>
+              <input type="text" id="new_cat_name" placeholder="Ex: Minha Carteira B3 Institucional" required />
+            </div>
+            <div class="field">
+              <label>Ativos da Categoria (separados por vírgula)</label>
+              <input type="text" id="new_cat_symbols" placeholder="Ex: WIN$N, WDO$N, PETR4, VALE3, ITUB4" required />
+            </div>
+          </div>
+          <div style="margin-top:14px;">
+            <button type="submit" class="btn btn-gold">💾 SALVAR CATEGORIA DE ATIVOS</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>CATEGORIAS CADASTRADAS NO SISTEMA</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Categoria</th>
+              <th>Ativos Vinculados</th>
+              <th>Ação</th>
+            </tr>
+          </thead>
+          <tbody id="categoriesBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ABA 4: RADAR VWAP & FLUXO GERAL -->
+    <div id="tab-monitor" class="tab-content">
+      <div class="card">
+        <h2>
+          <span>📊 RADAR QUANTITATIVO EM TEMPO REAL — VWAP, DESVIO PADRÃO (&plusmn;1&sigma; / &plusmn;2&sigma;) &amp; Z-SCORE</span>
           <span id="lastUpdate" style="font-size:12px;color:var(--muted);font-weight:400;"></span>
         </h2>
         <table>
@@ -368,27 +543,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
 
       <div class="card">
-        <h2>POSIÇÕES ABERTAS NO METATRADER 5</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Ticket</th>
-              <th>Ativo</th>
-              <th>Direção</th>
-              <th>Lote</th>
-              <th>Preço Entrada</th>
-              <th>Preço Atual</th>
-              <th>Stop Loss</th>
-              <th>Take Profit</th>
-              <th>Lucro / Prejuízo</th>
-              <th>Origem</th>
-            </tr>
-          </thead>
-          <tbody id="positionsBody"></tbody>
-        </table>
-      </div>
-
-      <div class="card">
         <h2>LOG DE EXECUÇÃO &amp; GUARDA-COSTAS HFT</h2>
         <table>
           <thead>
@@ -403,117 +557,73 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- ABA 2: CONTA MT5 -->
+    <!-- ABA 5: CONTAS METATRADER 5 -->
     <div id="tab-mt5" class="tab-content">
       <div class="card">
-        <h2>CONEXÃO DIRETA PYTHON &leftrightarrow; CONTA METATRADER 5</h2>
+        <h2>🔌 CADASTRAR &amp; CONECTAR CONTA METATRADER 5 (BIBLIOTECA PYTHON METATRADER5)</h2>
         <div class="quote-box">
-          Informe o Login, Senha e Servidor da sua conta MetaTrader 5. No Ubuntu, o serviço se conecta automaticamente ao terminal MT5 Headless (Wine/RPyC) ou nativo.
+          Ao executar o <code>install.sh</code> no Ubuntu, a biblioteca oficial <code>MetaTrader5</code> + ponte Wine/Python são instaladas e configuradas automaticamente. Cadastre abaixo uma ou mais contas MT5 para usar nos seus robôs.
         </div>
-        <form id="mt5Form" onsubmit="saveMt5Config(event)">
+        <form id="mt5Form" onsubmit="saveMt5Account(event)">
           <div class="form-grid">
             <div class="field">
-              <label>Modo de Conexão no Servidor</label>
-              <select id="mt5_connection_mode">
-                <option value="AUTO_MT5_WINE">Automático (MT5 Nativo / Ubuntu Wine Headless Bridge)</option>
-                <option value="SIMULATION">Simulação Quantitativa (Teste sem corretora)</option>
-              </select>
-              <small>No Ubuntu com install.sh, o container/serviço Wine sobe o MT5 automaticamente.</small>
+              <label>Nome / Apelido da Conta</label>
+              <input type="text" id="acc_label" placeholder="Ex: Conta XP B3 Principal" required />
             </div>
             <div class="field">
               <label>Login da Conta MT5 (Número)</label>
-              <input type="text" id="mt5_login" placeholder="Ex: 10293847" />
+              <input type="text" id="mt5_login" placeholder="Ex: 10293847" required />
             </div>
             <div class="field">
               <label>Senha da Conta MT5</label>
-              <input type="password" id="mt5_password" placeholder="Senha da corretora no MT5" />
+              <input type="password" id="mt5_password" placeholder="Senha da conta na corretora" required />
             </div>
             <div class="field">
               <label>Servidor da Corretora no MT5</label>
-              <input type="text" id="mt5_server" placeholder="Ex: XPInvestimentos-PRD ou MetaQuotes-Demo" />
+              <input type="text" id="mt5_server" placeholder="Ex: XPInvestimentos-PRD ou MetaQuotes-Demo" required />
             </div>
             <div class="field">
-              <label>Host RPyC Bridge (Ubuntu Wine)</label>
-              <input type="text" id="rpyc_host" value="127.0.0.1" />
-            </div>
-            <div class="field">
-              <label>Porta RPyC Bridge</label>
-              <input type="number" id="rpyc_port" value="18812" />
+              <label>Modo de Conexão Python</label>
+              <select id="mt5_connection_mode">
+                <option value="AUTO_MT5_WINE">Biblioteca Oficial MetaTrader5 (Nativo / Ubuntu Wine Python)</option>
+                <option value="SIMULATION">Simulação Quantitativa (Teste sem corretora)</option>
+              </select>
             </div>
           </div>
-          <div style="margin-top: 18px; display:flex; gap:12px;">
-            <button type="submit" class="btn btn-gold">💾 SALVAR &amp; CONECTAR CONTA MT5</button>
+          <div style="margin-top: 18px;">
+            <button type="submit" class="btn btn-gold">💾 SALVAR &amp; CONECTAR CONTA METATRADER 5</button>
           </div>
         </form>
       </div>
+
+      <div class="card">
+        <h2>CONTAS METATRADER 5 SALVAS</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Identificação</th>
+              <th>Login MT5</th>
+              <th>Servidor da Corretora</th>
+            </tr>
+          </thead>
+          <tbody id="accountsBody"></tbody>
+        </table>
+      </div>
     </div>
 
-    <!-- ABA 3: ESTRATÉGIA DO BROKER (.TXT) -->
+    <!-- ABA 6: REGRAS GLOBAIS DO BROKER (.TXT) -->
     <div id="tab-strategy" class="tab-content">
       <div class="card">
-        <h2>CALIBRAGEM FIEL À ENTREVISTA: "BROKER DE WALL STREET REVELA O QUE OS GRINGOS FAZEM NA B3"</h2>
-        <div class="quote-box">
-          <strong>Regras do Broker Institucional ("Fio"):</strong><br/>
-          • <strong>Fala 1 (Trem Institucional VWAP):</strong> Ordens institucionais chegam via protocolo FIX para executar na VWAP. Quando o Z-Score de agressão rompe o limiar a favor da VWAP, entramos a favor do fluxo.<br/>
-          • <strong>Fala 2 (Giro HFT na Média):</strong> Provedores de liquidez não-direcionais vendem a banda superior (+2&sigma;) e compram a banda inferior (-2&sigma;) quando o fluxo mostra exaustão, buscando o retorno à VWAP.<br/>
-          • <strong>Correlação &amp; Fim de Dia:</strong> Filtra entradas pela cesta correlacionada (ex: PETR4/VALE3 para WIN) e zera obrigatoriamente no fim do pregão ("HFT sempre dorme zerado").
-        </div>
+        <h2>🏛️ PARÂMETROS GLOBAIS DE RISCO &amp; HORÁRIO ("HFT SEMPRE DORME ZERADO")</h2>
         <form id="strategyForm" onsubmit="saveStrategyConfig(event)">
           <div class="form-grid">
             <div class="field">
-              <label>Modo Operacional</label>
-              <select id="operation_mode">
-                <option value="BOTH">AMBOS (Fala 1: Trem Institucional + Fala 2: Giro HFT na Média)</option>
-                <option value="TREND_ONLY">SOMENTE TREM INSTITUCIONAL (Seguidor de Fluxo VWAP)</option>
-                <option value="REVERT_ONLY">SOMENTE GIRO HFT NA MÉDIA (Reversão Bandas &plusmn;2&sigma;)</option>
-              </select>
-            </div>
-            <div class="field">
-              <label>Ativos Monitorados / Operados (separados por vírgula)</label>
-              <input type="text" id="active_symbols" placeholder="WIN$N, WDO$N, BTCUSD#, US100Cash#" />
-            </div>
-            <div class="field">
-              <label>Cesta de Correlação Bússola (separados por vírgula)</label>
-              <input type="text" id="correlated_basket" placeholder="PETR4, VALE3, Crypto_10#" />
-            </div>
-            <div class="field">
-              <label>Janela de Ticks para Fluxo (Window Ticks)</label>
-              <input type="number" id="window_ticks" min="20" max="5000" />
-            </div>
-            <div class="field">
-              <label>Limiar Z-Score de Agressão (Trem Institucional)</label>
-              <input type="number" step="0.1" id="zscore_threshold" />
-            </div>
-            <div class="field">
-              <label>Desequilíbrio Mínimo de Agressão (Imbalance 0.1 a 0.9)</label>
-              <input type="number" step="0.05" id="imbalance_threshold" />
-            </div>
-            <div class="field">
-              <label>Banda de Desvio Padrão p/ Giro HFT (&sigma;)</label>
-              <input type="number" step="0.1" id="revert_sigma" />
-            </div>
-            <div class="field">
-              <label>Bloqueio de Correlação Contrária (0.1 a 0.9)</label>
-              <input type="number" step="0.05" id="correlation_block_threshold" />
-            </div>
-            <div class="field">
-              <label>Lote Padrão por Ordem</label>
-              <input type="number" step="0.01" id="default_lot_size" />
-            </div>
-            <div class="field">
-              <label>Stop Loss Dinâmico (Multiplicador &sigma;)</label>
-              <input type="number" step="0.1" id="sl_sigma_mult" />
-            </div>
-            <div class="field">
-              <label>Take Profit Dinâmico (Multiplicador &sigma;)</label>
-              <input type="number" step="0.1" id="tp_sigma_mult" />
-            </div>
-            <div class="field">
-              <label>Limite de Perda Diária (Moeda da Conta)</label>
+              <label>Limite Global de Perda Diária (Moeda da Conta)</label>
               <input type="number" step="10" id="max_daily_loss_money" />
             </div>
             <div class="field">
-              <label>Meta de Lucro Diário (Moeda da Conta)</label>
+              <label>Meta Global de Lucro Diário (Moeda da Conta)</label>
               <input type="number" step="10" id="daily_target_money" />
             </div>
             <div class="field">
@@ -521,22 +631,27 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <input type="text" id="eod_flatten_time" placeholder="17:35" />
             </div>
             <div class="field">
+              <label>Bloqueio de Correlação Contrária (0.1 a 0.9)</label>
+              <input type="number" step="0.05" id="correlation_block_threshold" />
+            </div>
+            <div class="field">
               <label>Nova Senha de Login Web (opcional)</label>
               <input type="password" id="new_admin_password" placeholder="Deixe em branco para manter a atual" />
             </div>
           </div>
           <div style="margin-top: 18px;">
-            <button type="submit" class="btn btn-gold">💾 SALVAR CONFIGURAÇÃO OPERACIONAL</button>
+            <button type="submit" class="btn btn-gold">💾 SALVAR REGRAS GLOBAIS</button>
           </div>
         </form>
       </div>
     </div>
   </div>
 
-  <div id="toast" class="toast">Configuração salva!</div>
+  <div id="toast" class="toast">Salvo!</div>
 
   <script>
     let currentConfig = {};
+    let currentSymbolMode = 'PRINCIPAIS';
 
     function showToast(msg) {
       const t = document.getElementById('toast');
@@ -549,7 +664,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
       document.getElementById('tab-' + name).classList.add('active');
-      btn.classList.add('active');
+      if (btn) btn.classList.add('active');
     }
 
     function regimePill(regime) {
@@ -560,9 +675,75 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     function actionPill(action) {
-      if (action.startsWith('BUY')) return `<span class="pill pill-up">${action}</span>`;
-      if (action.startsWith('SELL')) return `<span class="pill pill-down">${action}</span>`;
-      return `<span class="pill pill-wait">${action}</span>`;
+      if ((action || '').startsWith('BUY')) return `<span class="pill pill-up">${action}</span>`;
+      if ((action || '').startsWith('SELL')) return `<span class="pill pill-down">${action}</span>`;
+      return `<span class="pill pill-wait">${action || 'WAIT'}</span>`;
+    }
+
+    async function setSymbolMode(mode) {
+      currentSymbolMode = mode;
+      document.getElementById('symModeLabel').textContent = mode;
+      document.getElementById('btnModeMain').classList.toggle('active', mode === 'PRINCIPAIS');
+      document.getElementById('btnModeAll').classList.toggle('active', mode === 'TODOS');
+      await loadBrokerSymbols();
+    }
+
+    async function loadBrokerSymbols() {
+      const cat = document.getElementById('bot_category_filter').value;
+      const url = `/api/symbols?mode=${encodeURIComponent(currentSymbolMode)}&category=${encodeURIComponent(cat)}`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      const sel = document.getElementById('bot_symbol');
+      const syms = data.symbols || [];
+      sel.innerHTML = syms.map(s => `<option value="${s.name}">${s.name} — ${s.description || s.category}</option>`).join('');
+      document.getElementById('symCountHint').textContent = `${syms.length} ativo(s) carregado(s) no modo ${currentSymbolMode}.`;
+    }
+
+    function renderCategoriesAndAccounts(categories, accounts) {
+      // Categories dropdown & table
+      const catSel = document.getElementById('bot_category_filter');
+      const prevCat = catSel.value;
+      const catNames = Object.keys(categories || {});
+      catSel.innerHTML = '<option value="">-- Todas as Categorias --</option>' +
+        catNames.map(c => `<option value="${c}">${c} (${(categories[c] || []).length})</option>`).join('');
+      if (catNames.includes(prevCat)) catSel.value = prevCat;
+
+      const catBody = document.getElementById('categoriesBody');
+      catBody.innerHTML = catNames.map(c => `
+        <tr>
+          <td><strong>${c}</strong></td>
+          <td>${(categories[c] || []).map(s => `<span class="pill pill-wait" style="margin:2px;">${s}</span>`).join(' ')}</td>
+          <td>
+            <button class="btn btn-danger" onclick="deleteCategory('${c.replace(/'/g, "\\'")}')">Excluir</button>
+          </td>
+        </tr>
+      `).join('');
+
+      // Accounts dropdown & table
+      const accSel = document.getElementById('bot_account_id');
+      const prevAcc = accSel.value;
+      const list = accounts || [];
+      if (list.length === 0) {
+        accSel.innerHTML = '<option value="default">Conta Principal MT5</option>';
+      } else {
+        accSel.innerHTML = list.map(a => `<option value="${a.account_id}">${a.label} (${a.mt5_login} @ ${a.mt5_server})</option>`).join('');
+        if (list.some(a => a.account_id === prevAcc)) accSel.value = prevAcc;
+      }
+
+      const accBody = document.getElementById('accountsBody');
+      if (list.length === 0) {
+        accBody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);text-align:center;">Nenhuma conta extra cadastrada ainda.</td></tr>';
+      } else {
+        accBody.innerHTML = list.map(a => `
+          <tr>
+            <td><code>${a.account_id}</code></td>
+            <td><strong>${a.label}</strong></td>
+            <td>${a.mt5_login}</td>
+            <td>${a.mt5_server}</td>
+          </tr>
+        `).join('');
+      }
     }
 
     async function loadConfig() {
@@ -573,23 +754,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('mt5_connection_mode').value = currentConfig.mt5_connection_mode || 'AUTO_MT5_WINE';
       document.getElementById('mt5_login').value = currentConfig.mt5_login || '';
       document.getElementById('mt5_server').value = currentConfig.mt5_server || '';
-      document.getElementById('rpyc_host').value = currentConfig.rpyc_host || '127.0.0.1';
-      document.getElementById('rpyc_port').value = currentConfig.rpyc_port || 18812;
-
-      document.getElementById('operation_mode').value = currentConfig.operation_mode || 'BOTH';
-      document.getElementById('active_symbols').value = (currentConfig.active_symbols || []).join(', ');
-      document.getElementById('correlated_basket').value = (currentConfig.correlated_basket || []).join(', ');
-      document.getElementById('window_ticks').value = currentConfig.window_ticks || 120;
-      document.getElementById('zscore_threshold').value = currentConfig.zscore_threshold || 1.8;
-      document.getElementById('imbalance_threshold').value = currentConfig.imbalance_threshold || 0.35;
-      document.getElementById('revert_sigma').value = currentConfig.revert_sigma || 2.0;
       document.getElementById('correlation_block_threshold').value = currentConfig.correlation_block_threshold || 0.40;
-      document.getElementById('default_lot_size').value = currentConfig.default_lot_size || 1.0;
-      document.getElementById('sl_sigma_mult').value = currentConfig.sl_sigma_mult || 1.0;
-      document.getElementById('tp_sigma_mult').value = currentConfig.tp_sigma_mult || 1.8;
       document.getElementById('max_daily_loss_money').value = currentConfig.max_daily_loss_money || 500;
       document.getElementById('daily_target_money').value = currentConfig.daily_target_money || 1000;
       document.getElementById('eod_flatten_time').value = currentConfig.eod_flatten_time || '17:35';
+
+      renderCategoriesAndAccounts(currentConfig.custom_categories, currentConfig.accounts);
+      await loadBrokerSymbols();
     }
 
     async function refreshStatus() {
@@ -604,10 +775,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         document.getElementById('kpiEquity').textContent = `${acc.currency || 'R$'} ${(acc.equity || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
         document.getElementById('kpiBalance').textContent = `Saldo: ${(acc.balance || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
 
-        const prof = Number(acc.profit || 0);
-        const kpiProf = document.getElementById('kpiProfit');
-        kpiProf.textContent = `${prof >= 0 ? '+' : ''}${prof.toFixed(2)}`;
-        kpiProf.style.color = prof >= 0 ? 'var(--green)' : 'var(--red)';
+        const bots = snap.bots || [];
+        const runningCount = bots.filter(b => b.status === 'RUNNING').length;
+        document.getElementById('kpiBotsRunning').textContent = `${runningCount} / ${bots.length}`;
+        document.getElementById('tabBotCount').textContent = runningCount;
         document.getElementById('kpiRiskStatus').textContent = snap.risk_status || 'OPERACIONAL';
 
         const corr = Number(snap.correlation_bias || 0);
@@ -617,11 +788,46 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
         const autoBtn = document.getElementById('toggleAutoBtn');
         if (snap.auto_trading_enabled) {
-          autoBtn.textContent = 'ROBÔ: ATIVO (AUTO)';
+          autoBtn.textContent = 'CHAVE GERAL: ATIVA';
           autoBtn.className = 'btn btn-green';
         } else {
-          autoBtn.textContent = 'ROBÔ: PAUSADO';
+          autoBtn.textContent = 'CHAVE GERAL: PAUSADA';
           autoBtn.className = 'btn btn-danger';
+        }
+
+        // Render Running Bots Table
+        const botsBody = document.getElementById('runningBotsBody');
+        if (bots.length === 0) {
+          botsBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:22px;">Nenhum robô criado ainda. Clique em <strong>"🚀 Criar &amp; Executar Novo Robô"</strong> para lançar seu primeiro robô automático!</td></tr>';
+        } else {
+          botsBody.innerHTML = bots.map(b => {
+            const isRun = b.status === 'RUNNING';
+            return `
+              <tr>
+                <td><strong>${b.name}</strong><br/><small style="color:var(--muted)">Ordens: ${b.trades_executed || 0}</small></td>
+                <td>${b.account_label || b.account_id}</td>
+                <td><strong>${b.symbol}</strong><br/><small style="color:var(--muted)">${b.category || ''}</small></td>
+                <td><span class="pill pill-wait">${b.operation_mode}</span></td>
+                <td>${b.lot_size}</td>
+                <td><strong>${b.last_price || '---'}</strong><br/><small style="color:var(--gold)">VWAP: ${b.vwap || '---'}</small></td>
+                <td>Z: <strong>${Number(b.aggression_zscore || 0).toFixed(2)}</strong><br/>Imb: ${(Number(b.imbalance_ratio || 0) * 100).toFixed(1)}%</td>
+                <td>${regimePill(b.last_regime)}</td>
+                <td>${actionPill(b.last_signal)}</td>
+                <td>
+                  <span class="pill ${isRun ? 'pill-up' : 'pill-down'}">
+                    ${isRun ? '● RODANDO' : '■ PARADO'}
+                  </span>
+                </td>
+                <td style="display:flex;gap:6px;">
+                  ${isRun
+                    ? `<button class="btn btn-danger" onclick="botAction('${b.bot_id}', 'STOP')">⏸ Pausar</button>`
+                    : `<button class="btn btn-green" onclick="botAction('${b.bot_id}', 'START')">▶ Executar</button>`
+                  }
+                  <button class="btn" onclick="botAction('${b.bot_id}', 'DELETE')">🗑️</button>
+                </td>
+              </tr>
+            `;
+          }).join('');
         }
 
         document.getElementById('lastUpdate').textContent = `Atualizado: ${snap.timestamp || ''}`;
@@ -679,45 +885,110 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
     }
 
-    async function saveMt5Config(e) {
+    async function createAndRunBot(e) {
       e.preventDefault();
+      const catSel = document.getElementById('bot_category_filter');
       const payload = {
-        mt5_connection_mode: document.getElementById('mt5_connection_mode').value,
-        mt5_login: document.getElementById('mt5_login').value.trim(),
-        mt5_server: document.getElementById('mt5_server').value.trim(),
-        rpyc_host: document.getElementById('rpyc_host').value.trim(),
-        rpyc_port: Number(document.getElementById('rpyc_port').value || 18812),
-        reconnect: true
+        name: document.getElementById('bot_name').value.trim(),
+        account_id: document.getElementById('bot_account_id').value,
+        symbol: document.getElementById('bot_symbol').value,
+        category: catSel.value || 'Corretora MT5',
+        operation_mode: document.getElementById('bot_operation_mode').value,
+        lot_size: Number(document.getElementById('bot_lot_size').value || 1.0),
+        zscore_threshold: Number(document.getElementById('bot_zscore').value || 1.8),
+        imbalance_threshold: Number(document.getElementById('bot_imbalance').value || 0.35),
+        revert_sigma: Number(document.getElementById('bot_revert_sigma').value || 2.0),
+        correlated_basket: document.getElementById('bot_corr_basket').value.split(',').map(s => s.trim()).filter(Boolean),
+        auto_start: true
       };
-      const pwd = document.getElementById('mt5_password').value;
-      if (pwd) payload.mt5_password = pwd;
-
-      const res = await fetch('/api/config', {
+      const res = await fetch('/api/bots', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      showToast(data.message || 'Conta MT5 atualizada!');
-      refreshStatus();
+      if (data.ok) {
+        showToast(`Robô "${data.bot.name}" criado e EXECUTANDO automaticamente!`);
+        document.getElementById('bot_name').value = '';
+        switchTab('running-bots', document.querySelectorAll('.tab-btn')[0]);
+        refreshStatus();
+      }
+    }
+
+    async function botAction(botId, action) {
+      const res = await fetch('/api/bots/action', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({bot_id: botId, action})
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast(action === 'START' ? 'Robô em execução automática!' : (action === 'STOP' ? 'Robô pausado.' : 'Robô removido.'));
+        refreshStatus();
+      }
+    }
+
+    async function saveCustomCategory(e) {
+      e.preventDefault();
+      const category_name = document.getElementById('new_cat_name').value.trim();
+      const symbols = document.getElementById('new_cat_symbols').value.split(',').map(s => s.trim()).filter(Boolean);
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'SAVE', category_name, symbols})
+      });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById('new_cat_name').value = '';
+        document.getElementById('new_cat_symbols').value = '';
+        renderCategoriesAndAccounts(data.categories, currentConfig.accounts);
+        await loadBrokerSymbols();
+        showToast(`Categoria "${category_name}" salva!`);
+      }
+    }
+
+    async function deleteCategory(catName) {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'DELETE', category_name: catName})
+      });
+      const data = await res.json();
+      if (data.ok) {
+        renderCategoriesAndAccounts(data.categories, currentConfig.accounts);
+        await loadBrokerSymbols();
+        showToast(`Categoria "${catName}" removida.`);
+      }
+    }
+
+    async function saveMt5Account(e) {
+      e.preventDefault();
+      const payload = {
+        label: document.getElementById('acc_label').value.trim(),
+        mt5_login: document.getElementById('mt5_login').value.trim(),
+        mt5_password: document.getElementById('mt5_password').value,
+        mt5_server: document.getElementById('mt5_server').value.trim(),
+        connect_now: true
+      };
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.ok) {
+        currentConfig.accounts = data.accounts;
+        renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts);
+        await loadBrokerSymbols();
+        showToast('Conta MetaTrader 5 salva e conectada via Python!');
+        refreshStatus();
+      }
     }
 
     async function saveStrategyConfig(e) {
       e.preventDefault();
-      const syms = document.getElementById('active_symbols').value.split(',').map(s => s.trim()).filter(Boolean);
-      const corr = document.getElementById('correlated_basket').value.split(',').map(s => s.trim()).filter(Boolean);
       const payload = {
-        operation_mode: document.getElementById('operation_mode').value,
-        active_symbols: syms,
-        correlated_basket: corr,
-        window_ticks: Number(document.getElementById('window_ticks').value),
-        zscore_threshold: Number(document.getElementById('zscore_threshold').value),
-        imbalance_threshold: Number(document.getElementById('imbalance_threshold').value),
-        revert_sigma: Number(document.getElementById('revert_sigma').value),
         correlation_block_threshold: Number(document.getElementById('correlation_block_threshold').value),
-        default_lot_size: Number(document.getElementById('default_lot_size').value),
-        sl_sigma_mult: Number(document.getElementById('sl_sigma_mult').value),
-        tp_sigma_mult: Number(document.getElementById('tp_sigma_mult').value),
         max_daily_loss_money: Number(document.getElementById('max_daily_loss_money').value),
         daily_target_money: Number(document.getElementById('daily_target_money').value),
         eod_flatten_time: document.getElementById('eod_flatten_time').value.trim()
@@ -725,13 +996,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const newPwd = document.getElementById('new_admin_password').value;
       if (newPwd) payload.new_admin_password = newPwd;
 
-      const res = await fetch('/api/config', {
+      await fetch('/api/config', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload)
       });
-      await res.json();
-      showToast('Parâmetros operacionais salvos e aplicados em tempo real!');
+      showToast('Regras globais atualizadas!');
       refreshStatus();
     }
 
@@ -743,7 +1013,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({auto_trading_enabled: nextState})
       });
-      showToast(nextState ? 'Robô Automático ATIVADO!' : 'Robô Automático PAUSADO!');
+      showToast(nextState ? 'Chave Geral ATIVADA!' : 'Chave Geral PAUSADA!');
       refreshStatus();
     }
 

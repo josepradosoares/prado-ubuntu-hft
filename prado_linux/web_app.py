@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from prado_linux.auth import create_session_token, hash_password, verify_password, verify_session_token
 from prado_linux.config import load_config
@@ -15,7 +16,7 @@ from prado_linux.templates import DASHBOARD_HTML, LOGIN_HTML
 
 
 class PradoWebApp:
-    """Testable WSGI/HTTP router for Login, MT5 Connection, Strategy Config, and Real-Time Monitoring."""
+    """Testable WSGI/HTTP router for Login, MT5 Accounts, Broker Symbols, Categories, Robot Fleet, and Monitoring."""
 
     def __init__(self, config_path: Path) -> None:
         self.config_path = config_path
@@ -45,6 +46,13 @@ class PradoWebApp:
             d["mt5_password"] = "********"
         else:
             d["mt5_password_set"] = False
+        safe_accs = []
+        for a in d.get("accounts", []):
+            cp = dict(a)
+            if cp.get("mt5_password"):
+                cp["mt5_password"] = "********"
+            safe_accs.append(cp)
+        d["accounts"] = safe_accs
         return d
 
     def handle_request(
@@ -55,7 +63,9 @@ class PradoWebApp:
         body: bytes = b"",
     ) -> tuple[int, str, dict[str, str]]:
         method = method.upper()
-        clean_path = path.split("?", 1)[0]
+        parsed_url = urlparse(path)
+        clean_path = parsed_url.path
+        query_params = parse_qs(parsed_url.query)
 
         # Public Endpoints
         if method == "GET" and clean_path == "/login":
@@ -101,11 +111,7 @@ class PradoWebApp:
                     json.dumps({"ok": False, "error": "Nao autenticado."}),
                     {"Content-Type": "application/json"},
                 )
-            return (
-                302,
-                "",
-                {"Location": "/login"},
-            )
+            return (302, "", {"Location": "/login"})
 
         if method == "GET" and clean_path == "/":
             return 200, DASHBOARD_HTML, {"Content-Type": "text/html; charset=utf-8"}
@@ -137,7 +143,7 @@ class PradoWebApp:
 
             self.service.update_config(updates)
             msg = "Configuracao salva com sucesso."
-            if reconnect or "mt5_login" in updates or "mt5_server" in updates:
+            if reconnect:
                 _, conn_msg = self.service.reconnect_mt5()
                 msg = conn_msg
 
@@ -145,6 +151,127 @@ class PradoWebApp:
             return (
                 200,
                 json.dumps({"ok": True, "message": msg, "config": self._safe_config_dict()}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
+        # Accounts API
+        if method == "GET" and clean_path == "/api/accounts":
+            return (
+                200,
+                json.dumps({"ok": True, "accounts": self._safe_config_dict()["accounts"]}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/accounts":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            acc = self.service.save_mt5_account(payload)
+            if payload.get("connect_now"):
+                self.service.reconnect_mt5()
+            return (
+                200,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "account": {k: ("********" if k == "mt5_password" else v) for k, v in acc.items()},
+                        "accounts": self._safe_config_dict()["accounts"],
+                    },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+
+        # Broker Symbols Discovery API ("PRINCIPAIS" vs "TODOS")
+        if method == "GET" and clean_path == "/api/symbols":
+            mode = (query_params.get("mode", ["PRINCIPAIS"])[0] or "PRINCIPAIS").upper()
+            category_filter = (query_params.get("category", [""])[0] or "").strip()
+            symbols = self.service.connector.discover_broker_symbols(mode=mode)
+            if category_filter and category_filter in self.cfg.custom_categories:
+                allowed = set(self.cfg.custom_categories[category_filter])
+                symbols = [s for s in symbols if s["name"] in allowed] + [
+                    {"name": sym, "category": category_filter, "description": sym, "visible": True}
+                    for sym in self.cfg.custom_categories[category_filter]
+                    if sym not in {x["name"] for x in symbols}
+                ]
+            return (
+                200,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "mode": mode,
+                        "symbols": symbols,
+                        "categories": self.cfg.custom_categories,
+                    },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+
+        # Custom Broker Symbol Categories API
+        if method == "GET" and clean_path == "/api/categories":
+            return (
+                200,
+                json.dumps({"ok": True, "categories": self.cfg.custom_categories}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/categories":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            action = str(payload.get("action", "SAVE")).upper()
+            cat_name = str(payload.get("category_name", "")).strip()
+            if action == "DELETE":
+                cats = self.service.delete_custom_category(cat_name)
+            else:
+                raw_syms = payload.get("symbols", [])
+                if isinstance(raw_syms, str):
+                    raw_syms = [s.strip() for s in raw_syms.split(",") if s.strip()]
+                cats = self.service.save_custom_category(cat_name, list(raw_syms))
+            return (
+                200,
+                json.dumps({"ok": True, "categories": cats}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
+        # Multi-Bot Fleet API (Criar Robô, Selecionar Conta + Ativo, Executar / Pausar)
+        if method == "GET" and clean_path == "/api/bots":
+            return (
+                200,
+                json.dumps({"ok": True, "bots": self.cfg.bots}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/bots":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            bot = self.service.create_bot(payload)
+            self.service.step_once()
+            return (
+                200,
+                json.dumps({"ok": True, "bot": bot, "bots": self.cfg.bots}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/bots/action":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            bot_id = str(payload.get("bot_id", "")).strip()
+            action = str(payload.get("action", "START")).strip()
+            updated = self.service.control_bot(bot_id, action)
+            if updated is None:
+                return 404, json.dumps({"ok": False, "error": "Robô não encontrado"}), {"Content-Type": "application/json"}
+            self.service.step_once()
+            return (
+                200,
+                json.dumps({"ok": True, "bot": updated, "bots": self.cfg.bots}, ensure_ascii=False),
                 {"Content-Type": "application/json"},
             )
 

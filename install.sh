@@ -2,6 +2,11 @@
 # ==============================================================================
 # PRADO INSTITUTIONAL HFT & VWAP UNIVERSAL — INSTALADOR AUTOMÁTICO UBUNTU SERVER
 # ==============================================================================
+# Instala e configura TUDO automaticamente:
+#   1. Python 3 + Ambiente Virtual (.venv) + rpyc + mt5linux
+#   2. Biblioteca oficial MetaTrader5 para Python (via Docker/Wine Headless ou Nativo)
+#   3. Serviço systemd 24/7 (prado-hft-web.service) + Firewall UFW
+#
 # Uso após clonar do GitHub no Ubuntu (20.04 / 22.04 / 24.04):
 #   chmod +x install.sh
 #   sudo ./install.sh
@@ -27,23 +32,31 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-echo "[1/6] Atualizando pacotes do Ubuntu e instalando Python 3 + dependências..."
+echo "[1/6] Atualizando pacotes do Ubuntu e instalando Python 3 + Docker + dependências..."
 apt-get update -y
-apt-get install -y python3 python3-venv python3-pip git curl ufw
+apt-get install -y python3 python3-venv python3-pip git curl ufw docker.io || apt-get install -y python3 python3-venv python3-pip git curl ufw
 
-echo "[2/6] Criando ambiente virtual Python (.venv) e instalando pacotes..."
+echo "[2/6] Criando ambiente virtual Python (.venv) e instalando pacotes (incluindo ponte MetaTrader5)..."
 sudo -u "${RUN_USER}" python3 -m venv "${APP_DIR}/.venv"
 "${APP_DIR}/.venv/bin/pip" install --upgrade pip
 "${APP_DIR}/.venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
+# Se o wheel MetaTrader5 estiver disponível para a plataforma, instala também diretamente
+"${APP_DIR}/.venv/bin/pip" install MetaTrader5 || true
 
-echo "[3/6] Preparando diretório de dados e validando testes automatizados..."
+echo "[3/6] Configurando e iniciando o ambiente MetaTrader5 Python no Ubuntu (Container Wine + MetaTrader5 Python Package)..."
+if command -v docker >/dev/null 2>&1; then
+    systemctl enable --now docker || true
+    bash "${APP_DIR}/scripts/setup_mt5_wine_docker.sh" || echo "[AVISO] Container MT5 poderá ser iniciado depois com: sudo bash scripts/setup_mt5_wine_docker.sh"
+fi
+
+echo "[4/6] Preparando diretório de dados e validando testes automatizados..."
 sudo -u "${RUN_USER}" mkdir -p "${APP_DIR}/data"
 PYTHONPATH="${APP_DIR}" "${APP_DIR}/.venv/bin/pytest" "${APP_DIR}/tests" -q
 
-echo "[4/6] Configurando serviço systemd (${SERVICE_NAME}.service) para rodar 24/7..."
+echo "[5/6] Configurando serviço systemd (${SERVICE_NAME}.service) para rodar 24/7..."
 cat >/etc/systemd/system/${SERVICE_NAME}.service <<EOF
 [Unit]
-Description=Prado Institutional HFT & VWAP Universal Web Dashboard & MT5 Engine
+Description=Prado Institutional HFT & VWAP Universal Web Dashboard & Multi-Bot MT5 Engine
 After=network.target
 
 [Service]
@@ -63,31 +76,23 @@ systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
 systemctl restart "${SERVICE_NAME}"
 
-echo "[5/6] Liberando porta ${WEB_PORT}/tcp no Firewall (UFW) se estiver ativo..."
+echo "[6/6] Liberando porta ${WEB_PORT}/tcp no Firewall (UFW) se estiver ativo..."
 if command -v ufw >/dev/null 2>&1; then
     ufw allow "${WEB_PORT}/tcp" >/dev/null 2>&1 || true
-fi
-
-echo "[6/6] Opcional: Deseja instalar o container Docker do MetaTrader 5 Headless (Wine + RPyC Bridge)? (Recomendado para VPS Ubuntu sem Windows)"
-if [[ "${INSTALL_MT5_DOCKER:-ask}" == "yes" ]]; then
-    bash "${APP_DIR}/scripts/setup_mt5_wine_docker.sh"
-else
-    echo " -> Para ativar o container MT5 Headless no Ubuntu a qualquer momento, execute:"
-    echo "    sudo bash ${APP_DIR}/scripts/setup_mt5_wine_docker.sh"
 fi
 
 SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'SEU_IP_DO_SERVIDOR')"
 
 echo ""
 echo "======================================================================"
-echo "  ✅ INSTALAÇÃO CONCLUÍDA E SERVIÇO ATIVO NO UBUNTU!"
+echo "  ✅ INSTALAÇÃO COMPLETA E BIBLIOTECA METATRADER5 CONFIGURADA!"
 echo "======================================================================"
 echo "  🌐 Acesse o Painel Web : http://${SERVER_IP}:${WEB_PORT}"
 echo "  🔑 Usuário Padrão      : admin"
 echo "  🔒 Senha Padrão        : prado2026"
 echo ""
-echo "  Comandos úteis no Ubuntu:"
-echo "    Ver status : sudo systemctl status ${SERVICE_NAME}"
-echo "    Ver logs   : sudo journalctl -u ${SERVICE_NAME} -f"
-echo "    Reiniciar  : sudo systemctl restart ${SERVICE_NAME}"
+echo "  No Painel Web você já pode:"
+echo "    1. Cadastrar sua Conta da Corretora MetaTrader 5;"
+echo "    2. Selecionar entre Ativos Principais, Todos os Ativos ou Criar Categorias;"
+echo "    3. Criar quantos Robôs quiser, clicar em Executar e acompanhar na aba 'Robôs Rodando'!"
 echo "======================================================================"

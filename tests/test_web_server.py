@@ -120,3 +120,111 @@ def test_web_app_login_config_and_monitoring_endpoints(tmp_path: Path):
     assert cfg_resp["config"]["zscore_threshold"] == 2.1
     assert cfg_resp["config"]["operation_mode"] == "TREND_ONLY"
 
+
+def test_accounts_symbol_modes_custom_categories_and_multi_bot_fleet(tmp_path: Path):
+    from prado_linux.web_app import PradoWebApp
+
+    cfg_path = tmp_path / "config.json"
+    app = PradoWebApp(config_path=cfg_path)
+
+    # Login
+    login_payload = json.dumps({"username": "admin", "password": "prado2026"}).encode("utf-8")
+    _, _, resp_headers = app.handle_request(
+        "POST", "/api/login", headers={"Content-Type": "application/json"}, body=login_payload
+    )
+    cookie_header = resp_headers.get("Set-Cookie", "")
+    auth_headers = {"Cookie": cookie_header, "Content-Type": "application/json"}
+
+    # 1. Save an MT5 Account
+    acc_payload = json.dumps(
+        {
+            "account_id": "acc_xp_1",
+            "label": "Conta XP B3 Principal",
+            "mt5_login": "10203040",
+            "mt5_password": "xp_pass",
+            "mt5_server": "XPInvestimentos-PRD",
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=acc_payload)
+    assert code == 200
+    acc_resp = json.loads(body)
+    assert acc_resp["ok"] is True
+    assert any(a["account_id"] == "acc_xp_1" for a in acc_resp["accounts"])
+
+    # 2. Fetch Broker Symbols in "PRINCIPAIS" and "TODOS" modes
+    code, body, _ = app.handle_request(
+        "GET", "/api/symbols?mode=PRINCIPAIS&account_id=acc_xp_1", headers=auth_headers, body=b""
+    )
+    assert code == 200
+    sym_main = json.loads(body)
+    assert sym_main["mode"] == "PRINCIPAIS"
+    assert len(sym_main["symbols"]) > 0
+
+    code, body, _ = app.handle_request(
+        "GET", "/api/symbols?mode=TODOS&account_id=acc_xp_1", headers=auth_headers, body=b""
+    )
+    assert code == 200
+    sym_all = json.loads(body)
+    assert sym_all["mode"] == "TODOS"
+    assert len(sym_all["symbols"]) >= len(sym_main["symbols"])
+
+    # 3. Create Custom Symbol Category for the Broker
+    cat_payload = json.dumps(
+        {
+            "category_name": "Meus Futuros B3",
+            "symbols": ["WIN$N", "WDO$N", "IND$N"],
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/categories", headers=auth_headers, body=cat_payload)
+    assert code == 200
+    cat_resp = json.loads(body)
+    assert cat_resp["ok"] is True
+    assert "Meus Futuros B3" in cat_resp["categories"]
+    assert "IND$N" in cat_resp["categories"]["Meus Futuros B3"]
+
+    # 4. Create & Start a Robot instance tied to Account + Symbol
+    bot_payload = json.dumps(
+        {
+            "name": "Robô Mini Índice Fala 1 & 2",
+            "account_id": "acc_xp_1",
+            "symbol": "WIN$N",
+            "category": "Meus Futuros B3",
+            "operation_mode": "BOTH",
+            "lot_size": 2.0,
+            "zscore_threshold": 1.8,
+            "imbalance_threshold": 0.35,
+            "revert_sigma": 2.0,
+            "correlated_basket": ["PETR4", "VALE3"],
+            "auto_start": True,
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/bots", headers=auth_headers, body=bot_payload)
+    assert code == 200
+    bot_resp = json.loads(body)
+    assert bot_resp["ok"] is True
+    created_bot = bot_resp["bot"]
+    bot_id = created_bot["bot_id"]
+    assert created_bot["status"] == "RUNNING"
+    assert created_bot["symbol"] == "WIN$N"
+    assert created_bot["account_id"] == "acc_xp_1"
+
+    # 5. Toggle Stop / Start on the Robot instance
+    code, body, _ = app.handle_request(
+        "POST",
+        "/api/bots/action",
+        headers=auth_headers,
+        body=json.dumps({"bot_id": bot_id, "action": "STOP"}).encode("utf-8"),
+    )
+    assert code == 200
+    assert json.loads(body)["bot"]["status"] == "STOPPED"
+
+    code, body, _ = app.handle_request(
+        "POST",
+        "/api/bots/action",
+        headers=auth_headers,
+        body=json.dumps({"bot_id": bot_id, "action": "START"}).encode("utf-8"),
+    )
+    assert code == 200
+    assert json.loads(body)["bot"]["status"] == "RUNNING"
+
+
