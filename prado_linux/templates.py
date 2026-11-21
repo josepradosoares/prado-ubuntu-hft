@@ -243,7 +243,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
     th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
-    tr:hover td { background: rgba(255,255,255,0.02); }
+    tr.clickable-row { cursor: pointer; transition: background 0.15s; }
+    tr.clickable-row:hover td { background: rgba(245,185,66,0.08); }
     .pill {
       display: inline-block;
       padding: 3px 9px;
@@ -262,6 +263,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
       gap: 16px;
     }
+    .field { position: relative; }
     .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
     .field input, .field select {
       width: 100%;
@@ -272,7 +274,31 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       border-radius: 8px;
       font-size: 13px;
     }
+    .field input:focus, .field select:focus { border-color: var(--gold); outline: none; }
     .field small { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
+
+    .autocomplete-box {
+      position: absolute;
+      top: 66px;
+      left: 0;
+      right: 0;
+      background: #0b1220;
+      border: 1px solid var(--gold);
+      border-radius: 8px;
+      max-height: 210px;
+      overflow-y: auto;
+      z-index: 500;
+      display: none;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.7);
+    }
+    .autocomplete-item {
+      padding: 9px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .autocomplete-item:hover { background: rgba(245,185,66,0.2); color: var(--gold); }
+
     .mode-switch { display: inline-flex; gap: 6px; background: #080d17; padding: 4px; border-radius: 8px; border: 1px solid var(--border); }
     .mode-btn {
       padding: 6px 12px;
@@ -332,6 +358,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <span style="font-size:11px;color:var(--muted);font-weight:700;">CONTA EM USO:</span>
         <select id="headerAccountSelect" onchange="quickSwitchAccount(this.value)" style="background:transparent;color:var(--gold);border:none;font-weight:700;font-size:12px;outline:none;cursor:pointer;"></select>
       </div>
+      <button class="btn btn-cyan" onclick="resetDailyRisk()">🔄 DESTRAVAR RISCO DIÁRIO</button>
       <button class="btn btn-green" id="toggleAutoBtn" onclick="toggleAutoTrading()">CHAVE GERAL: ATIVA</button>
       <button class="btn btn-danger" onclick="panicFlatten()">🚨 ZERAR TUDO AGORA</button>
       <button class="btn" onclick="logout()">SAIR</button>
@@ -364,7 +391,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     <div class="tabs">
       <button class="tab-btn active" onclick="switchTab('running-bots', this)">🤖 Robôs Rodando (<span id="tabBotCount">0</span>)</button>
-      <button class="tab-btn" onclick="switchTab('create-bot', this)">🧮 Criar Robô Matemático (Catálogo de Bots)</button>
+      <button class="tab-btn" onclick="switchTab('create-bot', this)">🧮 Criar / Editar Robô Matemático</button>
       <button class="tab-btn" onclick="switchTab('backtest', this)">🧪 Backtest Matemático Tick-a-Tick</button>
       <button class="tab-btn" onclick="switchTab('categories', this)">🗂️ Categorias de Ativos da Corretora</button>
       <button class="tab-btn" onclick="switchTab('mt5', this)">🔌 Contas DEMO &amp; REAL (MetaTrader 5)</button>
@@ -375,8 +402,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div id="tab-running-bots" class="tab-content active">
       <div class="card">
         <h2>
-          <span>🤖 FROTA DE ROBÔS MATEMÁTICOS EM EXECUÇÃO (SEM CARREGAR GRÁFICOS • EXECUÇÃO PURA VIA PYTHON MT5)</span>
-          <button class="btn btn-gold" onclick="switchTab('create-bot', document.querySelectorAll('.tab-btn')[1])">+ ESCOLHER &amp; CRIAR NOVO ROBÔ</button>
+          <span>🤖 FROTA DE ROBÔS MATEMÁTICOS EM EXECUÇÃO (CLIQUE EM QUALQUER ROBÔ OU EM "✏️ EDITAR" PARA ALTERAR LOTE, CONTA OU ATIVO)</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-gold" onclick="startNewBotForm()">+ ESCOLHER &amp; CRIAR NOVO ROBÔ</button>
+            <button class="btn btn-danger" onclick="deleteAllBots()">🗑️ APAGAR TODOS OS ROBÔS</button>
+          </div>
         </h2>
         <table>
           <thead>
@@ -390,7 +420,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <th>Estado Matemático</th>
               <th>Decisão</th>
               <th>Status</th>
-              <th>Controle</th>
+              <th>Controle / Editar</th>
             </tr>
           </thead>
           <tbody id="runningBotsBody"></tbody>
@@ -419,21 +449,22 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- ABA 2: CRIAR & EXECUTAR ROBÔ MATEMÁTICO -->
+    <!-- ABA 2: CRIAR & EDITAR ROBÔ MATEMÁTICO -->
     <div id="tab-create-bot" class="tab-content">
       <div class="card">
         <h2>
-          <span>🧮 CATÁLOGO DE ROBÔS 100% MATEMÁTICOS (ZERO GRÁFICOS • PURA ESTATÍSTICA &amp; FLUXO)</span>
+          <span id="botFormTitle">🧮 CATÁLOGO DE ROBÔS 100% MATEMÁTICOS (CRIAR OU EDITAR ROBÔ)</span>
           <div class="mode-switch">
             <button type="button" id="btnModeMain" class="mode-btn active" onclick="setSymbolMode('PRINCIPAIS')">⭐ Ativos Principais</button>
             <button type="button" id="btnModeAll" class="mode-btn" onclick="setSymbolMode('TODOS')">🌐 Todos os Ativos da Corretora</button>
           </div>
         </h2>
         <div class="quote-box">
-          Nenhum gráfico pesado é carregado: os robôs operam diretamente sobre arrays numéricos de ticks da biblioteca <code>MetaTrader5</code> em Python. Escolha abaixo o <strong>Modelo Matemático do Bot</strong>, a <strong>Conta (DEMO ou REAL)</strong> e o <strong>Ativo</strong>, e clique em <strong>▶ EXECUTAR ROBÔ AUTOMATICAMENTE</strong>.
+          Nenhum gráfico pesado é carregado: os robôs operam diretamente sobre arrays numéricos de ticks da biblioteca <code>MetaTrader5</code> em Python. Você pode <strong>criar um novo robô</strong> ou <strong>editar qualquer robô existente</strong> clicando nele na lista!
         </div>
 
         <form id="createBotForm" onsubmit="createAndRunBot(event)">
+          <input type="hidden" id="editing_bot_id" value="" />
           <div class="form-grid">
             <div class="field" style="grid-column: span 2;">
               <label>Escolher Modelo Matemático do Robô (Todos os Bots Disponíveis)</label>
@@ -441,7 +472,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             </div>
             <div class="field">
               <label>Nome Personalizado do Robô</label>
-              <input type="text" id="bot_name" placeholder="Ex: Bot WIN Institucional #1" required />
+              <input type="text" id="bot_name" placeholder="Ex: Bot BTC Institucional #1" required />
             </div>
             <div class="field">
               <label>Escolher Conta MetaTrader 5 (DEMO ou REAL)</label>
@@ -459,8 +490,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <small id="symCountHint">Carregando ativos...</small>
             </div>
             <div class="field">
-              <label>Volume / Lote por Operação</label>
-              <input type="number" step="0.01" id="bot_lot_size" value="1.0" required />
+              <label>Volume / Lote por Operação (Ex: 0.01 para BTC, 1.0 para WIN)</label>
+              <input type="number" step="0.01" id="bot_lot_size" value="0.10" required />
             </div>
             <div class="field">
               <label>Janela de Amostragem (w Ticks)</label>
@@ -480,7 +511,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             </div>
             <div class="field">
               <label>Vetor Cesta de Correlação (Ativos)</label>
-              <input type="text" id="bot_corr_basket" value="PETR4, VALE3" />
+              <input type="text" id="bot_corr_basket" value="PETR4, VALE3, Crypto_10#" />
             </div>
           </div>
 
@@ -490,8 +521,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <p id="botDescDisplay" style="font-size:12px;color:var(--muted);margin-bottom:16px;"></p>
 
           <div style="display:flex; gap:12px; flex-wrap:wrap;">
-            <button type="submit" class="btn btn-gold" style="font-size:14px;padding:12px 24px;">
+            <button type="submit" id="botSubmitBtn" class="btn btn-gold" style="font-size:14px;padding:12px 24px;">
               ▶ CRIAR E EXECUTAR ROBÔ AUTOMATICAMENTE
+            </button>
+            <button type="button" id="botCancelEditBtn" class="btn" style="display:none;" onclick="cancelBotEdit()">
+              Cancelar Edição
             </button>
           </div>
         </form>
@@ -503,7 +537,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="card">
         <h2>🧪 SIMULADOR &amp; BACKTESTER MATEMÁTICO TICK-A-TICK (ALTA VELOCIDADE • SEM GRÁFICOS)</h2>
         <div class="quote-box">
-          Teste qualquer um dos algoritmos matemáticos sobre a série de ticks do ativo antes de colocá-lo para rodar na Conta Demo ou Conta Real. O motor calcula lucro líquido, taxa de acerto (Win Rate), Fator de Lucro (Profit Factor) e Drawdown Máximo puramente via código.
+          Teste qualquer um dos algoritmos matemáticos sobre a série de ticks do ativo antes de colocá-lo para rodar na Conta Demo ou Conta Real.
         </div>
         <form onsubmit="runMathBacktest(event)">
           <div class="form-grid">
@@ -525,7 +559,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             </div>
             <div class="field">
               <label>Lote Simulado</label>
-              <input type="number" step="0.01" id="bt_lots" value="2.0" required />
+              <input type="number" step="0.01" id="bt_lots" value="1.0" required />
             </div>
             <div class="field">
               <label>Limiar Z-Score</label>
@@ -571,7 +605,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <!-- ABA 4: CATEGORIAS DE ATIVOS DA CORRETORA -->
     <div id="tab-categories" class="tab-content">
       <div class="card">
-        <h2>🗂️ CRIAR / EDITAR CATEGORIA DE ATIVOS DA CORRETORA</h2>
+        <h2>🗂️ CRIAR / EDITAR CATEGORIA DE ATIVOS DA CORRETORA (CLIQUE EM UMA CATEGORIA ABAIXO PARA EDITAR)</h2>
         <form onsubmit="saveCustomCategory(event)">
           <div class="form-grid">
             <div class="field">
@@ -584,19 +618,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             </div>
           </div>
           <div style="margin-top:14px;">
-            <button type="submit" class="btn btn-gold">💾 SALVAR CATEGORIA</button>
+            <button type="submit" class="btn btn-gold">💾 SALVAR / ATUALIZAR CATEGORIA</button>
           </div>
         </form>
       </div>
 
       <div class="card">
-        <h2>CATEGORIAS DISPONÍVEIS PARA OS ROBÔS</h2>
+        <h2>CATEGORIAS DISPONÍVEIS PARA OS ROBÔS (CLIQUE PARA EDITAR)</h2>
         <table>
           <thead>
             <tr>
               <th>Categoria</th>
               <th>Ativos Vinculados</th>
-              <th>Ação</th>
+              <th>Ações</th>
             </tr>
           </thead>
           <tbody id="categoriesBody"></tbody>
@@ -607,11 +641,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <!-- ABA 5: CONTAS DEMO & REAL METATRADER 5 -->
     <div id="tab-mt5" class="tab-content">
       <div class="card">
-        <h2>🔌 GERENCIADOR DE CONTAS DEMO &amp; REAL METATRADER 5 (CONEXÃO PYTHON)</h2>
+        <h2 id="accountFormTitle">🔌 GERENCIADOR DE CONTAS DEMO &amp; REAL METATRADER 5 (CLIQUE EM QUALQUER CONTA ABAIXO PARA EDITAR)</h2>
         <div class="quote-box">
-          Cadastre tanto a sua <strong>Conta DEMO (Treinamento / Validação)</strong> quanto a sua <strong>Conta REAL (Produção)</strong> da corretora. Você pode alternar com 1 clique qual conta está ativa no topo do painel ou escolher a conta individualmente para cada robô criado.
+          Suas contas <strong>XM Global Demo (346595704 @ XMGlobal-MT5 10)</strong> e <strong>XM Global Real (382177116 @ XMGlobal-MT5 13)</strong> já estão pré-cadastradas com a sua senha! Ao começar a digitar no campo <strong>Servidor da Corretora no MT5</strong>, a lista de servidores aparece automaticamente para você escolher.
         </div>
         <form id="mt5Form" onsubmit="saveMt5Account(event)">
+          <input type="hidden" id="editing_account_id" value="" />
           <div class="form-grid">
             <div class="field">
               <label>Tipo da Conta (DEMO ou REAL)</label>
@@ -622,29 +657,45 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             </div>
             <div class="field">
               <label>Apelido de Identificação</label>
-              <input type="text" id="acc_label" placeholder="Ex: XP Conta Demo HFT ou XP Conta Real" required />
+              <input type="text" id="acc_label" placeholder="Ex: Jose XM Global Demo" required />
             </div>
             <div class="field">
               <label>Login da Conta MT5 (Número)</label>
-              <input type="text" id="mt5_login" placeholder="Ex: 10293847" required />
+              <input type="text" id="mt5_login" placeholder="Ex: 346595704" required />
             </div>
             <div class="field">
               <label>Senha da Conta MT5</label>
-              <input type="password" id="mt5_password" placeholder="Senha da conta no MT5" required />
+              <input type="password" id="mt5_password" placeholder="Deixe em branco na edição para manter a senha atual" />
             </div>
             <div class="field">
-              <label>Servidor da Corretora no MT5</label>
-              <input type="text" id="mt5_server" placeholder="Ex: XPInvestimentos-DEMO ou XPInvestimentos-PRD" required />
+              <label>Servidor da Corretora no MT5 (Comece a digitar para autocompletar)</label>
+              <input
+                type="text"
+                id="mt5_server"
+                list="brokerServersDatalist"
+                placeholder="Digite ex: XMGlobal, XP, Clear, ICMarkets..."
+                autocomplete="off"
+                oninput="onServerInputAutocomplete(this.value)"
+                onfocus="onServerInputAutocomplete(this.value)"
+                required
+              />
+              <datalist id="brokerServersDatalist"></datalist>
+              <div id="serverAutocompleteBox" class="autocomplete-box"></div>
+              <small>Comece a escrever o nome da corretora (ex: XM, XP, Clear) e clique no servidor desejado.</small>
             </div>
           </div>
-          <div style="margin-top: 18px;">
-            <button type="submit" class="btn btn-gold">💾 SALVAR CONTA (DEMO / REAL) &amp; CONECTAR</button>
+          <div style="margin-top: 18px; display:flex; gap:10px;">
+            <button type="submit" id="accSubmitBtn" class="btn btn-gold">💾 SALVAR / ATUALIZAR CONTA &amp; CONECTAR</button>
+            <button type="button" id="accCancelEditBtn" class="btn" style="display:none;" onclick="cancelAccountEdit()">Cancelar Edição</button>
           </div>
         </form>
       </div>
 
       <div class="card">
-        <h2>CONTAS CADASTRADAS — ESCOLHA QUAL USAR</h2>
+        <h2>
+          <span>CONTAS CADASTRADAS — CLIQUE EM "✏️ EDITAR", "🗑️ APAGAR" OU "USAR CONTA"</span>
+          <button class="btn btn-danger" onclick="deleteAllAccounts()">🗑️ APAGAR TODAS AS CONTAS</button>
+        </h2>
         <table>
           <thead>
             <tr>
@@ -653,7 +704,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <th>Login MT5</th>
               <th>Servidor da Corretora</th>
               <th>Status</th>
-              <th>Escolher Conta</th>
+              <th>Ações (Escolher / Editar / Excluir)</th>
             </tr>
           </thead>
           <tbody id="accountsBody"></tbody>
@@ -709,6 +760,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     let currentConfig = {};
     let currentSymbolMode = 'PRINCIPAIS';
     let botTemplates = [];
+    let allBrokerServers = [];
+    let latestBotsList = [];
 
     function showToast(msg) {
       const t = document.getElementById('toast');
@@ -737,6 +790,46 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       return `<span class="pill pill-wait">${action || 'WAIT'}</span>`;
     }
 
+    async function loadBrokerServersCatalog() {
+      const res = await fetch('/api/broker-servers');
+      if (!res.ok) return;
+      const data = await res.json();
+      allBrokerServers = data.servers || [];
+      const dl = document.getElementById('brokerServersDatalist');
+      dl.innerHTML = allBrokerServers.map(s => `<option value="${s}"></option>`).join('');
+    }
+
+    function onServerInputAutocomplete(query) {
+      const box = document.getElementById('serverAutocompleteBox');
+      const q = (query || '').trim().toLowerCase();
+      const matches = q
+        ? allBrokerServers.filter(s => s.toLowerCase().includes(q))
+        : allBrokerServers.slice(0, 18);
+      if (matches.length === 0) {
+        box.style.display = 'none';
+        return;
+      }
+      box.innerHTML = matches.map(s => `
+        <div class="autocomplete-item" onmousedown="selectBrokerServer('${s.replace(/'/g, "\\'")}')">
+          🏢 <strong>${s}</strong>
+        </div>
+      `).join('');
+      box.style.display = 'block';
+    }
+
+    function selectBrokerServer(serverName) {
+      document.getElementById('mt5_server').value = serverName;
+      document.getElementById('serverAutocompleteBox').style.display = 'none';
+    }
+
+    document.addEventListener('click', (e) => {
+      const box = document.getElementById('serverAutocompleteBox');
+      const inp = document.getElementById('mt5_server');
+      if (box && e.target !== inp && !box.contains(e.target)) {
+        box.style.display = 'none';
+      }
+    });
+
     async function loadBotTemplates() {
       const res = await fetch('/api/bot-templates');
       if (!res.ok) return;
@@ -754,10 +847,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const id = document.getElementById('bot_template_id').value;
       const tpl = botTemplates.find(t => t.template_id === id) || botTemplates[0];
       if (!tpl) return;
-      document.getElementById('bot_window_ticks').value = tpl.window_ticks;
-      document.getElementById('bot_zscore').value = tpl.zscore_threshold;
-      document.getElementById('bot_imbalance').value = tpl.imbalance_threshold;
-      document.getElementById('bot_revert_sigma').value = tpl.revert_sigma;
+      if (!document.getElementById('editing_bot_id').value) {
+        document.getElementById('bot_window_ticks').value = tpl.window_ticks;
+        document.getElementById('bot_zscore').value = tpl.zscore_threshold;
+        document.getElementById('bot_imbalance').value = tpl.imbalance_threshold;
+        document.getElementById('bot_revert_sigma').value = tpl.revert_sigma;
+      }
       document.getElementById('botFormulaDisplay').textContent = `Fórmula Matemática: ${tpl.formula}`;
       document.getElementById('botDescDisplay').textContent = tpl.description;
     }
@@ -770,7 +865,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       await loadBrokerSymbols();
     }
 
-    async function loadBrokerSymbols() {
+    async function loadBrokerSymbols(selectedSymbol) {
       const cat = document.getElementById('bot_category_filter').value;
       const url = `/api/symbols?mode=${encodeURIComponent(currentSymbolMode)}&category=${encodeURIComponent(cat)}`;
       const res = await fetch(url);
@@ -778,7 +873,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const data = await res.json();
       const syms = data.symbols || [];
       const htmlOpts = syms.map(s => `<option value="${s.name}">${s.name} — ${s.description || s.category}</option>`).join('');
-      document.getElementById('bot_symbol').innerHTML = htmlOpts;
+      const botSymSel = document.getElementById('bot_symbol');
+      botSymSel.innerHTML = htmlOpts;
+      if (selectedSymbol) botSymSel.value = selectedSymbol;
       const btSym = document.getElementById('bt_symbol');
       if (!btSym.innerHTML) btSym.innerHTML = htmlOpts;
       document.getElementById('symCountHint').textContent = `${syms.length} ativo(s) disponível(is) no modo ${currentSymbolMode}.`;
@@ -793,15 +890,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (catNames.includes(prevCat)) catSel.value = prevCat;
 
       const catBody = document.getElementById('categoriesBody');
-      catBody.innerHTML = catNames.map(c => `
-        <tr>
-          <td><strong>${c}</strong></td>
-          <td>${(categories[c] || []).map(s => `<span class="pill pill-wait" style="margin:2px;">${s}</span>`).join(' ')}</td>
-          <td>
-            <button class="btn btn-danger" onclick="deleteCategory('${c.replace(/'/g, "\\'")}')">Excluir</button>
-          </td>
-        </tr>
-      `).join('');
+      catBody.innerHTML = catNames.map(c => {
+        const symsStr = (categories[c] || []).join(', ');
+        return `
+          <tr class="clickable-row" onclick="editCategory('${c.replace(/'/g, "\\'")}', '${symsStr.replace(/'/g, "\\'")}')">
+            <td><strong>${c}</strong></td>
+            <td>${(categories[c] || []).map(s => `<span class="pill pill-wait" style="margin:2px;">${s}</span>`).join(' ')}</td>
+            <td onclick="event.stopPropagation();" style="display:flex;gap:6px;">
+              <button class="btn btn-cyan" onclick="editCategory('${c.replace(/'/g, "\\'")}', '${symsStr.replace(/'/g, "\\'")}')">✏️ Editar</button>
+              <button class="btn btn-danger" onclick="deleteCategory('${c.replace(/'/g, "\\'")}')">🗑️ Excluir</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
 
       const accSel = document.getElementById('bot_account_id');
       const hdrSel = document.getElementById('headerAccountSelect');
@@ -814,7 +915,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const opts = list.map(a => {
           const badge = a.account_type === 'REAL' ? '💰 REAL' : '🧪 DEMO';
           const selected = a.account_id === activeAccountId ? 'selected' : '';
-          return `<option value="${a.account_id}" ${selected}>[${badge}] ${a.label} (${a.mt5_login})</option>`;
+          return `<option value="${a.account_id}" ${selected}>[${badge}] ${a.label} (${a.mt5_login} @ ${a.mt5_server})</option>`;
         }).join('');
         accSel.innerHTML = opts;
         hdrSel.innerHTML = opts;
@@ -822,27 +923,125 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
       const accBody = document.getElementById('accountsBody');
       if (list.length === 0) {
-        accBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;">Nenhuma conta DEMO ou REAL cadastrada ainda. Cadastre no formulário acima!</td></tr>';
+        accBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;">Nenhuma conta DEMO ou REAL cadastrada ainda.</td></tr>';
       } else {
         accBody.innerHTML = list.map(a => {
           const isReal = a.account_type === 'REAL';
           const isActive = a.account_id === activeAccountId;
           return `
-            <tr>
+            <tr class="clickable-row" onclick="editAccount('${a.account_id}')">
               <td><span class="pill ${isReal ? 'pill-gold' : 'pill-hft'}">${isReal ? '💰 CONTA REAL' : '🧪 CONTA DEMO'}</span></td>
               <td><strong>${a.label}</strong></td>
               <td><code>${a.mt5_login}</code></td>
-              <td>${a.mt5_server}</td>
+              <td><strong>${a.mt5_server}</strong></td>
               <td>${isActive ? '<span class="pill pill-up">● EM USO AGORA</span>' : '<span class="pill pill-wait">DISPONÍVEL</span>'}</td>
-              <td>
+              <td onclick="event.stopPropagation();" style="display:flex;gap:6px;flex-wrap:wrap;">
                 ${isActive
                   ? '<button class="btn" disabled>Conectada</button>'
-                  : `<button class="btn btn-gold" onclick="quickSwitchAccount('${a.account_id}')">Usar Esta Conta</button>`
+                  : `<button class="btn btn-gold" onclick="quickSwitchAccount('${a.account_id}')">Usar Conta</button>`
                 }
+                <button class="btn btn-cyan" onclick="editAccount('${a.account_id}')">✏️ Editar</button>
+                <button class="btn btn-danger" onclick="deleteAccount('${a.account_id}')">🗑️</button>
               </td>
             </tr>
           `;
         }).join('');
+      }
+    }
+
+    function editCategory(catName, symsCsv) {
+      document.getElementById('new_cat_name').value = catName;
+      document.getElementById('new_cat_symbols').value = symsCsv;
+      document.getElementById('new_cat_name').focus();
+      showToast(`Editando categoria "${catName}" — altere os ativos e clique em Salvar.`);
+    }
+
+    function editAccount(accountId) {
+      const list = currentConfig.accounts || [];
+      const acc = list.find(a => a.account_id === accountId);
+      if (!acc) return;
+      document.getElementById('editing_account_id').value = acc.account_id;
+      document.getElementById('acc_type').value = acc.account_type || 'DEMO';
+      document.getElementById('acc_label').value = acc.label || '';
+      document.getElementById('mt5_login').value = acc.mt5_login || '';
+      document.getElementById('mt5_password').value = '';
+      document.getElementById('mt5_server').value = acc.mt5_server || '';
+      document.getElementById('accountFormTitle').textContent = `✏️ EDITANDO CONTA: ${acc.label} (${acc.mt5_login})`;
+      document.getElementById('accSubmitBtn').textContent = '💾 SALVAR ALTERAÇÕES DA CONTA';
+      document.getElementById('accCancelEditBtn').style.display = 'inline-block';
+      switchTab('mt5', document.querySelectorAll('.tab-btn')[4]);
+      showToast(`Editando conta ${acc.mt5_login} (${acc.mt5_server})`);
+    }
+
+    function cancelAccountEdit() {
+      document.getElementById('editing_account_id').value = '';
+      document.getElementById('acc_label').value = '';
+      document.getElementById('mt5_login').value = '';
+      document.getElementById('mt5_password').value = '';
+      document.getElementById('mt5_server').value = '';
+      document.getElementById('accountFormTitle').textContent = '🔌 GERENCIADOR DE CONTAS DEMO & REAL METATRADER 5 (CLIQUE EM QUALQUER CONTA ABAIXO PARA EDITAR)';
+      document.getElementById('accSubmitBtn').textContent = '💾 SALVAR / ATUALIZAR CONTA & CONECTAR';
+      document.getElementById('accCancelEditBtn').style.display = 'none';
+    }
+
+    async function deleteAccount(accountId) {
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'DELETE', account_id: accountId})
+      });
+      const data = await res.json();
+      if (data.ok) {
+        currentConfig.accounts = data.accounts;
+        renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, currentConfig.active_account_id);
+        showToast('Conta removida!');
+      }
+    }
+
+    function startNewBotForm() {
+      cancelBotEdit();
+      switchTab('create-bot', document.querySelectorAll('.tab-btn')[1]);
+    }
+
+    async function editBot(botId) {
+      const bot = latestBotsList.find(b => b.bot_id === botId);
+      if (!bot) return;
+      document.getElementById('editing_bot_id').value = bot.bot_id;
+      document.getElementById('bot_template_id').value = bot.bot_template_id || 'WALL_STREET_HYBRID_BOTH';
+      document.getElementById('bot_name').value = bot.name || '';
+      document.getElementById('bot_account_id').value = bot.account_id || currentConfig.active_account_id;
+      document.getElementById('bot_category_filter').value = '';
+      await loadBrokerSymbols(bot.symbol);
+      document.getElementById('bot_symbol').value = bot.symbol;
+      document.getElementById('bot_lot_size').value = bot.lot_size;
+      document.getElementById('bot_window_ticks').value = bot.window_ticks || 120;
+      document.getElementById('bot_zscore').value = bot.zscore_threshold || 1.8;
+      document.getElementById('bot_imbalance').value = bot.imbalance_threshold || 0.35;
+      document.getElementById('bot_revert_sigma').value = bot.revert_sigma || 2.0;
+      document.getElementById('bot_corr_basket').value = (bot.correlated_basket || []).join(', ');
+      document.getElementById('botFormTitle').textContent = `✏️ EDITANDO ROBÔ: ${bot.name} (${bot.symbol})`;
+      document.getElementById('botSubmitBtn').textContent = '💾 SALVAR ALTERAÇÕES DO ROBÔ';
+      document.getElementById('botCancelEditBtn').style.display = 'inline-block';
+      switchTab('create-bot', document.querySelectorAll('.tab-btn')[1]);
+      showToast(`Editando robô "${bot.name}" — altere o lote, conta ou parâmetros e clique em Salvar.`);
+    }
+
+    function cancelBotEdit() {
+      document.getElementById('editing_bot_id').value = '';
+      document.getElementById('bot_name').value = '';
+      document.getElementById('bot_lot_size').value = '0.10';
+      document.getElementById('botFormTitle').textContent = '🧮 CATÁLOGO DE ROBÔS 100% MATEMÁTICOS (CRIAR OU EDITAR ROBÔ)';
+      document.getElementById('botSubmitBtn').textContent = '▶ CRIAR E EXECUTAR ROBÔ AUTOMATICAMENTE';
+      document.getElementById('botCancelEditBtn').style.display = 'none';
+      onBotTemplateChange();
+    }
+
+    async function resetDailyRisk() {
+      const res = await fetch('/api/risk/reset', {method: 'POST'});
+      const data = await res.json();
+      if (data.ok) {
+        showToast('Trava de perda diária resetada e robôs liberados para operar!');
+        refreshStatus();
       }
     }
 
@@ -867,6 +1066,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (res.status === 401) { window.location.href = '/login'; return; }
       const data = await res.json();
       currentConfig = data.config || {};
+      await loadBrokerServersCatalog();
       await loadBotTemplates();
       renderCategoriesAndAccounts(
         currentConfig.custom_categories,
@@ -890,10 +1090,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         document.getElementById('kpiBalance').textContent = `Saldo: ${(acc.balance || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
 
         const bots = snap.bots || [];
+        latestBotsList = bots;
         const runningCount = bots.filter(b => b.status === 'RUNNING').length;
         document.getElementById('kpiBotsRunning').textContent = `${runningCount} / ${bots.length}`;
         document.getElementById('tabBotCount').textContent = runningCount;
-        document.getElementById('kpiRiskStatus').textContent = snap.risk_status || 'OPERACIONAL';
+
+        const rStatus = document.getElementById('kpiRiskStatus');
+        rStatus.textContent = snap.risk_status || 'OPERACIONAL';
+        rStatus.style.color = snap.risk_locked ? 'var(--red)' : 'var(--green)';
 
         const corr = Number(snap.correlation_bias || 0);
         const kpiCorr = document.getElementById('kpiCorr');
@@ -911,21 +1115,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
         const botsBody = document.getElementById('runningBotsBody');
         if (bots.length === 0) {
-          botsBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:22px;">Nenhum robô matemático em execução. Clique na aba <strong>"🧮 Criar Robô Matemático"</strong> para escolher um algoritmo e iniciar!</td></tr>';
+          botsBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:22px;">Nenhum robô matemático em execução. Clique na aba <strong>"🧮 Criar / Editar Robô Matemático"</strong> para escolher um algoritmo e iniciar!</td></tr>';
         } else {
           botsBody.innerHTML = bots.map(b => {
             const isRun = b.status === 'RUNNING';
             const bType = b.account_type || 'DEMO';
             return `
-              <tr>
+              <tr class="clickable-row" onclick="editBot('${b.bot_id}')" title="Clique para editar este robô">
                 <td>
-                  <strong>${b.name}</strong><br/>
+                  <strong>${b.name}</strong> <span style="font-size:11px;color:var(--gold);">✏️</span><br/>
                   <small style="color:var(--cyan);font-family:monospace;">${b.bot_template_name || b.operation_mode}</small><br/>
                   <small style="color:var(--muted)">Trades executados: ${b.trades_executed || 0}</small>
                 </td>
                 <td><span class="pill ${bType === 'REAL' ? 'pill-gold' : 'pill-hft'}">${bType}</span><br/><small>${b.account_label || ''}</small></td>
                 <td><strong>${b.symbol}</strong><br/><small style="color:var(--muted)">${b.category || ''}</small></td>
-                <td>${b.lot_size}</td>
+                <td><strong>${b.lot_size}</strong></td>
                 <td>P: <strong>${b.last_price || '---'}</strong><br/><small style="color:var(--gold)">VWAP: ${b.vwap || '---'}</small></td>
                 <td>Z: <strong>${Number(b.aggression_zscore || 0).toFixed(2)}</strong><br/>Imb: ${(Number(b.imbalance_ratio || 0) * 100).toFixed(1)}%</td>
                 <td>${regimePill(b.last_regime)}</td>
@@ -935,7 +1139,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     ${isRun ? '● RODANDO' : '■ PARADO'}
                   </span>
                 </td>
-                <td style="display:flex;gap:6px;">
+                <td onclick="event.stopPropagation();" style="display:flex;gap:6px;flex-wrap:wrap;">
+                  <button class="btn btn-cyan" onclick="editBot('${b.bot_id}')">✏️ Editar</button>
                   ${isRun
                     ? `<button class="btn btn-danger" onclick="botAction('${b.bot_id}', 'STOP')">⏸ Pausar</button>`
                     : `<button class="btn btn-green" onclick="botAction('${b.bot_id}', 'START')">▶ Executar</button>`
@@ -1004,6 +1209,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     async function createAndRunBot(e) {
       e.preventDefault();
+      const editingId = document.getElementById('editing_bot_id').value.trim();
       const catSel = document.getElementById('bot_category_filter');
       const payload = {
         bot_template_id: document.getElementById('bot_template_id').value,
@@ -1011,14 +1217,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         account_id: document.getElementById('bot_account_id').value,
         symbol: document.getElementById('bot_symbol').value,
         category: catSel.value || 'Corretora MT5',
-        lot_size: Number(document.getElementById('bot_lot_size').value || 1.0),
+        lot_size: Number(document.getElementById('bot_lot_size').value || 0.10),
         window_ticks: Number(document.getElementById('bot_window_ticks').value || 120),
         zscore_threshold: Number(document.getElementById('bot_zscore').value || 1.8),
         imbalance_threshold: Number(document.getElementById('bot_imbalance').value || 0.35),
         revert_sigma: Number(document.getElementById('bot_revert_sigma').value || 2.0),
-        correlated_basket: document.getElementById('bot_corr_basket').value.split(',').map(s => s.trim()).filter(Boolean),
-        auto_start: true
+        correlated_basket: document.getElementById('bot_corr_basket').value.split(',').map(s => s.trim()).filter(Boolean)
       };
+      if (editingId) {
+        payload.bot_id = editingId;
+      } else {
+        payload.auto_start = true;
+      }
       const res = await fetch('/api/bots', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1026,8 +1236,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       });
       const data = await res.json();
       if (data.ok) {
-        showToast(`Robô Matemático "${data.bot.name}" criado e RODANDO automaticamente!`);
-        document.getElementById('bot_name').value = '';
+        showToast(editingId ? `Robô "${data.bot.name}" atualizado com sucesso!` : `Robô Matemático "${data.bot.name}" criado e RODANDO!`);
+        cancelBotEdit();
         switchTab('running-bots', document.querySelectorAll('.tab-btn')[0]);
         refreshStatus();
       }
@@ -1040,7 +1250,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         symbol: document.getElementById('bt_symbol').value,
         tick_count: Number(document.getElementById('bt_ticks').value || 1200),
         initial_capital: Number(document.getElementById('bt_capital').value || 50000),
-        lot_size: Number(document.getElementById('bt_lots').value || 2.0),
+        lot_size: Number(document.getElementById('bt_lots').value || 1.0),
         zscore_threshold: Number(document.getElementById('bt_zscore').value || 1.5),
         imbalance_threshold: Number(document.getElementById('bt_imbalance').value || 0.25),
         revert_sigma: Number(document.getElementById('bt_sigma').value || 1.8)
@@ -1081,7 +1291,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const tbody = document.getElementById('btTradesBody');
         const trades = r.trades || [];
         if (trades.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);">Nenhum trade disparado com esses limiares. Reduza o Z-Score ou Imbalance para testar maior frequência.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);">Nenhum trade disparado com esses limiares.</td></tr>';
         } else {
           tbody.innerHTML = trades.map(t => `
             <tr>
@@ -1147,6 +1357,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     async function saveMt5Account(e) {
       e.preventDefault();
+      const editingId = document.getElementById('editing_account_id').value.trim();
       const payload = {
         account_type: document.getElementById('acc_type').value,
         label: document.getElementById('acc_label').value.trim(),
@@ -1155,6 +1366,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         mt5_server: document.getElementById('mt5_server').value.trim(),
         connect_now: true
       };
+      if (editingId) payload.account_id = editingId;
+
       const res = await fetch('/api/accounts', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1164,9 +1377,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok) {
         currentConfig.accounts = data.accounts;
         currentConfig.active_account_id = data.account.account_id;
+        cancelAccountEdit();
         renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, data.account.account_id);
+        await loadBrokerServersCatalog();
         await loadBrokerSymbols();
-        showToast(`Conta [${data.account.account_type}] "${data.account.label}" salva e selecionada!`);
+        showToast(`Conta [${data.account.account_type}] "${data.account.label}" salva e conectada!`);
         refreshStatus();
       }
     }

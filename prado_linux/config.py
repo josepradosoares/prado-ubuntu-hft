@@ -17,6 +17,92 @@ DEFAULT_CATEGORIES: dict[str, list[str]] = {
     "Forex & Commodities": ["EURUSD", "GBPUSD", "USDJPY", "GOLD#", "SILVER#", "WTI#"],
 }
 
+KNOWN_BROKER_SERVERS: list[str] = [
+    "XMGlobal-MT5 10",
+    "XMGlobal-MT5 13",
+    "XMGlobal-MT5",
+    "XMGlobal-MT5 2",
+    "XMGlobal-MT5 4",
+    "XMGlobal-MT5 5",
+    "XMGlobal-MT5 6",
+    "XMGlobal-MT5 7",
+    "XMGlobal-MT5 8",
+    "XMGlobal-MT5 9",
+    "XMGlobal-MT5 11",
+    "XMGlobal-MT5 12",
+    "XMGlobal-MT5 14",
+    "XMGlobal-MT5 15",
+    "XPInvestimentos-PRD",
+    "XPInvestimentos-DEMO",
+    "ClearInvestimentos-PRD",
+    "ClearInvestimentos-DEMO",
+    "RicoInvestimentos-PRD",
+    "RicoInvestimentos-DEMO",
+    "BTGPactual-PRD",
+    "BTGPactual-DEMO",
+    "GenialInvestimentos-PRD",
+    "GenialInvestimentos-DEMO",
+    "ModalMais-PRD",
+    "ModalMais-DEMO",
+    "ToroInvestimentos-PRD",
+    "ToroInvestimentos-DEMO",
+    "CMCapital-PRD",
+    "CMCapital-DEMO",
+    "TerraInvestimentos-PRD",
+    "GuideInvestimentos-PRD",
+    "Orama-PRD",
+    "ICMarketsSC-Demo",
+    "ICMarketsSC-MT5",
+    "ICMarketsSC-MT5-2",
+    "ICMarketsSC-MT5-4",
+    "Exness-MT5Trial",
+    "Exness-MT5Real",
+    "Pepperstone-Demo",
+    "Pepperstone-MT5-Live01",
+    "FBS-Demo",
+    "FBS-Real",
+    "Tickmill-Demo",
+    "Tickmill-Live",
+    "FP-Markets-MT5-Demo",
+    "FP-Markets-MT5-Live",
+    "AdmiralMarkets-Demo",
+    "AdmiralMarkets-Live",
+    "VantageInternational-Demo",
+    "VantageInternational-Live",
+    "HFM-Demo",
+    "HFM-LiveServer",
+    "OctaFX-Demo",
+    "OctaFX-Real",
+    "RoboForex-ECN",
+    "RoboForex-Pro",
+    "FTMO-Demo",
+    "FTMO-Server",
+    "The5ers-Demo",
+    "The5ers-Live",
+    "MetaQuotes-Demo",
+]
+
+DEFAULT_PRESEEDED_ACCOUNTS: list[dict[str, Any]] = [
+    {
+        "account_id": "acc_xm_demo_346595704",
+        "account_type": "DEMO",
+        "label": "Jose XM Global Demo (346595704)",
+        "mt5_login": "346595704",
+        "mt5_password": "Soares@16510303",
+        "mt5_server": "XMGlobal-MT5 10",
+        "created_at": "2026-11-21 16:30:00",
+    },
+    {
+        "account_id": "acc_xm_real_382177116",
+        "account_type": "REAL",
+        "label": "Jose do Prado Pinheiro - XM Global Real (382177116)",
+        "mt5_login": "382177116",
+        "mt5_password": "Soares@16510303",
+        "mt5_server": "XMGlobal-MT5 13",
+        "created_at": "2026-11-21 16:30:00",
+    },
+]
+
 MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     {
         "template_id": "WALL_STREET_HYBRID_BOTH",
@@ -86,6 +172,24 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
 ]
 
 
+def deduplicate_accounts(accounts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ensure no duplicate accounts with same (mt5_login, mt5_server) or account_id."""
+    by_key: dict[str, dict[str, Any]] = {}
+    for acc in accounts:
+        login = str(acc.get("mt5_login", "")).strip()
+        srv = str(acc.get("mt5_server", "")).strip()
+        key = f"{login}@{srv}" if login else str(acc.get("account_id", ""))
+        if not key:
+            continue
+        # Correct known XM Global 346595704 demo type if mistakenly saved as REAL
+        if login == "346595704" and srv == "XMGlobal-MT5 10":
+            acc["account_type"] = "DEMO"
+            if acc.get("label", "").strip().lower() == "jose":
+                acc["label"] = "Jose XM Global Demo (346595704)"
+        by_key[key] = acc
+    return list(by_key.values())
+
+
 @dataclass
 class PradoServerConfig:
     # Web Login Auth
@@ -96,8 +200,8 @@ class PradoServerConfig:
 
     # Primary MetaTrader 5 Credentials & Active Account Selection (DEMO vs REAL)
     mt5_connection_mode: str = "AUTO_MT5_WINE"
-    active_account_id: str = ""
-    active_account_type: str = "DEMO"  # "DEMO" or "REAL"
+    active_account_id: str = "acc_xm_demo_346595704"
+    active_account_type: str = "DEMO"
     mt5_login: str = ""
     mt5_password: str = ""
     mt5_server: str = ""
@@ -108,7 +212,7 @@ class PradoServerConfig:
     metaapi_account_id: str = ""
 
     # Saved MT5 Accounts (Both DEMO and REAL)
-    accounts: list[dict[str, Any]] = field(default_factory=list)
+    accounts: list[dict[str, Any]] = field(default_factory=lambda: [dict(a) for a in DEFAULT_PRESEEDED_ACCOUNTS])
 
     # Symbol Selection Mode ("PRINCIPAIS" vs "TODOS") and Custom Broker Categories
     symbol_selection_mode: str = "PRINCIPAIS"
@@ -139,13 +243,13 @@ class PradoServerConfig:
     poll_interval_sec: float = 0.5
 
     # Risk Guard & Execution ("HFT sempre dorme zerado")
-    default_lot_size: float = 1.0
+    default_lot_size: float = 0.10
     sl_sigma_mult: float = 1.0
     tp_sigma_mult: float = 1.8
     breakeven_trigger_sigma: float = 0.7
     trailing_step_sigma: float = 0.4
-    max_daily_loss_money: float = 500.0
-    daily_target_money: float = 1000.0
+    max_daily_loss_money: float = 5000.0
+    daily_target_money: float = 10000.0
     trading_start_time: str = "09:05"
     trading_end_time: str = "17:20"
     eod_flatten_time: str = "17:35"
@@ -171,11 +275,26 @@ def load_config(config_path: Path) -> PradoServerConfig:
         cfg.custom_categories = dict(DEFAULT_CATEGORIES)
         changed = True
 
+    # Ensure pre-seeded XM Global accounts exist and deduplicate any existing accounts
+    existing_logins = {str(a.get("mt5_login", "")) for a in cfg.accounts}
+    for pre in DEFAULT_PRESEEDED_ACCOUNTS:
+        if pre["mt5_login"] not in existing_logins:
+            cfg.accounts.append(dict(pre))
+            changed = True
+
+    deduped = deduplicate_accounts(cfg.accounts)
+    if len(deduped) != len(cfg.accounts):
+        cfg.accounts = deduped
+        changed = True
+    else:
+        cfg.accounts = deduped
+
     if changed or not config_path.exists():
         save_config(cfg, config_path)
     return cfg
 
 
 def save_config(cfg: PradoServerConfig, config_path: Path) -> None:
+    cfg.accounts = deduplicate_accounts(cfg.accounts)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(asdict(cfg), indent=2, ensure_ascii=False), encoding="utf-8")

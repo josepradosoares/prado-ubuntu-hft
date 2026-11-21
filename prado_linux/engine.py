@@ -10,7 +10,14 @@ import time
 from typing import Any
 import uuid
 
-from prado_linux.config import DEFAULT_CATEGORIES, MATH_BOT_TEMPLATES, PradoServerConfig, save_config
+from prado_linux.config import (
+    DEFAULT_CATEGORIES,
+    KNOWN_BROKER_SERVERS,
+    MATH_BOT_TEMPLATES,
+    PradoServerConfig,
+    deduplicate_accounts,
+    save_config,
+)
 from prado_linux.flow_math import (
     TICK_FLAG_BUY,
     TICK_FLAG_SELL,
@@ -84,7 +91,7 @@ class MT5UniversalConnector:
         target_server = (server if server is not None else self.cfg.mt5_server).strip()
         mode = self.cfg.mt5_connection_mode.upper()
 
-        if mode == "SIMULATION" or (not target_login and not force_attempt):
+        if mode == "SIMULATION" or not force_attempt:
             self._mt5 = None
             self.connected = True
             self.backend_name = "SIMULATION_FEED"
@@ -379,7 +386,8 @@ class MT5UniversalConnector:
                 curr = ticks[-1].effective_price()
                 pos["price_current"] = round(curr, 6)
                 diff = (curr - pos["price_open"]) if pos["type"] == "BUY" else (pos["price_open"] - curr)
-                pos["profit"] = round(diff * pos["volume"] * 10.0, 2)
+                mult = 0.20 if sym.startswith("WIN") else (1.0 if "BTC" in sym else 10.0)
+                pos["profit"] = round(diff * pos["volume"] * mult, 2)
         return list(self._sim_positions)
 
     def place_order(
@@ -509,16 +517,30 @@ class PradoTradingService:
 
     def save_mt5_account(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            acc_id = str(payload.get("account_id") or f"acc_{uuid.uuid4().hex[:8]}").strip()
+            login = str(payload.get("mt5_login", "")).strip()
+            server = str(payload.get("mt5_server", "")).strip()
+            password = str(payload.get("mt5_password", "")).strip()
             acc_type = str(payload.get("account_type") or "DEMO").upper().strip()
             if acc_type not in ("DEMO", "REAL"):
                 acc_type = "DEMO"
-            login = str(payload.get("mt5_login", "")).strip()
-            password = str(payload.get("mt5_password", "")).strip()
-            server = str(payload.get("mt5_server", "")).strip()
+            # Auto-correct 346595704 on XMGlobal-MT5 10 to DEMO
+            if login == "346595704" and server == "XMGlobal-MT5 10":
+                acc_type = "DEMO"
+
+            # Find existing by account_id OR by (mt5_login, mt5_server) so duplicates never happen
+            req_id = str(payload.get("account_id") or "").strip()
+            existing = next(
+                (
+                    a
+                    for a in self.cfg.accounts
+                    if (req_id and a.get("account_id") == req_id)
+                    or (login and a.get("mt5_login") == login and a.get("mt5_server") == server)
+                ),
+                None,
+            )
+            acc_id = existing["account_id"] if existing else (req_id or f"acc_{uuid.uuid4().hex[:8]}")
             label = str(payload.get("label") or f"[{acc_type}] Conta {login} ({server})").strip()
 
-            existing = next((a for a in self.cfg.accounts if a.get("account_id") == acc_id), None)
             if existing:
                 existing["account_type"] = acc_type
                 existing["label"] = label
@@ -539,6 +561,8 @@ class PradoTradingService:
                 }
                 self.cfg.accounts.append(acc_record)
 
+            self.cfg.accounts = deduplicate_accounts(self.cfg.accounts)
+
             # Set as active primary MT5 credentials too
             self.cfg.active_account_id = acc_id
             self.cfg.active_account_type = acc_type
@@ -550,8 +574,39 @@ class PradoTradingService:
                 self.cfg.mt5_server = server
 
             save_config(self.cfg, self.config_path)
-            self._log_event("ACCOUNT", f"Conta {acc_type} '{label}' ({login} @ {server}) salva e pronta.")
+            self._log_event("ACCOUNT", f"Conta {acc_type} '{label}' ({login} @ {server}) salva/atualizada com sucesso.")
             return acc_record
+
+    def delete_all_bots(self) -> list[dict[str, Any]]:
+        with self._lock:
+            self.cfg.bots.clear()
+            save_config(self.cfg, self.config_path)
+            self._log_event("BOT_FLEET", "Todos os robôs foram removidos pelo usuário.")
+            return self.cfg.bots
+
+    def delete_mt5_account(self, account_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            self.cfg.accounts = [a for a in self.cfg.accounts if a.get("account_id") != account_id]
+            save_config(self.cfg, self.config_path)
+            self._log_event("ACCOUNT", f"Conta '{account_id}' removida.")
+            return self.cfg.accounts
+
+    def clear_all_accounts(self) -> list[dict[str, Any]]:
+        with self._lock:
+            self.cfg.accounts.clear()
+            save_config(self.cfg, self.config_path)
+            self._log_event("ACCOUNT", "Lista de contas limpa pelo usuário.")
+            return self.cfg.accounts
+
+    def reset_daily_risk_lock(self) -> dict[str, Any]:
+        with self._lock:
+            self.connector._sim_daily_pnl = 0.0
+            self.connector._sim_positions.clear()
+            if self.cfg.max_daily_loss_money < 2000.0:
+                self.cfg.max_daily_loss_money = 5000.0
+                save_config(self.cfg, self.config_path)
+            self._log_event("RISK_GUARD", "Trava de perda diária resetada e robôs liberados para operar!")
+            return {"ok": True, "max_daily_loss_money": self.cfg.max_daily_loss_money}
 
     def select_active_account(self, account_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -771,23 +826,37 @@ class PradoTradingService:
 
     def create_bot(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            bot_id = str(payload.get("bot_id") or f"bot_{uuid.uuid4().hex[:8]}")
-            symbol = str(payload.get("symbol", "WIN$N")).strip()
-            account_id = str(payload.get("account_id", "default")).strip()
+            req_bot_id = str(payload.get("bot_id") or "").strip()
+            existing_bot = next((b for b in self.cfg.bots if req_bot_id and b.get("bot_id") == req_bot_id), None)
+            bot_id = existing_bot["bot_id"] if existing_bot else (req_bot_id or f"bot_{uuid.uuid4().hex[:8]}")
+
+            symbol = str(payload.get("symbol", existing_bot.get("symbol", "WIN$N") if existing_bot else "WIN$N")).strip()
+            account_id = str(
+                payload.get("account_id", existing_bot.get("account_id", self.cfg.active_account_id) if existing_bot else self.cfg.active_account_id)
+            ).strip()
             acc_obj = next((a for a in self.cfg.accounts if a.get("account_id") == account_id), None)
             account_type = str(acc_obj.get("account_type", "DEMO")) if acc_obj else self.cfg.active_account_type
             account_label = (
                 f"[{account_type}] {acc_obj['label']}"
                 if acc_obj
-                else (f"[{account_type}] {self.cfg.mt5_login} ({self.cfg.mt5_server})" if self.cfg.mt5_login else f"[{account_type}] Conta Principal MT5")
+                else (
+                    f"[{account_type}] {self.cfg.mt5_login} ({self.cfg.mt5_server})"
+                    if self.cfg.mt5_login
+                    else f"[{account_type}] Conta Principal MT5"
+                )
             )
-            template_id = str(payload.get("bot_template_id") or "WALL_STREET_HYBRID_BOTH").strip()
+            template_id = str(
+                payload.get(
+                    "bot_template_id",
+                    existing_bot.get("bot_template_id", "WALL_STREET_HYBRID_BOTH") if existing_bot else "WALL_STREET_HYBRID_BOTH",
+                )
+            ).strip()
             tpl = next((t for t in MATH_BOT_TEMPLATES if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
             auto_start = bool(payload.get("auto_start", True))
 
             bot_record: dict[str, Any] = {
                 "bot_id": bot_id,
-                "name": str(payload.get("name") or f"{tpl['name'].split('—')[0].strip()} ({symbol})").strip(),
+                "name": str(payload.get("name") or (existing_bot.get("name") if existing_bot else f"{tpl['name'].split('—')[0].strip()} ({symbol})")).strip(),
                 "bot_template_id": template_id,
                 "bot_template_name": tpl["name"],
                 "formula": tpl["formula"],
@@ -795,33 +864,39 @@ class PradoTradingService:
                 "account_type": account_type,
                 "account_label": account_label,
                 "symbol": symbol,
-                "category": str(payload.get("category") or "Geral").strip(),
+                "category": str(payload.get("category") or (existing_bot.get("category") if existing_bot else "Geral")).strip(),
                 "operation_mode": str(payload.get("operation_mode") or tpl["operation_mode"]),
-                "lot_size": float(payload.get("lot_size") or self.cfg.default_lot_size),
+                "lot_size": float(payload.get("lot_size") if payload.get("lot_size") is not None else self.cfg.default_lot_size),
                 "window_ticks": int(payload.get("window_ticks") or tpl["window_ticks"]),
-                "zscore_threshold": float(payload.get("zscore_threshold") or tpl["zscore_threshold"]),
-                "imbalance_threshold": float(payload.get("imbalance_threshold") or tpl["imbalance_threshold"]),
-                "revert_sigma": float(payload.get("revert_sigma") or tpl["revert_sigma"]),
+                "zscore_threshold": float(payload.get("zscore_threshold") if payload.get("zscore_threshold") is not None else tpl["zscore_threshold"]),
+                "imbalance_threshold": float(payload.get("imbalance_threshold") if payload.get("imbalance_threshold") is not None else tpl["imbalance_threshold"]),
+                "revert_sigma": float(payload.get("revert_sigma") if payload.get("revert_sigma") is not None else tpl["revert_sigma"]),
                 "sl_sigma_mult": float(payload.get("sl_sigma_mult") or tpl["sl_sigma_mult"]),
                 "tp_sigma_mult": float(payload.get("tp_sigma_mult") or tpl["tp_sigma_mult"]),
                 "correlated_basket": list(payload.get("correlated_basket") or self.cfg.correlated_basket),
-                "status": "RUNNING" if auto_start else "STOPPED",
-                "last_signal": "WAIT",
-                "last_regime": "NEUTRAL",
-                "last_price": 0.0,
-                "vwap": 0.0,
-                "aggression_zscore": 0.0,
-                "imbalance_ratio": 0.0,
-                "trades_executed": 0,
-                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "status": existing_bot.get("status", "RUNNING") if existing_bot and "auto_start" not in payload else ("RUNNING" if auto_start else "STOPPED"),
+                "last_signal": existing_bot.get("last_signal", "WAIT") if existing_bot else "WAIT",
+                "last_regime": existing_bot.get("last_regime", "NEUTRAL") if existing_bot else "NEUTRAL",
+                "last_price": existing_bot.get("last_price", 0.0) if existing_bot else 0.0,
+                "vwap": existing_bot.get("vwap", 0.0) if existing_bot else 0.0,
+                "aggression_zscore": existing_bot.get("aggression_zscore", 0.0) if existing_bot else 0.0,
+                "imbalance_ratio": existing_bot.get("imbalance_ratio", 0.0) if existing_bot else 0.0,
+                "trades_executed": existing_bot.get("trades_executed", 0) if existing_bot else 0,
+                "created_at": existing_bot.get("created_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")) if existing_bot else datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
-            self.cfg.bots.append(bot_record)
+            if existing_bot:
+                existing_bot.update(bot_record)
+                action_word = "atualizado/editado"
+            else:
+                self.cfg.bots.append(bot_record)
+                action_word = "criado"
+
             if symbol not in self.cfg.active_symbols:
                 self.cfg.active_symbols.append(symbol)
             save_config(self.cfg, self.config_path)
             self._log_event(
                 "BOT_FLEET",
-                f"Robô '{bot_record['name']}' ({symbol} na conta {account_label}) criado com status {bot_record['status']}.",
+                f"Robô '{bot_record['name']}' ({symbol} | Lote {bot_record['lot_size']} | Conta {account_label}) {action_word} com sucesso.",
             )
             return bot_record
 

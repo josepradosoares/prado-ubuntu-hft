@@ -321,4 +321,91 @@ def test_demo_and_real_account_switching_math_bot_catalog_and_backtester(tmp_pat
     assert "final_equity" in report
 
 
+def test_account_deduplication_broker_server_autocomplete_and_preseeded_xm_accounts(tmp_path: Path):
+    from prado_linux.web_app import PradoWebApp
+
+    cfg_path = tmp_path / "config.json"
+    app = PradoWebApp(config_path=cfg_path)
+
+    login_payload = json.dumps({"username": "admin", "password": "prado2026"}).encode("utf-8")
+    _, _, resp_headers = app.handle_request(
+        "POST", "/api/login", headers={"Content-Type": "application/json"}, body=login_payload
+    )
+    cookie_header = resp_headers.get("Set-Cookie", "")
+    auth_headers = {"Cookie": cookie_header, "Content-Type": "application/json"}
+
+    # 1. Verify pre-seeded XMGlobal accounts exist out of the box
+    code, body, _ = app.handle_request("GET", "/api/accounts", headers=auth_headers, body=b"")
+    assert code == 200
+    accs = json.loads(body)["accounts"]
+    logins = [a["mt5_login"] for a in accs]
+    assert "346595704" in logins
+    assert "382177116" in logins
+
+    # 2. Saving the same (mt5_login, mt5_server) twice updates in-place instead of creating duplicates
+    count_before = len(accs)
+    dup_payload = json.dumps(
+        {
+            "account_type": "DEMO",
+            "label": "Jose XM Global Demo",
+            "mt5_login": "346595704",
+            "mt5_password": "Soares@16510303",
+            "mt5_server": "XMGlobal-MT5 10",
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=dup_payload)
+    assert code == 200
+    accs_after = json.loads(body)["accounts"]
+    assert len(accs_after) == count_before
+    matching = [a for a in accs_after if a["mt5_login"] == "346595704" and a["mt5_server"] == "XMGlobal-MT5 10"]
+    assert len(matching) == 1
+    assert matching[0]["account_type"] == "DEMO"
+
+    # 3. Broker server autocomplete endpoint (/api/broker-servers?q=XM)
+    code, body, _ = app.handle_request("GET", "/api/broker-servers?q=XM", headers=auth_headers, body=b"")
+    assert code == 200
+    srv_data = json.loads(body)
+    assert srv_data["ok"] is True
+    assert "XMGlobal-MT5 10" in srv_data["servers"]
+    assert "XMGlobal-MT5 13" in srv_data["servers"]
+
+    # 4. Edit an existing Bot in-place (click & edit) and delete an account
+    bot_create = json.dumps(
+        {
+            "name": "BotTeste",
+            "account_id": "acc_xm_demo_346595704",
+            "symbol": "BTCUSD#",
+            "lot_size": 1.0,
+            "zscore_threshold": 1.8,
+        }
+    ).encode("utf-8")
+    _, body, _ = app.handle_request("POST", "/api/bots", headers=auth_headers, body=bot_create)
+    bot_id = json.loads(body)["bot"]["bot_id"]
+
+    bot_edit = json.dumps(
+        {
+            "bot_id": bot_id,
+            "name": "BotTeste Editado",
+            "account_id": "acc_xm_demo_346595704",
+            "symbol": "BTCUSD#",
+            "lot_size": 0.01,
+            "zscore_threshold": 1.5,
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/bots", headers=auth_headers, body=bot_edit)
+    assert code == 200
+    edited_bot = json.loads(body)["bot"]
+    assert edited_bot["bot_id"] == bot_id
+    assert edited_bot["name"] == "BotTeste Editado"
+    assert edited_bot["lot_size"] == 0.01
+    assert edited_bot["zscore_threshold"] == 1.5
+
+    # 5. Reset Daily Risk Lock (/api/risk/reset)
+    code, body, _ = app.handle_request("POST", "/api/risk/reset", headers=auth_headers, body=b"{}")
+    assert code == 200
+    assert json.loads(body)["ok"] is True
+
+
+
+
 

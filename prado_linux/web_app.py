@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from prado_linux.auth import create_session_token, hash_password, verify_password, verify_session_token
-from prado_linux.config import MATH_BOT_TEMPLATES, load_config
+from prado_linux.config import KNOWN_BROKER_SERVERS, MATH_BOT_TEMPLATES, load_config
 from prado_linux.engine import PradoTradingService
 from prado_linux.templates import DASHBOARD_HTML, LOGIN_HTML
 
@@ -167,6 +167,22 @@ class PradoWebApp:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            act_acc = str(payload.get("action", "")).upper()
+            if act_acc == "DELETE":
+                acc_id = str(payload.get("account_id", "")).strip()
+                self.service.delete_mt5_account(acc_id)
+                return (
+                    200,
+                    json.dumps({"ok": True, "accounts": self._safe_config_dict()["accounts"]}, ensure_ascii=False),
+                    {"Content-Type": "application/json"},
+                )
+            if act_acc == "DELETE_ALL":
+                self.service.clear_all_accounts()
+                return (
+                    200,
+                    json.dumps({"ok": True, "accounts": []}, ensure_ascii=False),
+                    {"Content-Type": "application/json"},
+                )
             acc = self.service.save_mt5_account(payload)
             if payload.get("connect_now"):
                 self.service.reconnect_mt5()
@@ -182,6 +198,25 @@ class PradoWebApp:
                 ),
                 {"Content-Type": "application/json"},
             )
+
+        if method == "GET" and clean_path == "/api/broker-servers":
+            q = (query_params.get("q", [""])[0] or "").strip().lower()
+            extra = [str(a.get("mt5_server", "")) for a in self.cfg.accounts if a.get("mt5_server")]
+            all_srvs = list(dict.fromkeys(KNOWN_BROKER_SERVERS + extra))
+            if q:
+                filtered = [s for s in all_srvs if q in s.lower()]
+            else:
+                filtered = all_srvs
+            return (
+                200,
+                json.dumps({"ok": True, "servers": filtered}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/risk/reset":
+            res = self.service.reset_daily_risk_lock()
+            self.service.step_once()
+            return 200, json.dumps(res, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/accounts/select":
             try:
@@ -309,7 +344,15 @@ class PradoWebApp:
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
             bot_id = str(payload.get("bot_id", "")).strip()
-            action = str(payload.get("action", "START")).strip()
+            action = str(payload.get("action", "START")).strip().upper()
+            if action == "DELETE_ALL":
+                self.service.delete_all_bots()
+                self.service.step_once()
+                return (
+                    200,
+                    json.dumps({"ok": True, "bots": []}, ensure_ascii=False),
+                    {"Content-Type": "application/json"},
+                )
             updated = self.service.control_bot(bot_id, action)
             if updated is None:
                 return 404, json.dumps({"ok": False, "error": "Robô não encontrado"}), {"Content-Type": "application/json"}
