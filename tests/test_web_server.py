@@ -277,7 +277,15 @@ def test_web_app_deriv_token_vault_bots_categories_and_backtester(tmp_path: Path
     assert code == 200
     assert "Sintéticos 24h" in json.loads(body)["categories"]
 
-    # 5. Create, Edit, Fire Order & Delete Bot
+    # 5. Create, Edit, Fire Order (in SIMULATION mode) & Delete Bot
+    code, _, _ = app.handle_request(
+        "POST",
+        "/api/config",
+        headers=auth_headers,
+        body=json.dumps({"connection_mode": "SIMULATION"}).encode("utf-8"),
+    )
+    assert code == 200
+
     code, body, _ = app.handle_request(
         "POST",
         "/api/bots",

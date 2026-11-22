@@ -384,7 +384,7 @@ class DerivUniversalConnector:
                 if self._deriv is not None:
                     self.last_error = f"Erro lendo ticks Deriv ({symbol}): {exc}"
         ticks_sim = self._generate_sim_ticks(symbol)
-        if ticks_sim:
+        if ticks_sim and self.cfg.connection_mode.upper() == "SIMULATION":
             self.last_tick_at = now
         return ticks_sim
 

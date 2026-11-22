@@ -245,7 +245,11 @@ class DerivClient:
                 self.rate_limiter.record_remote_rate_limit(f"HTTP 429: {body[:120]}")
                 raise DerivRateLimitError(f"Deriv REST RateLimit (429): {body[:200]}")
             if exc.code == 401:
-                if "Deriv-App-ID" in body or "app" in body.lower():
+                lower_body = body.lower()
+                if "expir" in lower_body:
+                    self.auth_state = "TOKEN_EXPIRED"
+                    raise DerivAuthError("TOKEN_EXPIRED", f"Deriv REST 401 (token expirado): {body[:200]}")
+                if "Deriv-App-ID" in body or "app" in lower_body:
                     self.auth_state = "APP_ID_MISMATCH"
                     raise DerivAuthError("APP_ID_MISMATCH", f"Deriv REST 401 (App ID): {body[:200]}")
                 self.auth_state = "TOKEN_INVALID"
@@ -294,7 +298,11 @@ class DerivClient:
             if not otp_url:
                 self.connection_state = "ERROR"
                 raise DerivAuthError("TOKEN_INVALID", f"Resposta OTP inválida da Deriv: {otp_resp}")
-            ws = self._open_ws_url(otp_url)
+            try:
+                ws = self._open_ws_url(otp_url)
+            except Exception as exc:
+                self.connection_state = "ERROR"
+                raise RuntimeError(f"Falha ao conectar no WebSocket OTP Deriv: {exc}")
             self._ws_url_active = otp_url.split("?")[0]
             self._otp_expires_at = time.time() + 240.0
             self.connection_state = "CONNECTED"
@@ -321,6 +329,9 @@ class DerivClient:
             self.rate_limiter.record_remote_rate_limit(msg)
             raise DerivRateLimitError(f"Deriv API ({code}): {msg}")
         if code in ("InvalidToken", "AuthorizationRequired"):
+            if "expir" in msg.lower():
+                self.auth_state = "TOKEN_EXPIRED"
+                raise DerivAuthError("TOKEN_EXPIRED", f"Deriv Auth ({code}): {msg}")
             self.auth_state = "TOKEN_INVALID"
             raise DerivAuthError("TOKEN_INVALID", f"Deriv Auth ({code}): {msg}")
         if code in ("InvalidAppID",):
@@ -376,9 +387,12 @@ class DerivClient:
     def ping(self) -> bool:
         try:
             resp = self._send_rpc({"ping": 1})
-            return resp.get("ping") == "pong" or resp.get("msg_type") == "ping"
+            ok = resp.get("ping") == "pong" or resp.get("msg_type") == "ping"
+            if not ok:
+                self.close()
+            return ok
         except Exception:
-            self.connection_state = "DISCONNECTED"
+            self.close()
             return False
 
     def close(self) -> None:

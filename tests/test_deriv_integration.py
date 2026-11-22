@@ -171,3 +171,107 @@ def test_security_headers_no_unrecognized_permissions_policy_and_status_states(t
     assert acc["trading_state"] == "BLOCKED"
     assert acc["rate_limit"]["state"] == "NORMAL"
     assert mask_secret("1089", 2, 2) == "****"
+
+
+def test_oauth_headers_no_deriv_app_id_and_token_expired_and_insufficient_scope() -> None:
+    captured: list[dict[str, str]] = []
+
+    def oauth_rest(method: str, url: str, headers: dict[str, str]) -> dict:
+        captured.append(dict(headers))
+        return {"data": [{"account_id": "VRTC777", "account_type": "demo", "currency": "USD", "balance": 5000.0}]}
+
+    oauth_token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9." + ("x" * 30)
+    client = DerivClient(token=oauth_token, app_id="99999", rest_transport=oauth_rest)
+    auth = client.authorize()
+    assert auth["loginid"] == "VRTC777"
+    assert "Deriv-App-ID" not in captured[0]
+    assert captured[0]["Authorization"] == f"Bearer {oauth_token}"
+
+    # Expired token via RPC error
+    def expired_rpc(payload: dict) -> dict:
+        return {"error": {"code": "InvalidToken", "message": "Token has expired"}}
+
+    exp_client = DerivClient(token="legacy_exp", app_id="1089", rpc_transport=expired_rpc)
+    with pytest.raises(DerivAuthError) as exc_exp:
+        exp_client.authorize()
+    assert exc_exp.value.auth_state == "TOKEN_EXPIRED"
+
+
+def test_rest_rate_limit_and_concurrent_ws_and_demo_trade_lifecycle() -> None:
+    import concurrent.futures
+
+    rl = DerivRateLimiter()
+    now = 2000.0
+    for _ in range(80):
+        rl.acquire_rest(now=now)
+    with pytest.raises(DerivRateLimitError):
+        rl.acquire_rest(now=now)
+
+    # Concurrent WS acquisitions are thread-safe and strictly bounded to 30
+    rl_conc = DerivRateLimiter()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futs = [pool.submit(rl_conc.acquire_ws, "portfolio", 3000.0) for _ in range(35)]
+        errors = 0
+        for f in futs:
+            try:
+                f.result()
+            except DerivRateLimitError:
+                errors += 1
+        assert errors == 5
+
+    # Full Demo Proposal -> Buy -> Portfolio/POC -> Sell lifecycle + active_symbols
+    def demo_rpc(payload: dict) -> dict:
+        if "active_symbols" in payload:
+            return {
+                "active_symbols": [
+                    {"underlying_symbol": "R_100", "underlying_symbol_name": "Volatility 100", "market": "synthetic_index"}
+                ]
+            }
+        if "proposal" in payload:
+            assert payload["underlying_symbol"] == "R_100"
+            return {"proposal": {"id": "prop_99", "ask_price": 10.0}}
+        if "buy" in payload:
+            return {"buy": {"contract_id": 555123}}
+        if "portfolio" in payload:
+            return {"portfolio": {"contracts": [{"contract_id": 555123, "contract_type": "MULTUP", "symbol": "R_100"}]}}
+        if "proposal_open_contract" in payload:
+            return {
+                "proposal_open_contract": {
+                    "contract_id": 555123,
+                    "underlying_symbol": "R_100",
+                    "contract_type": "MULTUP",
+                    "buy_price": 10.0,
+                    "entry_spot": 1850.0,
+                    "current_spot": 1852.5,
+                    "profit": 1.35,
+                }
+            }
+        if "sell" in payload:
+            return {"sell": {"sold_for": 11.35}}
+        return {}
+
+    client = DerivClient(token="legacy_demo", app_id="1089", rpc_transport=demo_rpc)
+    syms = client.get_active_symbols()
+    assert syms[0]["name"] == "R_100"
+
+    ok_buy, msg_buy = client.place_multiplier_order("R_100", is_buy=True, stake=10.0, multiplier=100)
+    assert ok_buy and "555123" in msg_buy
+
+    positions = client.get_open_contracts()
+    assert len(positions) == 1
+    assert positions[0]["ticket"] == "555123"
+    assert positions[0]["profit"] == 1.35
+
+    ok_sell, msg_sell = client.close_contract("555123")
+    assert ok_sell and "11.35" in msg_sell
+
+
+def test_deriv_cloud_disconnected_data_state_not_live() -> None:
+    cfg = PradoServerConfig(connection_mode="DERIV_CLOUD")
+    conn = DerivUniversalConnector(cfg)
+    conn._get_public_deriv = lambda: type("Broken", (), {"get_ticks_history": lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("offline"))})()  # type: ignore[method-assign]
+    conn.fetch_ticks("R_100", count=50)
+    summary = conn.get_account_summary()
+    assert summary["data_state"] == "NO_DATA"
+    assert summary["connection_state"] == "DISCONNECTED"
+    assert summary["trading_state"] == "BLOCKED"
