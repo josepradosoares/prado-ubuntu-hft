@@ -125,11 +125,14 @@ export interface DerivAccount {
   default_multiplier: number;
   connection_mode: string;
   loginid: string;
+  balance?: number;
+  currency?: string;
 }
 
 export interface ServerConfig {
   admin_username: string;
   connection_mode: string;
+  allow_real_trading?: boolean;
   active_account_id: string;
   active_account_type: string;
   deriv_token_set?: boolean;

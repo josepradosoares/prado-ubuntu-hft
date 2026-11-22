@@ -823,6 +823,8 @@ class PradoTradingService:
             self.cfg.default_stake_usd = float(target.get("default_stake_usd", 10.0))
             self.cfg.default_multiplier = int(target.get("default_multiplier", 100))
             self.cfg.connection_mode = str(target.get("connection_mode", "DERIV_CLOUD"))
+            self.connector._balance_cache = None
+            self.connector._positions_cache = None
             save_config(self.cfg, self.config_path)
             ok, msg = self.connector.connect(token=self.cfg.deriv_token, app_id=self.cfg.deriv_app_id)
             self._log_event("ACCOUNT_SWITCH", f"Token ativo alterado para [{self.cfg.active_account_type}] {target.get('label')} — {msg}")
@@ -1029,6 +1031,8 @@ class PradoTradingService:
                 existing["deriv_token"] = self.cfg.deriv_token
                 existing["deriv_app_id"] = self.cfg.deriv_app_id
                 existing["loginid"] = loginid
+                existing["balance"] = float(acc.get("balance", existing.get("balance", 0.0)))
+                existing["currency"] = str(acc.get("currency", existing.get("currency", "USD")))
             else:
                 self.cfg.accounts.append(
                     {
@@ -1041,6 +1045,8 @@ class PradoTradingService:
                         "default_multiplier": self.cfg.default_multiplier,
                         "connection_mode": "DERIV_CLOUD",
                         "loginid": loginid,
+                        "balance": float(acc.get("balance", 0.0)),
+                        "currency": str(acc.get("currency", "USD")),
                         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     }
                 )

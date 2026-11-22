@@ -588,6 +588,28 @@ export default function App() {
     }
   }
 
+  async function toggleRealTrading() {
+    const next = !(config?.allow_real_trading ?? false)
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allow_real_trading: next }),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        setConfig(d.config)
+        showToast(next ? 'Negociação em conta REAL liberada!' : 'Negociação em conta REAL bloqueada por segurança.')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao atualizar permissão REAL.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao atualizar permissão REAL.', true)
+    }
+  }
+
   async function syncDerivAccounts() {
     setSyncingAccounts(true)
     try {
@@ -1772,14 +1794,27 @@ export default function App() {
                           ? 'Editar conta Deriv'
                           : 'Cofre de Contas Deriv (Demo e Real)'}
                       </CardTitle>
-                      <button
-                        type="button"
-                        onClick={syncDerivAccounts}
-                        disabled={syncingAccounts}
-                        className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3.5 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-300 disabled:opacity-50"
-                      >
-                        {syncingAccounts ? 'Sincronizando...' : 'Sincronizar contas da Deriv'}
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={toggleRealTrading}
+                          className={`rounded-xl border px-3.5 py-1.5 text-xs font-semibold transition ${
+                            config?.allow_real_trading
+                              ? 'border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-300'
+                              : 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          {config?.allow_real_trading ? 'Conta REAL: Liberada' : 'Liberar negociação REAL'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={syncDerivAccounts}
+                          disabled={syncingAccounts}
+                          className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3.5 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-300 disabled:opacity-50"
+                        >
+                          {syncingAccounts ? 'Sincronizando...' : 'Sincronizar contas da Deriv'}
+                        </button>
+                      </div>
                     </CardHeader>
                     <CardBody>
                       <form
@@ -1960,8 +1995,11 @@ export default function App() {
                             <h3 className="mt-2 text-sm font-bold text-slate-900 dark:text-white">
                               {a.label}
                             </h3>
-                            <p className="mt-1 text-xs font-mono text-slate-500 dark:text-slate-400">
-                              App ID: {a.deriv_app_id} • ${formatNumber(a.default_stake_usd, 2)} •{' '}
+                            <p className="mt-1 text-xs font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                              Saldo: {a.currency || 'USD'} {formatNumber(a.balance ?? 0, 2)}
+                            </p>
+                            <p className="mt-0.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                              App ID: {a.deriv_app_id} • Stake: ${formatNumber(a.default_stake_usd, 2)} •{' '}
                               {a.default_multiplier}x
                             </p>
                             <div className="mt-4 flex gap-2">
