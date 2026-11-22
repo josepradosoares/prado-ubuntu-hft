@@ -489,6 +489,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <button class="nav-tab" onclick="switchTab('create-bot', this)">Configurar robô matemático</button>
     <button class="nav-tab" onclick="switchTab('backtest', this)">Backtest tick a tick</button>
     <button class="nav-tab" onclick="switchTab('categories', this)">Categorias de ativos</button>
+    <button class="nav-tab" onclick="switchTab('deriv-config', this)">Configuração Deriv</button>
     <button class="nav-tab" onclick="switchTab('deriv-tokens', this)">Tokens e Contas Deriv (Demo e Real)</button>
     <button class="nav-tab" onclick="switchTab('monitor', this)">Matriz VWAP e Z-Score</button>
   </nav>
@@ -824,8 +825,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               </div>
               <div class="field" style="grid-column: span 2;">
                 <label for="deriv_token">Deriv API Token (usado nas negociações)</label>
-                <input type="password" id="deriv_token" class="mono" placeholder="Cole seu token pat_... gerado na Deriv" />
-                <small>O token é salvo com segurança apenas no seu servidor Ubuntu e usado para autenticar e enviar ordens.</small>
+                <input type="password" id="deriv_token" class="mono" placeholder="Deixe em branco para usar o token salvo em Configuração Deriv ou cole outro token" />
+                <small id="tokenVaultHint">O token é salvo com segurança apenas no seu servidor Ubuntu e usado para autenticar e enviar ordens.</small>
               </div>
               <div class="field">
                 <label for="deriv_app_id">Deriv App ID</label>
@@ -883,6 +884,43 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             </thead>
             <tbody id="accountsBody"></tbody>
           </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- PANE 5B: DERIV CONFIG -->
+    <div id="tab-deriv-config" class="tab-pane">
+      <section class="section-block">
+        <div class="section-bar">
+          <div>
+            <span class="section-title">Configuração Padrão Deriv (Token &amp; App ID)</span>
+            <span class="section-hint">Salve seu token uma única vez aqui; ele será carregado automaticamente ao criar suas contas Demo ou Real</span>
+          </div>
+        </div>
+        <div class="section-body">
+          <form id="derivConfigForm" onsubmit="saveDerivConfig(event)">
+            <div class="form-grid">
+              <div class="field" style="grid-column: span 2;">
+                <label for="cfg_deriv_token">Deriv API Token padrão</label>
+                <input type="password" id="cfg_deriv_token" class="mono" placeholder="Cole seu token da Deriv (app.deriv.com/account/api-token)" />
+                <small id="cfgTokenStatusHint">Tokens clássicos funcionam direto com App ID 1089. Tokens pat_... exigem um App ID próprio criado em developers.deriv.com.</small>
+              </div>
+              <div class="field">
+                <label for="cfg_deriv_app_id">Deriv App ID padrão</label>
+                <input type="text" id="cfg_deriv_app_id" class="mono" value="1089" />
+              </div>
+              <div class="field">
+                <label for="cfg_connection_mode">Modo de execução padrão</label>
+                <select id="cfg_connection_mode">
+                  <option value="DERIV_CLOUD">Deriv WebSocket Live (Negociação Real/Demo)</option>
+                  <option value="SIMULATION">Simulador Quantitativo Interno</option>
+                </select>
+              </div>
+            </div>
+            <div style="margin-top: 16px;">
+              <button type="submit" class="btn btn-primary">Salvar configuração Deriv</button>
+            </div>
+          </form>
         </div>
       </section>
     </div>
@@ -1064,6 +1102,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
 
       const accBody = document.getElementById('accountsBody');
+      if (typeof syncDerivConfigFields === 'function') syncDerivConfigFields();
       if (list.length === 0) {
         accBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px;">Nenhum token salvo ainda. Cole seu Deriv API Token acima para operar ao vivo na Deriv.</td></tr>';
       } else {
@@ -1115,7 +1154,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('accountFormTitle').textContent = `Editando token: ${acc.label}`;
       document.getElementById('accSubmitBtn').textContent = 'Salvar alterações do token';
       document.getElementById('accCancelEditBtn').style.display = 'inline-flex';
-      switchTab('deriv-tokens', document.querySelectorAll('.nav-tab')[4]);
+      switchTab('deriv-tokens', document.querySelectorAll('.nav-tab')[5]);
       showToast(`Token "${acc.label}" carregado para edição.`);
     }
 
@@ -1581,6 +1620,59 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, data.account.account_id);
         await loadBrokerSymbols();
         showToast(data.message || 'Token Deriv salvo e conectado!');
+        refreshStatus();
+      }
+    }
+
+    function syncDerivConfigFields() {
+      const cfgApp = currentConfig.deriv_app_id || '1089';
+      const cfgMode = currentConfig.connection_mode || 'DERIV_CLOUD';
+      const hasToken = Boolean(currentConfig.deriv_token_set);
+
+      const cfgAppEl = document.getElementById('cfg_deriv_app_id');
+      const cfgModeEl = document.getElementById('cfg_connection_mode');
+      const cfgTokEl = document.getElementById('cfg_deriv_token');
+      const cfgHintEl = document.getElementById('cfgTokenStatusHint');
+      if (cfgAppEl) cfgAppEl.value = cfgApp;
+      if (cfgModeEl) cfgModeEl.value = cfgMode;
+      if (cfgTokEl) cfgTokEl.placeholder = hasToken ? 'Token padrão já salvo (cole outro para substituir)' : 'Cole seu token da Deriv (app.deriv.com/account/api-token)';
+      if (cfgHintEl && hasToken) cfgHintEl.textContent = 'Token padrão já está salvo no servidor Ubuntu e será carregado automaticamente ao criar novas contas.';
+
+      if (!document.getElementById('editing_account_id').value) {
+        const appEl = document.getElementById('deriv_app_id');
+        const modeEl = document.getElementById('connection_mode');
+        if (appEl) appEl.value = cfgApp;
+        if (modeEl) modeEl.value = cfgMode;
+      }
+      const vaultHint = document.getElementById('tokenVaultHint');
+      if (vaultHint) {
+        vaultHint.textContent = hasToken
+          ? 'Token padrão carregado da aba Configuração Deriv. Deixe em branco para usar o token salvo ou cole um token específico.'
+          : 'O token é salvo com segurança apenas no seu servidor Ubuntu e usado para autenticar e enviar ordens.';
+      }
+    }
+
+    async function saveDerivConfig(e) {
+      e.preventDefault();
+      const tokenVal = document.getElementById('cfg_deriv_token').value.trim();
+      const payload = {
+        deriv_app_id: document.getElementById('cfg_deriv_app_id').value.trim() || '1089',
+        connection_mode: document.getElementById('cfg_connection_mode').value
+      };
+      if (tokenVal) payload.deriv_token = tokenVal;
+
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.ok) {
+        currentConfig = data.config;
+        document.getElementById('cfg_deriv_token').value = '';
+        syncDerivConfigFields();
+        await loadBrokerSymbols();
+        showToast('Configuração Deriv salva e carregada para criação de contas!');
         refreshStatus();
       }
     }

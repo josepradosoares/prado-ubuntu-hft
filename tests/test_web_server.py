@@ -228,6 +228,28 @@ def test_web_app_deriv_token_vault_bots_categories_and_backtester(tmp_path: Path
     code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=real_acc)
     assert code == 200
 
+    # 3b. Save default token in Config Deriv and verify new account inherits it automatically
+    code, body, _ = app.handle_request(
+        "POST",
+        "/api/config",
+        headers=auth_headers,
+        body=json.dumps({"deriv_token": "classic_default_token_123", "deriv_app_id": "1089"}).encode("utf-8"),
+    )
+    assert code == 200
+    assert json.loads(body)["config"]["deriv_token_set"] is True
+
+    inherited_acc = json.dumps(
+        {
+            "account_id": "deriv_inherited_1",
+            "account_type": "REAL",
+            "label": "Real Herdada",
+            "deriv_token": "",
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=inherited_acc)
+    assert code == 200
+    assert json.loads(body)["account"]["deriv_token"] == "********"
+
     # Switch between Demo and Real tokens
     code, body, _ = app.handle_request(
         "POST", "/api/accounts/select", headers=auth_headers, body=json.dumps({"account_id": "deriv_demo_1"}).encode("utf-8")

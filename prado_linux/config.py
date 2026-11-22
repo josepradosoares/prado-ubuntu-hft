@@ -170,6 +170,14 @@ def load_config(config_path: Path) -> PradoServerConfig:
         cfg.custom_categories = dict(DEFAULT_CATEGORIES)
         changed = True
 
+    legacy_mt5 = {"WIN$N", "WDO$N", "IND$N", "DOL$N", "BTCUSD#", "US100Cash#", "EURUSD"}
+    if any(sym in legacy_mt5 for sym in cfg.active_symbols):
+        cfg.active_symbols = ["R_100", "R_75", "1HZ100V", "frxEURUSD", "cryBTCUSD"]
+        changed = True
+    if any(sym in legacy_mt5 for sym in cfg.correlated_basket):
+        cfg.correlated_basket = ["R_50", "R_25"]
+        changed = True
+
     deduped = deduplicate_accounts(cfg.accounts)
     if len(deduped) != len(cfg.accounts):
         cfg.accounts = deduped

@@ -61,6 +61,7 @@ class DerivUniversalConnector:
     def __init__(self, cfg: PradoServerConfig) -> None:
         self.cfg = cfg
         self._deriv: DerivClient | None = None
+        self._public_deriv: DerivClient | None = None
         self._deriv_auth: dict[str, Any] = {}
         self.connected: bool = False
         self.backend_name: str = (
@@ -99,11 +100,17 @@ class DerivUniversalConnector:
             except Exception as exc:
                 self._deriv = None
                 self._deriv_auth = {}
-                self.last_error = str(exc)
+                err_msg = str(exc)
+                if target_token.startswith("pat_") and target_app == "1089" and "InvalidToken" in err_msg:
+                    err_msg = (
+                        "Token 'pat_...' não é aceito com App ID 1089. "
+                        "Gere um token clássico em app.deriv.com/account/api-token OU use seu App ID de developers.deriv.com."
+                    )
+                self.last_error = err_msg
                 if mode != "SIMULATION":
                     self.connected = False
                     self.backend_name = "DERIV_DISCONNECTED"
-                    return False, f"Erro ao conectar na Deriv: {exc}"
+                    return False, f"Erro ao conectar na Deriv: {err_msg}"
 
         self._deriv = None
         self._deriv_auth = {}
@@ -122,11 +129,22 @@ class DerivUniversalConnector:
             "Modo Simulação Quant Ativo.",
         )
 
+    def _get_public_deriv(self) -> DerivClient:
+        app_id = (self.cfg.deriv_app_id or "1089").strip() or "1089"
+        if self._public_deriv is None or self._public_deriv.app_id != app_id:
+            if self._public_deriv is not None:
+                self._public_deriv.close()
+            self._public_deriv = DerivClient(token="", app_id=app_id)
+        return self._public_deriv
+
     def discover_broker_symbols(self, mode: str = "PRINCIPAIS") -> list[dict[str, Any]]:
         mode_upper = mode.upper()
-        if self._deriv is not None:
+        client = self._deriv
+        if client is None and self.cfg.connection_mode.upper() != "SIMULATION":
+            client = self._get_public_deriv()
+        if client is not None:
             try:
-                syms = self._deriv.get_active_symbols()
+                syms = client.get_active_symbols()
                 if syms:
                     if mode_upper == "PRINCIPAIS":
                         main_set = {m["name"] for m in MAIN_DERIV_SYMBOLS}
@@ -219,13 +237,17 @@ class DerivUniversalConnector:
         }
 
     def fetch_ticks(self, symbol: str, count: int = 200) -> list[TickRecord]:
-        if self._deriv is not None:
+        client = self._deriv
+        if client is None and self.cfg.connection_mode.upper() != "SIMULATION":
+            client = self._get_public_deriv()
+        if client is not None:
             try:
-                ticks = self._deriv.get_ticks_history(symbol, count=min(500, count))
+                ticks = client.get_ticks_history(symbol, count=min(500, count))
                 if ticks:
                     return ticks
             except Exception as exc:
-                self.last_error = f"Erro lendo ticks Deriv ({symbol}): {exc}"
+                if self._deriv is not None:
+                    self.last_error = f"Erro lendo ticks Deriv ({symbol}): {exc}"
         return self._generate_sim_ticks(symbol)
 
     def _generate_sim_ticks(self, symbol: str) -> list[TickRecord]:
@@ -482,11 +504,11 @@ class PradoTradingService:
 
             token_in = str(payload.get("deriv_token", "")).strip()
             if token_in == "********" or not token_in:
-                token = str(existing.get("deriv_token", "")) if existing else ""
+                token = str(existing.get("deriv_token", "")) if existing else str(self.cfg.deriv_token or "")
             else:
                 token = token_in
 
-            app_id = str(payload.get("deriv_app_id") or (existing.get("deriv_app_id", "1089") if existing else "1089")).strip()
+            app_id = str(payload.get("deriv_app_id") or (existing.get("deriv_app_id", "") if existing else "") or self.cfg.deriv_app_id or "1089").strip()
             acc_type = str(payload.get("account_type") or (existing.get("account_type", "DEMO") if existing else "DEMO")).upper()
             if acc_type not in ("DEMO", "REAL"):
                 acc_type = "DEMO"
@@ -708,6 +730,9 @@ class PradoTradingService:
             for key, val in updates.items():
                 if hasattr(self.cfg, key):
                     setattr(self.cfg, key, val)
+            if any(k in updates for k in ("deriv_token", "deriv_app_id", "connection_mode")):
+                ok, msg = self.connector.connect()
+                self._log_event("DERIV_CONFIG", msg)
             save_config(self.cfg, self.config_path)
             self._log_event("CONFIG", "Configurações operacionais atualizadas.")
             return self.cfg
