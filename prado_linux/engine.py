@@ -463,7 +463,9 @@ class DerivUniversalConnector:
         return self._sim_ticks[symbol]
 
     def get_open_positions(self) -> list[dict[str, Any]]:
-        if self._deriv is not None:
+        if self.cfg.connection_mode.upper() != "SIMULATION":
+            if self._deriv is None:
+                return []
             now = time.time()
             if self._positions_cache and (now - self._positions_cache[0]) < 5.0:
                 return self._positions_cache[1]
@@ -573,7 +575,9 @@ class DerivUniversalConnector:
         return True, f"[{bot_name}] Multiplier {action} ({multiplier}x) aberto em {symbol} (Stake=${stake})"
 
     def close_all_positions(self, reason: str = "MANUAL_PANIC_FLATTEN") -> tuple[int, str]:
-        if self._deriv is not None:
+        if self.cfg.connection_mode.upper() != "SIMULATION":
+            if self._deriv is None:
+                return 0, "Deriv desconectada: nenhuma posição ativa para encerrar."
             positions = self.get_open_positions()
             closed = 0
             for p in positions:
@@ -605,7 +609,9 @@ class DerivUniversalConnector:
         return count, f"{count} posição(ões) zerada(s) ({reason})."
 
     def close_single_position(self, ticket: int | str) -> tuple[bool, str]:
-        if self._deriv is not None:
+        if self.cfg.connection_mode.upper() != "SIMULATION":
+            if self._deriv is None:
+                return False, "Deriv desconectada: não é possível encerrar contrato."
             return self._deriv.close_contract(str(ticket))
 
         for p in list(self._sim_positions):

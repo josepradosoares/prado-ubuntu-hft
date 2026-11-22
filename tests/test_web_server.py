@@ -365,3 +365,31 @@ def test_simulation_mode_ignores_stale_live_tick_cache(tmp_path: Path):
     ok, _ = conn.connect()
     assert ok is True
     assert conn._tick_cache == {}
+
+
+def test_deriv_cloud_disconnected_does_not_leak_sim_positions(tmp_path: Path):
+    from prado_linux.config import PradoServerConfig
+    from prado_linux.engine import DerivUniversalConnector
+
+    cfg = PradoServerConfig(connection_mode="SIMULATION")
+    conn = DerivUniversalConnector(cfg)
+    conn.connect()
+    ticks = conn.fetch_ticks("R_100", count=60)
+    price = ticks[-1].effective_price()
+    ok, _ = conn.place_order("R_100", "BUY", 10.0, price, price * 0.01, price * 0.01, multiplier=100)
+    assert ok is True
+    assert len(conn.get_open_positions()) == 1
+
+    # Switch to DERIV_CLOUD without valid token (disconnected)
+    cfg.connection_mode = "DERIV_CLOUD"
+    conn.connect()
+    assert conn.get_open_positions() == []
+    closed_count, _ = conn.close_all_positions()
+    assert closed_count == 0
+    ok_single, _ = conn.close_single_position(conn._sim_positions[0]["ticket"])
+    assert ok_single is False
+
+    # Switching back to SIMULATION restores access to the open simulated position
+    cfg.connection_mode = "SIMULATION"
+    conn.connect()
+    assert len(conn.get_open_positions()) == 1
