@@ -798,7 +798,7 @@ def test_21_indicators_and_custom_templates_crud_test_and_execution(tmp_path):
 
     assert len(INDICATOR_CATALOG) == 21
     ticks = [
-        TickRecord(time_msc=1700000000000 + i * 1000, bid=100.0 + i * 0.5, ask=100.1 + i * 0.5, last=100.0 + i * 0.5, tick_volume=10.0)
+        TickRecord(time_msc=1700000000000 + i * 1000, bid=100.0 + i * 0.5, ask=100.1 + i * 0.5, last=100.0 + i * 0.5, volume_real=0.0, tick_volume=10.0, flags=0)
         for i in range(60)
     ]
     for ind in INDICATOR_CATALOG:
