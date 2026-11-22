@@ -1,8 +1,6 @@
-"""HTML templates for Prado Institutional HFT Login & Pure Mathematical Multi-Robot Command Center.
-Architected strictly under the anthropics/frontend-design skill:
-- No generic SaaS rounded card kits, no ALL-CAPS eyebrow labels, no emoji clutter, no wrapping 3-line button clusters.
-- Precision hairline grid layout inspired by institutional execution desks (LSEG / Bloomberg / Jane Street).
-- Sentence-case typography (Plus Jakarta Sans) paired with right-aligned tabular figures (IBM Plex Mono).
+"""HTML templates for Prado Institutional HFT Login & Deriv Multipliers Command Center.
+Designed under the anthropics/frontend-design skill: institutional quant desk identity,
+tabular numeric alignment, single-line action strips, and dedicated Deriv Token Vault.
 """
 from __future__ import annotations
 
@@ -11,7 +9,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prado Institutional HFT — Acesso à Mesa Quantitativa</title>
+  <title>Prado Institutional HFT — Acesso à Mesa Deriv</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -49,10 +47,7 @@ LOGIN_HTML = """<!DOCTYPE html>
       border: 1px solid var(--rule);
       border-top: 2px solid var(--gold);
     }
-    .login-head {
-      padding: 28px 32px 20px;
-      border-bottom: 1px solid var(--rule);
-    }
+    .login-head { padding: 28px 32px 20px; border-bottom: 1px solid var(--rule); }
     .status-line {
       font-family: var(--mono);
       font-size: 12px;
@@ -62,38 +57,12 @@ LOGIN_HTML = """<!DOCTYPE html>
       align-items: center;
       gap: 8px;
     }
-    .status-line::before {
-      content: "";
-      width: 6px;
-      height: 6px;
-      background: var(--bid);
-      display: inline-block;
-    }
-    h1 {
-      font-size: 21px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      color: #fff;
-      margin-bottom: 6px;
-    }
-    .lead {
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.5;
-    }
-    .login-form-wrap {
-      padding: 24px 32px 28px;
-    }
-    .field {
-      margin-bottom: 18px;
-    }
-    label {
-      display: block;
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--ink);
-      margin-bottom: 6px;
-    }
+    .status-line::before { content: ""; width: 6px; height: 6px; background: var(--bid); display: inline-block; }
+    h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; color: #fff; margin-bottom: 6px; }
+    .lead { color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .login-form-wrap { padding: 24px 32px 28px; }
+    .field { margin-bottom: 18px; }
+    label { display: block; font-size: 13px; font-weight: 500; color: var(--ink); margin-bottom: 6px; }
     input {
       width: 100%;
       background: var(--canvas);
@@ -103,11 +72,8 @@ LOGIN_HTML = """<!DOCTYPE html>
       font-size: 14px;
       font-family: var(--mono);
       outline: none;
-      transition: border-color 0.15s;
     }
-    input:focus {
-      border-color: var(--gold);
-    }
+    input:focus { border-color: var(--gold); }
     button {
       width: 100%;
       background: var(--gold);
@@ -119,9 +85,7 @@ LOGIN_HTML = """<!DOCTYPE html>
       font-size: 14px;
       cursor: pointer;
     }
-    button:hover {
-      filter: brightness(1.08);
-    }
+    button:hover { filter: brightness(1.08); }
     .err {
       color: #ffc9c9;
       background: rgba(224, 49, 49, 0.14);
@@ -146,9 +110,9 @@ LOGIN_HTML = """<!DOCTYPE html>
 <body>
   <main class="login-frame">
     <div class="login-head">
-      <div class="status-line">Motor quantitativo • Ubuntu Server</div>
+      <div class="status-line">Motor quantitativo • Deriv WebSocket API</div>
       <h1>Prado Institutional HFT</h1>
-      <p class="lead">Execução algorítmica de VWAP, desvio padrão e fluxo de agressão via Python MetaTrader 5.</p>
+      <p class="lead">Execução algorítmica de VWAP, desvio padrão e fluxo de agressão em Deriv Multipliers.</p>
     </div>
     <div class="login-form-wrap">
       <div id="errBox" class="err"></div>
@@ -204,7 +168,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prado Institutional HFT — Mesa Quantitativa</title>
+  <title>Prado Institutional HFT — Mesa Deriv Multipliers</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -235,8 +199,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       line-height: 1.4;
       -webkit-font-smoothing: antialiased;
     }
-
-    /* 1. Top Command Header */
     .topbar {
       background: var(--surface);
       border-bottom: 1px solid var(--rule);
@@ -247,25 +209,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       justify-content: space-between;
       gap: 16px;
     }
-    .topbar-left {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      min-width: 0;
-    }
-    .status-dot {
-      width: 7px;
-      height: 7px;
-      background: var(--bid);
-      flex-shrink: 0;
-    }
-    .desk-name {
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-      color: #fff;
-      white-space: nowrap;
-    }
+    .topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .status-dot { width: 7px; height: 7px; background: var(--bid); flex-shrink: 0; }
+    .desk-name { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: #fff; white-space: nowrap; }
     .feed-indicator {
       font-family: var(--mono);
       font-size: 11px;
@@ -274,11 +220,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       padding-left: 12px;
       white-space: nowrap;
     }
-    .topbar-right {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+    .topbar-right { display: flex; align-items: center; gap: 8px; }
     .account-picker {
       display: flex;
       align-items: center;
@@ -288,11 +230,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       height: 30px;
       padding: 0 10px;
     }
-    .account-picker span {
-      font-size: 12px;
-      color: var(--muted);
-      white-space: nowrap;
-    }
+    .account-picker span { font-size: 12px; color: var(--muted); white-space: nowrap; }
     .account-picker select {
       background: transparent;
       color: var(--gold);
@@ -303,12 +241,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       outline: none;
       cursor: pointer;
     }
-    .account-picker select option {
-      background: var(--surface);
-      color: var(--ink);
-    }
+    .account-picker select option { background: var(--surface); color: var(--ink); }
 
-    /* 2. Hero Ledger Bar (Full-bleed hairline grid) */
     .ledger-strip {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -328,13 +262,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       gap: 2px;
     }
     .ledger-cell:last-child { border-right: none; }
-    .ledger-head {
-      font-size: 12px;
-      color: var(--muted);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
+    .ledger-head { font-size: 12px; color: var(--muted); display: flex; align-items: center; justify-content: space-between; }
     .ledger-figure {
       font-family: var(--mono);
       font-variant-numeric: tabular-nums;
@@ -342,13 +270,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       font-weight: 600;
       color: #fff;
     }
-    .ledger-meta {
-      font-family: var(--mono);
-      font-size: 11px;
-      color: var(--muted);
-    }
+    .ledger-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 
-    /* 3. Navigation Tabs */
     .nav-strip {
       background: var(--surface);
       border-bottom: 1px solid var(--rule);
@@ -368,22 +291,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
-      transition: color 0.12s, border-color 0.12s;
     }
     .nav-tab:hover { color: var(--ink); }
-    .nav-tab.active {
-      color: #fff;
-      border-bottom-color: var(--gold);
-      background: rgba(200, 157, 66, 0.06);
-    }
-    .nav-count {
-      font-family: var(--mono);
-      font-size: 11px;
-      color: var(--gold);
-      margin-left: 4px;
-    }
+    .nav-tab.active { color: #fff; border-bottom-color: var(--gold); background: rgba(200, 157, 66, 0.06); }
+    .nav-count { font-family: var(--mono); font-size: 11px; color: var(--gold); margin-left: 4px; }
 
-    /* 4. Buttons & Segmented Action Strips */
     .btn {
       height: 30px;
       padding: 0 11px;
@@ -398,36 +310,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       color: var(--ink);
       cursor: pointer;
       white-space: nowrap;
-      transition: border-color 0.12s, background 0.12s;
     }
     .btn:hover { border-color: var(--gold); }
-    .btn-primary {
-      background: var(--gold);
-      color: #080b10;
-      border-color: var(--gold);
-      font-weight: 700;
-    }
+    .btn-primary { background: var(--gold); color: #080b10; border-color: var(--gold); font-weight: 700; }
     .btn-primary:hover { filter: brightness(1.07); }
-    .btn-bid {
-      background: rgba(12, 166, 120, 0.12);
-      color: #38d9a9;
-      border-color: rgba(12, 166, 120, 0.4);
-    }
+    .btn-bid { background: rgba(12, 166, 120, 0.12); color: #38d9a9; border-color: rgba(12, 166, 120, 0.4); }
     .btn-bid:hover { background: var(--bid); color: #04130e; }
-    .btn-ask {
-      background: rgba(224, 49, 49, 0.12);
-      color: #ffa8a8;
-      border-color: rgba(224, 49, 49, 0.4);
-    }
+    .btn-ask { background: rgba(224, 49, 49, 0.12); color: #ffa8a8; border-color: rgba(224, 49, 49, 0.4); }
     .btn-ask:hover { background: var(--ask); color: #fff; }
-    .btn-quiet {
-      background: transparent;
-      color: var(--muted);
-      border-color: var(--rule);
-    }
+    .btn-quiet { background: transparent; color: var(--muted); border-color: var(--rule); }
     .btn-quiet:hover { color: var(--ink); border-color: var(--muted); }
 
-    /* Single-line Segmented Action Bar inside tables (never wraps into 3 lines) */
     .action-strip {
       display: inline-flex;
       align-items: center;
@@ -458,21 +351,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .action-strip button.act-del { color: var(--muted); }
     .action-strip button.act-del:hover { background: var(--ask); color: #fff; }
 
-    /* 5. Main Workspace Sections */
-    .workspace {
-      flex: 1;
-      width: 100%;
-      max-width: 1680px;
-      margin: 0 auto;
-      padding: 16px 20px 36px;
-    }
+    .workspace { flex: 1; width: 100%; max-width: 1680px; margin: 0 auto; padding: 16px 20px 36px; }
     .tab-pane { display: none; }
     .tab-pane.active { display: grid; gap: 16px; }
-
-    .section-block {
-      background: var(--surface);
-      border: 1px solid var(--rule);
-    }
+    .section-block { background: var(--surface); border: 1px solid var(--rule); }
     .section-bar {
       padding: 10px 16px;
       border-bottom: 1px solid var(--rule);
@@ -482,63 +364,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       gap: 12px;
       background: rgba(8, 11, 16, 0.45);
     }
-    .section-title {
-      font-size: 13px;
-      font-weight: 700;
-      color: #fff;
-    }
-    .section-hint {
-      font-size: 12px;
-      color: var(--muted);
-      margin-left: 10px;
-      font-weight: 400;
-    }
-    .section-body {
-      padding: 16px;
-      overflow-x: auto;
-    }
-    .section-body.bleed {
-      padding: 0;
-    }
+    .section-title { font-size: 13px; font-weight: 700; color: #fff; }
+    .section-hint { font-size: 12px; color: var(--muted); margin-left: 10px; font-weight: 400; }
+    .section-body { padding: 16px; overflow-x: auto; }
+    .section-body.bleed { padding: 0; }
 
-    /* 6. Data Tables — Strict Right-Aligned Tabular Figures */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12.5px;
-    }
-    th, td {
-      padding: 9px 14px;
-      text-align: left;
-      border-bottom: 1px solid var(--rule);
-      vertical-align: middle;
-    }
-    th {
-      font-size: 11.5px;
-      font-weight: 600;
-      color: var(--muted);
-      background: var(--canvas);
-      white-space: nowrap;
-    }
-    th.num, td.num {
-      text-align: right;
-      font-family: var(--mono);
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-    }
-    td.code {
-      font-family: var(--mono);
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-    }
-    tr.interactive-row {
-      cursor: pointer;
-    }
-    tr.interactive-row:hover td {
-      background: var(--elevated);
-    }
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+    th { font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--canvas); white-space: nowrap; }
+    th.num, td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    td.code { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    tr.interactive-row { cursor: pointer; }
+    tr.interactive-row:hover td { background: var(--elevated); }
 
-    /* Rectangular Precision Badges (No bloated pill borders) */
     .badge {
       display: inline-flex;
       align-items: center;
@@ -552,41 +390,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       color: var(--muted);
       white-space: nowrap;
     }
-    .badge-bid {
-      border-left-color: var(--bid);
-      background: rgba(12, 166, 120, 0.12);
-      color: #38d9a9;
-    }
-    .badge-ask {
-      border-left-color: var(--ask);
-      background: rgba(224, 49, 49, 0.12);
-      color: #ffa8a8;
-    }
-    .badge-hft {
-      border-left-color: var(--cyan);
-      background: rgba(56, 189, 248, 0.12);
-      color: var(--cyan);
-    }
-    .badge-gold {
-      border-left-color: var(--gold);
-      background: rgba(200, 157, 66, 0.14);
-      color: var(--gold);
-    }
+    .badge-bid { border-left-color: var(--bid); background: rgba(12, 166, 120, 0.12); color: #38d9a9; }
+    .badge-ask { border-left-color: var(--ask); background: rgba(224, 49, 49, 0.12); color: #ffa8a8; }
+    .badge-hft { border-left-color: var(--cyan); background: rgba(56, 189, 248, 0.12); color: var(--cyan); }
+    .badge-gold { border-left-color: var(--gold); background: rgba(200, 157, 66, 0.14); color: var(--gold); }
 
-    /* 7. Forms & Broker Autocomplete */
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-      gap: 14px;
-    }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
     .field { position: relative; }
-    .field label {
-      display: block;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--ink);
-      margin-bottom: 5px;
-    }
+    .field label { display: block; font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 5px; }
     .field input, .field select {
       width: 100%;
       height: 34px;
@@ -598,43 +409,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       font-family: var(--sans);
     }
     .field input.mono { font-family: var(--mono); }
-    .field input:focus, .field select:focus {
-      border-color: var(--gold);
-      outline: none;
-    }
-    .field small {
-      display: block;
-      color: var(--muted);
-      font-size: 11px;
-      margin-top: 4px;
-    }
-
-    .autocomplete-menu {
-      position: absolute;
-      top: 60px;
-      left: 0;
-      right: 0;
-      background: var(--surface);
-      border: 1px solid var(--gold);
-      max-height: 210px;
-      overflow-y: auto;
-      z-index: 700;
-      display: none;
-      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.8);
-    }
-    .autocomplete-option {
-      padding: 8px 12px;
-      font-family: var(--mono);
-      font-size: 12px;
-      cursor: pointer;
-      border-bottom: 1px solid var(--rule);
-      display: flex;
-      justify-content: space-between;
-    }
-    .autocomplete-option:hover {
-      background: var(--elevated);
-      color: var(--gold);
-    }
+    .field input:focus, .field select:focus { border-color: var(--gold); outline: none; }
+    .field small { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
 
     .equation-bar {
       background: var(--canvas);
@@ -664,16 +440,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <!-- 1. Top Command Header -->
   <header class="topbar">
     <div class="topbar-left">
       <span class="status-dot"></span>
-      <span class="desk-name">Prado Institutional HFT</span>
-      <span class="feed-indicator" id="connBadge">Conectando ao motor...</span>
+      <span class="desk-name">Prado Institutional HFT • Deriv</span>
+      <span class="feed-indicator" id="connBadge">Conectando...</span>
     </div>
     <div class="topbar-right">
       <div class="account-picker">
-        <span>Conta em operação:</span>
+        <span>Token em operação:</span>
         <select id="headerAccountSelect" onchange="quickSwitchAccount(this.value)"></select>
       </div>
       <button class="btn btn-quiet" onclick="resetDailyRisk()">Destravar limite diário</button>
@@ -683,20 +458,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     </div>
   </header>
 
-  <!-- 2. Hero Ledger Bar -->
   <section class="ledger-strip">
     <div class="ledger-cell">
       <div class="ledger-head">
-        <span>Credencial MetaTrader 5</span>
+        <span>Conta Deriv conectada</span>
         <span id="kpiAccBadge" class="badge badge-hft">Demo</span>
       </div>
       <div class="ledger-figure" id="kpiAccount">---</div>
-      <div class="ledger-meta" id="kpiServer">Servidor: ---</div>
+      <div class="ledger-meta" id="kpiServer">Deriv WebSocket API</div>
     </div>
     <div class="ledger-cell">
-      <div class="ledger-head"><span>Patrimônio líquido (Equity)</span></div>
-      <div class="ledger-figure" id="kpiEquity">R$ 0,00</div>
-      <div class="ledger-meta" id="kpiBalance">Saldo base: R$ 0,00</div>
+      <div class="ledger-head"><span>Saldo / Equity</span></div>
+      <div class="ledger-figure" id="kpiEquity">$ 0.00</div>
+      <div class="ledger-meta" id="kpiBalance">Saldo base: $ 0.00</div>
     </div>
     <div class="ledger-cell">
       <div class="ledger-head"><span>Robôs matemáticos ativos</span></div>
@@ -710,25 +484,23 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     </div>
   </section>
 
-  <!-- 3. Navigation Strip -->
   <nav class="nav-strip">
     <button class="nav-tab active" onclick="switchTab('running-bots', this)">Mesa de execução e robôs <span class="nav-count" id="tabBotCount">0</span></button>
     <button class="nav-tab" onclick="switchTab('create-bot', this)">Configurar robô matemático</button>
     <button class="nav-tab" onclick="switchTab('backtest', this)">Backtest tick a tick</button>
     <button class="nav-tab" onclick="switchTab('categories', this)">Categorias de ativos</button>
-    <button class="nav-tab" onclick="switchTab('mt5', this)">Contas Demo e Real (MT5)</button>
+    <button class="nav-tab" onclick="switchTab('deriv-tokens', this)">Tokens e Contas Deriv (Demo e Real)</button>
     <button class="nav-tab" onclick="switchTab('monitor', this)">Matriz VWAP e Z-Score</button>
   </nav>
 
-  <!-- 4. Main Workspace -->
   <main class="workspace">
-    <!-- PANE 1: RUNNING BOTS, LIVE POSITIONS, CLOSED DEALS -->
+    <!-- PANE 1: RUNNING BOTS & POSITIONS -->
     <div id="tab-running-bots" class="tab-pane active">
       <section class="section-block">
         <div class="section-bar">
           <div>
-            <span class="section-title">Frota de robôs matemáticos</span>
-            <span class="section-hint">Clique em qualquer linha para editar lote, conta ou parâmetros</span>
+            <span class="section-title">Frota de robôs matemáticos (Deriv Multipliers)</span>
+            <span class="section-hint">Clique em qualquer linha para editar Stake, Multiplicador ou parâmetros</span>
           </div>
           <div style="display:flex;gap:8px;">
             <button class="btn btn-primary" onclick="startNewBotForm()">Novo robô matemático</button>
@@ -740,9 +512,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <thead>
               <tr>
                 <th>Robô / Modelo matemático</th>
-                <th>Conta vinculada</th>
+                <th>Token vinculado</th>
                 <th>Ativo</th>
-                <th class="num">Lote</th>
+                <th class="num">Stake / Mult</th>
                 <th class="num">Preço atual</th>
                 <th class="num">VWAP (&Sigma;PV/&Sigma;V)</th>
                 <th class="num">Z-Score</th>
@@ -761,24 +533,24 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <section class="section-block">
         <div class="section-bar">
           <div>
-            <span class="section-title">Posições abertas no MetaTrader 5</span>
-            <span class="section-hint">Monitoramento em tempo real com alvos calibrados por desvio padrão (&sigma;)</span>
+            <span class="section-title">Contratos abertos na Deriv</span>
+            <span class="section-hint">Acompanhamento em tempo real com Stop Loss e Take Profit</span>
           </div>
         </div>
         <div class="section-body bleed">
           <table>
             <thead>
               <tr>
-                <th>Bilhete</th>
+                <th>Contrato</th>
                 <th>Ativo</th>
                 <th>Lado</th>
-                <th class="num">Volume</th>
-                <th class="num">Preço de entrada</th>
-                <th class="num">Preço atual</th>
-                <th class="num">Stop Loss (&sigma;)</th>
-                <th class="num">Take Profit (&sigma;)</th>
-                <th class="num">Resultado aberto</th>
-                <th>Robô</th>
+                <th class="num">Stake (USD)</th>
+                <th class="num">Entrada</th>
+                <th class="num">Atual</th>
+                <th class="num">Stop Loss</th>
+                <th class="num">Take Profit</th>
+                <th class="num">Lucro / Prejuízo</th>
+                <th>Tipo</th>
                 <th style="text-align:right;">Comando</th>
               </tr>
             </thead>
@@ -790,21 +562,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <section class="section-block">
         <div class="section-bar">
           <div>
-            <span class="section-title">Histórico de operações encerradas</span>
-            <span class="section-hint">Saídas executadas por Take Profit, Stop Loss ou encerramento direto</span>
+            <span class="section-title">Histórico de contratos encerrados</span>
+            <span class="section-hint">Saídas por Take Profit, Stop Loss ou encerramento direto</span>
           </div>
         </div>
         <div class="section-body bleed">
           <table>
             <thead>
               <tr>
-                <th>Bilhete</th>
+                <th>Contrato</th>
                 <th>Horário</th>
                 <th>Ativo</th>
                 <th>Lado</th>
-                <th class="num">Volume</th>
-                <th class="num">Preço de entrada</th>
-                <th class="num">Preço de saída</th>
+                <th class="num">Stake</th>
+                <th class="num">Entrada</th>
+                <th class="num">Saída</th>
                 <th class="num">Resultado líquido</th>
                 <th>Motivo da saída</th>
                 <th>Robô</th>
@@ -816,17 +588,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </section>
     </div>
 
-    <!-- PANE 2: CREATE OR EDIT MATHEMATICAL BOT -->
+    <!-- PANE 2: CREATE / EDIT BOT -->
     <div id="tab-create-bot" class="tab-pane">
       <section class="section-block">
         <div class="section-bar">
           <div>
-            <span class="section-title" id="botFormTitle">Configurar robô matemático</span>
-            <span class="section-hint">Execução direta sobre vetores de ticks via biblioteca Python MetaTrader5</span>
+            <span class="section-title" id="botFormTitle">Configurar robô matemático (Deriv Multipliers)</span>
+            <span class="section-hint">Operação pura por matriz de ticks via WebSocket oficial da Deriv</span>
           </div>
           <div class="action-strip">
             <button type="button" id="btnModeMain" class="act-bid" onclick="setSymbolMode('PRINCIPAIS')">Ativos principais</button>
-            <button type="button" id="btnModeAll" onclick="setSymbolMode('TODOS')">Todos os ativos da corretora</button>
+            <button type="button" id="btnModeAll" onclick="setSymbolMode('TODOS')">Todos os ativos Deriv</button>
           </div>
         </div>
         <div class="section-body">
@@ -839,10 +611,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               </div>
               <div class="field">
                 <label for="bot_name">Identificação do robô</label>
-                <input type="text" id="bot_name" placeholder="Ex: Desk BTC Fluxo Institucional" required />
+                <input type="text" id="bot_name" placeholder="Ex: Desk Volatility 100" required />
               </div>
               <div class="field">
-                <label for="bot_account_id">Conta MetaTrader 5 (Demo ou Real)</label>
+                <label for="bot_account_id">Token / Conta Deriv</label>
                 <select id="bot_account_id"></select>
               </div>
               <div class="field">
@@ -852,13 +624,23 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 </select>
               </div>
               <div class="field">
-                <label for="bot_symbol">Ativo (<span id="symModeLabel">PRINCIPAIS</span>)</label>
+                <label for="bot_symbol">Ativo Deriv (<span id="symModeLabel">PRINCIPAIS</span>)</label>
                 <select id="bot_symbol"></select>
                 <small id="symCountHint">Carregando ativos...</small>
               </div>
               <div class="field">
-                <label for="bot_lot_size">Volume / Lote</label>
-                <input type="number" step="0.01" id="bot_lot_size" class="mono" value="0.10" required />
+                <label for="bot_lot_size">Stake por entrada (USD)</label>
+                <input type="number" step="0.5" id="bot_lot_size" class="mono" value="10.0" required />
+              </div>
+              <div class="field">
+                <label for="bot_multiplier">Multiplicador (alavancagem)</label>
+                <select id="bot_multiplier">
+                  <option value="20">20x</option>
+                  <option value="50">50x</option>
+                  <option value="100" selected>100x</option>
+                  <option value="200">200x</option>
+                  <option value="400">400x</option>
+                </select>
               </div>
               <div class="field">
                 <label for="bot_window_ticks">Janela de amostragem (ticks)</label>
@@ -878,7 +660,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               </div>
               <div class="field">
                 <label for="bot_corr_basket">Cesta de correlação</label>
-                <input type="text" id="bot_corr_basket" class="mono" value="PETR4, VALE3, Crypto_10#" />
+                <input type="text" id="bot_corr_basket" class="mono" value="R_50, R_25" />
               </div>
             </div>
 
@@ -896,13 +678,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </section>
     </div>
 
-    <!-- PANE 3: MATHEMATICAL BACKTESTER -->
+    <!-- PANE 3: BACKTEST -->
     <div id="tab-backtest" class="tab-pane">
       <section class="section-block">
         <div class="section-bar">
           <div>
             <span class="section-title">Backtester matemático tick a tick</span>
-            <span class="section-hint">Simulação estatística de alta velocidade sobre séries de ticks</span>
+            <span class="section-hint">Valide expectativa matemática, taxa de acerto e drawdown antes de ligar o robô</span>
           </div>
         </div>
         <div class="section-body">
@@ -921,12 +703,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 <input type="number" id="bt_ticks" class="mono" value="1200" min="200" max="5000" required />
               </div>
               <div class="field">
-                <label for="bt_capital">Capital inicial</label>
-                <input type="number" id="bt_capital" class="mono" value="50000" required />
+                <label for="bt_capital">Capital inicial (USD)</label>
+                <input type="number" id="bt_capital" class="mono" value="10000" required />
               </div>
               <div class="field">
-                <label for="bt_lots">Lote simulado</label>
-                <input type="number" step="0.01" id="bt_lots" class="mono" value="1.0" required />
+                <label for="bt_lots">Stake simulado (USD)</label>
+                <input type="number" step="0.5" id="bt_lots" class="mono" value="10.0" required />
               </div>
               <div class="field">
                 <label for="bt_zscore">Limiar Z-Score</label>
@@ -949,9 +731,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </section>
 
       <section class="section-block" id="btResultCard" style="display:none;">
-        <div class="section-bar">
-          <span class="section-title">Relatório estatístico do backtest</span>
-        </div>
+        <div class="section-bar"><span class="section-title">Relatório estatístico do backtest</span></div>
         <div class="ledger-strip" id="btKpiGrid"></div>
         <div class="section-body">
           <div class="equation-bar" id="btFormulaUsed" style="margin-top:0;"></div>
@@ -961,8 +741,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 <th>#</th>
                 <th>Lado</th>
                 <th>Gatilho matemático</th>
-                <th class="num">Preço de entrada</th>
-                <th class="num">Preço de saída</th>
+                <th class="num">Entrada</th>
+                <th class="num">Saída</th>
                 <th class="num">Resultado líquido</th>
                 <th class="num">Patrimônio acumulado</th>
               </tr>
@@ -978,7 +758,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <section class="section-block">
         <div class="section-bar">
           <div>
-            <span class="section-title">Categorias de ativos da corretora</span>
+            <span class="section-title">Categorias de ativos da Deriv</span>
             <span class="section-hint">Clique em qualquer categoria abaixo para editar seus símbolos</span>
           </div>
         </div>
@@ -987,11 +767,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <div class="form-grid">
               <div class="field">
                 <label for="new_cat_name">Nome da categoria</label>
-                <input type="text" id="new_cat_name" placeholder="Ex: Futuros B3 Liquidez Institucional" required />
+                <input type="text" id="new_cat_name" placeholder="Ex: Volatility 24/7" required />
               </div>
               <div class="field">
                 <label for="new_cat_symbols">Símbolos vinculados (separados por vírgula)</label>
-                <input type="text" id="new_cat_symbols" class="mono" placeholder="Ex: WIN$N, WDO$N, IND$N, DOL$N" required />
+                <input type="text" id="new_cat_symbols" class="mono" placeholder="Ex: R_100, R_75, 1HZ100V" required />
               </div>
             </div>
             <div style="margin-top:14px;">
@@ -1002,9 +782,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </section>
 
       <section class="section-block">
-        <div class="section-bar">
-          <span class="section-title">Categorias cadastradas</span>
-        </div>
+        <div class="section-bar"><span class="section-title">Categorias cadastradas</span></div>
         <div class="section-body bleed">
           <table>
             <thead>
@@ -1020,83 +798,63 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </section>
     </div>
 
-    <!-- PANE 5: DEMO & REAL MT5 ACCOUNTS -->
-    <div id="tab-mt5" class="tab-pane">
+    <!-- PANE 5: DERIV TOKEN VAULT (SAVE & ACTIVATE TOKENS) -->
+    <div id="tab-deriv-tokens" class="tab-pane">
       <section class="section-block">
         <div class="section-bar">
           <div>
-            <span class="section-title" id="accountFormTitle">Contas Demo e Real do MetaTrader 5</span>
-            <span class="section-hint">Suas contas XM Global Demo (346595704) e Real (382177116) já estão configuradas</span>
+            <span class="section-title" id="accountFormTitle">Cofre de Tokens da Deriv (Demo e Real)</span>
+            <span class="section-hint">Salve seu Token da Deriv (home.deriv.com/dashboard/profile/api-tokens) com permissões Read + Trade para negociar 24/7 na VPS</span>
           </div>
         </div>
         <div class="section-body">
-          <form id="mt5Form" onsubmit="saveMt5Account(event)">
+          <form id="derivForm" onsubmit="saveDerivAccount(event)">
             <input type="hidden" id="editing_account_id" value="" />
             <div class="form-grid">
               <div class="field">
-                <label for="acc_type">Ambiente da conta</label>
+                <label for="acc_type">Ambiente do token</label>
                 <select id="acc_type">
-                  <option value="DEMO">Conta Demo (Homologação)</option>
-                  <option value="REAL">Conta Real (Produção)</option>
+                  <option value="DEMO">Conta Demo Deriv (VRTC)</option>
+                  <option value="REAL">Conta Real Deriv (CR)</option>
                 </select>
               </div>
               <div class="field">
-                <label for="acc_label">Identificação da conta</label>
-                <input type="text" id="acc_label" placeholder="Ex: Jose XM Global Demo" required />
+                <label for="acc_label">Nome de identificação</label>
+                <input type="text" id="acc_label" placeholder="Ex: Deriv Demo Principal" required />
+              </div>
+              <div class="field" style="grid-column: span 2;">
+                <label for="deriv_token">Deriv API Token (usado nas negociações)</label>
+                <input type="password" id="deriv_token" class="mono" placeholder="Cole seu token pat_... gerado na Deriv" />
+                <small>O token é salvo com segurança apenas no seu servidor Ubuntu e usado para autenticar e enviar ordens.</small>
               </div>
               <div class="field">
-                <label for="mt5_login">Login MT5</label>
-                <input type="text" id="mt5_login" class="mono" placeholder="Ex: 346595704" required />
+                <label for="deriv_app_id">Deriv App ID</label>
+                <input type="text" id="deriv_app_id" class="mono" value="1089" />
               </div>
               <div class="field">
-                <label for="mt5_password">Senha MT5</label>
-                <input type="password" id="mt5_password" class="mono" placeholder="Em branco mantém a senha atual" />
+                <label for="default_stake_usd">Stake padrão (USD)</label>
+                <input type="number" step="0.5" id="default_stake_usd" class="mono" value="10.0" />
               </div>
               <div class="field">
-                <label for="mt5_server">Servidor da corretora (autocompletar)</label>
-                <input
-                  type="text"
-                  id="mt5_server"
-                  class="mono"
-                  list="brokerServersDatalist"
-                  placeholder="Digite XMGlobal, XP, Clear..."
-                  autocomplete="off"
-                  oninput="onServerInputAutocomplete(this.value)"
-                  onfocus="onServerInputAutocomplete(this.value)"
-                  required
-                />
-                <datalist id="brokerServersDatalist"></datalist>
-                <div id="serverAutocompleteBox" class="autocomplete-menu"></div>
+                <label for="default_multiplier">Multiplicador padrão</label>
+                <select id="default_multiplier">
+                  <option value="20">20x</option>
+                  <option value="50">50x</option>
+                  <option value="100" selected>100x</option>
+                  <option value="200">200x</option>
+                  <option value="400">400x</option>
+                </select>
               </div>
               <div class="field">
-                <label for="connection_mode">Modo de conexão na VPS (100% Cloud API)</label>
+                <label for="connection_mode">Modo de execução</label>
                 <select id="connection_mode">
-                  <option value="METAAPI_CLOUD">MetaApi Cloud (100% Python na VPS — sem MetaTrader aberto)</option>
+                  <option value="DERIV_CLOUD">Deriv WebSocket Live (Negociação Real/Demo)</option>
                   <option value="SIMULATION">Simulador Quantitativo Interno</option>
                 </select>
               </div>
-              <div class="field">
-                <label for="metaapi_token">MetaApi Token (app.metaapi.cloud)</label>
-                <input type="password" id="metaapi_token" class="mono" placeholder="Cole seu API Token da MetaApi" />
-                <small>Permite que o Python na VPS opere sua conta 24/7 sem abrir o MetaTrader em nenhum lugar.</small>
-              </div>
-              <div class="field">
-                <label for="metaapi_account_id">MetaApi Account ID (ou clique em Provisionar)</label>
-                <input type="text" id="metaapi_account_id" class="mono" placeholder="UUID da conta na MetaApi" />
-              </div>
-              <div class="field">
-                <label for="metaapi_region">Região do servidor MetaApi</label>
-                <select id="metaapi_region">
-                  <option value="london">London (Europa / XM Global)</option>
-                  <option value="new-york">New York (EUA / B3 / Índices)</option>
-                  <option value="vint-hill">Vint Hill (EUA Leste)</option>
-                  <option value="singapore">Singapore (Ásia)</option>
-                </select>
-              </div>
             </div>
-            <div style="margin-top: 16px; display:flex; gap:8px; flex-wrap:wrap;">
-              <button type="submit" id="accSubmitBtn" class="btn btn-primary">Salvar conta e conectar</button>
-              <button type="button" class="btn btn-bid" onclick="provisionMetaApi()">Conectar na MetaApi automaticamente (sem MT5 aberto)</button>
+            <div style="margin-top: 16px; display:flex; gap:8px;">
+              <button type="submit" id="accSubmitBtn" class="btn btn-primary">Salvar token e conectar na Deriv</button>
               <button type="button" id="accCancelEditBtn" class="btn btn-quiet" style="display:none;" onclick="cancelAccountEdit()">Cancelar edição</button>
             </div>
           </form>
@@ -1106,10 +864,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <section class="section-block">
         <div class="section-bar">
           <div>
-            <span class="section-title">Contas registradas</span>
-            <span class="section-hint">Clique em qualquer conta para editar ou alternar o ambiente ativo</span>
+            <span class="section-title">Tokens salvos para negociação</span>
+            <span class="section-hint">Clique em qualquer token para editar ou em "Ativar" para operar com ele</span>
           </div>
-          <button class="btn btn-quiet" onclick="deleteAllAccounts()">Limpar contas</button>
+          <button class="btn btn-quiet" onclick="deleteAllAccounts()">Limpar tokens</button>
         </div>
         <div class="section-body bleed">
           <table>
@@ -1117,9 +875,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <tr>
                 <th>Ambiente</th>
                 <th>Identificação</th>
-                <th>Login MT5</th>
-                <th>Servidor da corretora</th>
-                <th>Estado</th>
+                <th>Login ID Deriv</th>
+                <th>Stake / Mult</th>
+                <th>Status</th>
                 <th style="text-align:right;">Controles</th>
               </tr>
             </thead>
@@ -1129,13 +887,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </section>
     </div>
 
-    <!-- PANE 6: VWAP & Z-SCORE MATRIX -->
+    <!-- PANE 6: MATRIX -->
     <div id="tab-monitor" class="tab-pane">
       <section class="section-block">
         <div class="section-bar">
           <div>
             <span class="section-title">Matriz matemática — VWAP, Bandas (&plusmn;1&sigma; / &plusmn;2&sigma;) e Z-Score</span>
-            <span class="section-hint">Cálculo contínuo sobre todos os símbolos monitorados</span>
+            <span class="section-hint">Cálculo contínuo sobre os ativos monitorados na Deriv</span>
           </div>
         </div>
         <div class="section-body bleed">
@@ -1160,9 +918,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </section>
 
       <section class="section-block">
-        <div class="section-bar">
-          <span class="section-title">Diário de execução do motor quantitativo</span>
-        </div>
+        <div class="section-bar"><span class="section-title">Diário de execução do motor quantitativo</span></div>
         <div class="section-body bleed">
           <table>
             <thead>
@@ -1185,14 +941,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     let currentConfig = {};
     let currentSymbolMode = 'PRINCIPAIS';
     let botTemplates = [];
-    let allBrokerServers = [];
     let latestBotsList = [];
 
     function showToast(msg) {
       const t = document.getElementById('toast');
       t.textContent = msg;
       t.style.display = 'block';
-      setTimeout(() => { t.style.display = 'none'; }, 3200);
+      setTimeout(() => { t.style.display = 'none'; }, 3400);
     }
 
     function switchTab(name, btn) {
@@ -1214,47 +969,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if ((action || '').startsWith('SELL')) return `<span class="badge badge-ask">${action}</span>`;
       return `<span class="badge">${action || 'WAIT'}</span>`;
     }
-
-    async function loadBrokerServersCatalog() {
-      const res = await fetch('/api/broker-servers');
-      if (!res.ok) return;
-      const data = await res.json();
-      allBrokerServers = data.servers || [];
-      const dl = document.getElementById('brokerServersDatalist');
-      dl.innerHTML = allBrokerServers.map(s => `<option value="${s}"></option>`).join('');
-    }
-
-    function onServerInputAutocomplete(query) {
-      const box = document.getElementById('serverAutocompleteBox');
-      const q = (query || '').trim().toLowerCase();
-      const matches = q
-        ? allBrokerServers.filter(s => s.toLowerCase().includes(q))
-        : allBrokerServers.slice(0, 16);
-      if (matches.length === 0) {
-        box.style.display = 'none';
-        return;
-      }
-      box.innerHTML = matches.map(s => `
-        <div class="autocomplete-option" onmousedown="selectBrokerServer('${s.replace(/'/g, "\\'")}')">
-          <span>${s}</span>
-          <span style="color:var(--muted);">MT5</span>
-        </div>
-      `).join('');
-      box.style.display = 'block';
-    }
-
-    function selectBrokerServer(serverName) {
-      document.getElementById('mt5_server').value = serverName;
-      document.getElementById('serverAutocompleteBox').style.display = 'none';
-    }
-
-    document.addEventListener('click', (e) => {
-      const box = document.getElementById('serverAutocompleteBox');
-      const inp = document.getElementById('mt5_server');
-      if (box && e.target !== inp && !box.contains(e.target)) {
-        box.style.display = 'none';
-      }
-    });
 
     async function loadBotTemplates() {
       const res = await fetch('/api/bot-templates');
@@ -1343,7 +1057,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const opts = list.map(a => {
           const badge = a.account_type === 'REAL' ? 'Real' : 'Demo';
           const selected = a.account_id === activeAccountId ? 'selected' : '';
-          return `<option value="${a.account_id}" ${selected}>[${badge}] ${a.label} (${a.mt5_login} @ ${a.mt5_server})</option>`;
+          return `<option value="${a.account_id}" ${selected}>[${badge}] ${a.label} (${a.loginid || 'Deriv'})</option>`;
         }).join('');
         accSel.innerHTML = opts;
         hdrSel.innerHTML = opts;
@@ -1351,7 +1065,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
       const accBody = document.getElementById('accountsBody');
       if (list.length === 0) {
-        accBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px;">Nenhuma conta registrada. Utilize o formulário acima para cadastrar sua conta Demo ou Real.</td></tr>';
+        accBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px;">Nenhum token salvo ainda. Cole seu Deriv API Token acima para operar ao vivo na Deriv.</td></tr>';
       } else {
         accBody.innerHTML = list.map(a => {
           const isReal = a.account_type === 'REAL';
@@ -1360,13 +1074,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <tr class="interactive-row" onclick="editAccount('${a.account_id}')">
               <td><span class="badge ${isReal ? 'badge-gold' : 'badge-hft'}">${isReal ? 'Real' : 'Demo'}</span></td>
               <td><strong>${a.label}</strong></td>
-              <td class="code">${a.mt5_login}</td>
-              <td class="code">${a.mt5_server}</td>
+              <td class="code">${a.loginid || '---'}</td>
+              <td class="code">$${a.default_stake_usd || 10} • ${a.default_multiplier || 100}x</td>
               <td>${isActive ? '<span class="badge badge-bid">Em operação</span>' : '<span class="badge">Disponível</span>'}</td>
               <td onclick="event.stopPropagation();" style="text-align:right;">
                 <div class="action-strip">
                   ${isActive
-                    ? '<button disabled style="color:var(--muted);">Ativa</button>'
+                    ? '<button disabled style="color:var(--muted);">Ativo</button>'
                     : `<button class="act-bid" onclick="quickSwitchAccount('${a.account_id}')">Ativar</button>`
                   }
                   <button class="act-edit" onclick="editAccount('${a.account_id}')">Editar</button>
@@ -1393,28 +1107,24 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('editing_account_id').value = acc.account_id;
       document.getElementById('acc_type').value = acc.account_type || 'DEMO';
       document.getElementById('acc_label').value = acc.label || '';
-      document.getElementById('mt5_login').value = acc.mt5_login || '';
-      document.getElementById('mt5_password').value = '';
-      document.getElementById('mt5_server').value = acc.mt5_server || '';
-      document.getElementById('connection_mode').value = acc.connection_mode || 'METAAPI_CLOUD';
-      document.getElementById('metaapi_token').value = acc.metaapi_token || '';
-      document.getElementById('metaapi_account_id').value = acc.metaapi_account_id || '';
-      document.getElementById('metaapi_region').value = acc.metaapi_region || 'london';
-      document.getElementById('accountFormTitle').textContent = `Editando conta: ${acc.label} (${acc.mt5_login})`;
-      document.getElementById('accSubmitBtn').textContent = 'Salvar alterações da conta';
+      document.getElementById('deriv_token').value = '';
+      document.getElementById('deriv_app_id').value = acc.deriv_app_id || '1089';
+      document.getElementById('default_stake_usd').value = acc.default_stake_usd || 10.0;
+      document.getElementById('default_multiplier').value = acc.default_multiplier || 100;
+      document.getElementById('connection_mode').value = acc.connection_mode || 'DERIV_CLOUD';
+      document.getElementById('accountFormTitle').textContent = `Editando token: ${acc.label}`;
+      document.getElementById('accSubmitBtn').textContent = 'Salvar alterações do token';
       document.getElementById('accCancelEditBtn').style.display = 'inline-flex';
-      switchTab('mt5', document.querySelectorAll('.nav-tab')[4]);
-      showToast(`Conta ${acc.mt5_login} carregada para edição.`);
+      switchTab('deriv-tokens', document.querySelectorAll('.nav-tab')[4]);
+      showToast(`Token "${acc.label}" carregado para edição.`);
     }
 
     function cancelAccountEdit() {
       document.getElementById('editing_account_id').value = '';
       document.getElementById('acc_label').value = '';
-      document.getElementById('mt5_login').value = '';
-      document.getElementById('mt5_password').value = '';
-      document.getElementById('mt5_server').value = '';
-      document.getElementById('accountFormTitle').textContent = 'Contas Demo e Real do MetaTrader 5';
-      document.getElementById('accSubmitBtn').textContent = 'Salvar conta e conectar';
+      document.getElementById('deriv_token').value = '';
+      document.getElementById('accountFormTitle').textContent = 'Cofre de Tokens da Deriv (Demo e Real)';
+      document.getElementById('accSubmitBtn').textContent = 'Salvar token e conectar na Deriv';
       document.getElementById('accCancelEditBtn').style.display = 'none';
     }
 
@@ -1428,7 +1138,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok) {
         currentConfig.accounts = data.accounts;
         renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, currentConfig.active_account_id);
-        showToast('Conta apagada.');
+        showToast('Token apagado.');
+        refreshStatus();
       }
     }
 
@@ -1442,7 +1153,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok) {
         currentConfig.accounts = [];
         renderCategoriesAndAccounts(currentConfig.custom_categories, [], '');
-        showToast('Lista de contas limpa.');
+        showToast('Todos os tokens foram removidos.');
+        refreshStatus();
       }
     }
 
@@ -1452,8 +1164,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({action: 'DELETE_ALL'})
       });
-      const data = await res.json();
-      if (data.ok) {
+      if (res.ok) {
         showToast('Frota de robôs limpa.');
         refreshStatus();
       }
@@ -1475,6 +1186,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       await loadBrokerSymbols(bot.symbol);
       document.getElementById('bot_symbol').value = bot.symbol;
       document.getElementById('bot_lot_size').value = bot.lot_size;
+      document.getElementById('bot_multiplier').value = bot.multiplier || 100;
       document.getElementById('bot_window_ticks').value = bot.window_ticks || 120;
       document.getElementById('bot_zscore').value = bot.zscore_threshold || 1.8;
       document.getElementById('bot_imbalance').value = bot.imbalance_threshold || 0.35;
@@ -1490,8 +1202,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     function cancelBotEdit() {
       document.getElementById('editing_bot_id').value = '';
       document.getElementById('bot_name').value = '';
-      document.getElementById('bot_lot_size').value = '0.10';
-      document.getElementById('botFormTitle').textContent = 'Configurar robô matemático';
+      document.getElementById('bot_lot_size').value = '10.0';
+      document.getElementById('botFormTitle').textContent = 'Configurar robô matemático (Deriv Multipliers)';
       document.getElementById('botSubmitBtn').textContent = 'Criar e iniciar execução automática';
       document.getElementById('botCancelEditBtn').style.display = 'none';
       onBotTemplateChange();
@@ -1517,7 +1229,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.ok) {
         currentConfig.active_account_id = accountId;
         renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, accountId);
-        showToast(`Conta ativa alterada para ${data.active_account.label}.`);
+        showToast(`Token ativo alterado para ${data.active_account.label}.`);
         refreshStatus();
       }
     }
@@ -1527,7 +1239,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (res.status === 401) { window.location.href = '/login'; return; }
       const data = await res.json();
       currentConfig = data.config || {};
-      await loadBrokerServersCatalog();
       await loadBotTemplates();
       renderCategoriesAndAccounts(
         currentConfig.custom_categories,
@@ -1544,13 +1255,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const snap = await res.json();
         const acc = snap.account || {};
         const accType = acc.account_type || 'DEMO';
-        document.getElementById('connBadge').textContent = `${acc.backend || 'ONLINE'} • Conta ${acc.login || ''}`;
+        document.getElementById('connBadge').textContent = `${acc.backend || 'ONLINE'} • ${acc.login || ''}`;
         const accBadge = document.getElementById('kpiAccBadge');
         accBadge.textContent = accType === 'REAL' ? 'Real' : 'Demo';
         accBadge.className = `badge ${accType === 'REAL' ? 'badge-gold' : 'badge-hft'}`;
         document.getElementById('kpiAccount').textContent = acc.login || '---';
-        document.getElementById('kpiServer').textContent = `Servidor: ${acc.server || '---'}`;
-        document.getElementById('kpiEquity').textContent = `${acc.currency || 'R$'} ${(acc.equity || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+        document.getElementById('kpiServer').textContent = acc.server || 'Deriv WebSocket';
+        document.getElementById('kpiEquity').textContent = `${acc.currency || 'USD'} ${(acc.equity || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
         document.getElementById('kpiBalance').textContent = `Saldo base: ${(acc.balance || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
 
         const bots = snap.bots || [];
@@ -1579,12 +1290,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
         const botsBody = document.getElementById('runningBotsBody');
         if (bots.length === 0) {
-          botsBody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:24px;">Nenhum robô configurado na mesa. Selecione <strong>Novo robô matemático</strong> para iniciar.</td></tr>';
+          botsBody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:24px;">Nenhum robô configurado. Selecione <strong>Novo robô matemático</strong> para iniciar.</td></tr>';
         } else {
           botsBody.innerHTML = bots.map(b => {
             const isRun = b.status === 'RUNNING';
             const bType = b.account_type || 'DEMO';
-            const cleanAccountName = (b.account_label || '').replace(/^\\[(DEMO|REAL)\\]\\s*/i, '');
             return `
               <tr class="interactive-row" onclick="editBot('${b.bot_id}')" title="Clique para editar este robô">
                 <td>
@@ -1593,21 +1303,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 </td>
                 <td>
                   <span class="badge ${bType === 'REAL' ? 'badge-gold' : 'badge-hft'}">${bType === 'REAL' ? 'Real' : 'Demo'}</span>
-                  <span style="color:var(--muted);font-size:12px;margin-left:6px;">${cleanAccountName}</span>
+                  <span style="color:var(--muted);font-size:12px;margin-left:6px;">${b.account_label || ''}</span>
                 </td>
                 <td class="code"><strong>${b.symbol}</strong></td>
-                <td class="num">${b.lot_size}</td>
+                <td class="num">$${b.lot_size} • ${b.multiplier || 100}x</td>
                 <td class="num"><strong>${b.last_price || '---'}</strong></td>
                 <td class="num" style="color:var(--gold);">${b.vwap || '---'}</td>
                 <td class="num"><strong>${Number(b.aggression_zscore || 0).toFixed(2)}</strong></td>
                 <td class="num">${(Number(b.imbalance_ratio || 0) * 100).toFixed(1)}%</td>
                 <td>${regimeBadge(b.last_regime)}</td>
                 <td>${actionBadge(b.last_signal)}</td>
-                <td>
-                  <span class="badge ${isRun ? 'badge-bid' : 'badge-ask'}">
-                    ${isRun ? 'Ativo' : 'Pausado'}
-                  </span>
-                </td>
+                <td><span class="badge ${isRun ? 'badge-bid' : 'badge-ask'}">${isRun ? 'Ativo' : 'Pausado'}</span></td>
                 <td onclick="event.stopPropagation();" style="text-align:right;">
                   <div class="action-strip">
                     <button class="act-bid" onclick="botAction('${b.bot_id}', 'FIRE_BUY')">Comprar</button>
@@ -1628,8 +1334,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         document.getElementById('lastUpdate').textContent = `Ciclo: ${snap.timestamp || ''}`;
 
         const symBody = document.getElementById('symbolsBody');
-        const syms = Object.values(snap.symbols || {});
-        symBody.innerHTML = syms.map(s => `
+        symBody.innerHTML = Object.values(snap.symbols || {}).map(s => `
           <tr>
             <td class="code"><strong>${s.symbol}</strong></td>
             <td class="num"><strong>${s.last_price}</strong></td>
@@ -1649,14 +1354,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const posBody = document.getElementById('positionsBody');
         const positions = snap.positions || [];
         if (positions.length === 0) {
-          posBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:18px;">Nenhuma posição aberta no momento.</td></tr>';
+          posBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:18px;">Nenhum contrato aberto no momento.</td></tr>';
         } else {
           posBody.innerHTML = positions.map(p => `
             <tr>
               <td class="code">#${p.ticket}</td>
               <td class="code"><strong>${p.symbol}</strong></td>
               <td><span class="badge ${p.type === 'BUY' ? 'badge-bid' : 'badge-ask'}">${p.type}</span></td>
-              <td class="num">${p.volume}</td>
+              <td class="num">$${p.volume}</td>
               <td class="num">${p.price_open}</td>
               <td class="num">${p.price_current}</td>
               <td class="num">${p.sl}</td>
@@ -1665,7 +1370,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <td class="code" style="color:var(--muted);">${p.comment}</td>
               <td style="text-align:right;">
                 <div class="action-strip">
-                  <button class="act-ask" onclick="closeSinglePosition(${p.ticket})">Encerrar</button>
+                  <button class="act-ask" onclick="closeSinglePosition('${p.ticket}')">Encerrar</button>
                 </div>
               </td>
             </tr>
@@ -1683,7 +1388,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <td class="code" style="color:var(--muted);">${d.time}</td>
               <td class="code"><strong>${d.symbol}</strong></td>
               <td><span class="badge ${d.type === 'BUY' ? 'badge-bid' : 'badge-ask'}">${d.type}</span></td>
-              <td class="num">${d.volume}</td>
+              <td class="num">$${d.volume}</td>
               <td class="num">${d.price_open}</td>
               <td class="num">${d.price_close}</td>
               <td class="num" style="font-weight:600;color:${d.profit >= 0 ? 'var(--bid)' : 'var(--ask)'};">${d.profit >= 0 ? '+' : ''}${Number(d.profit).toFixed(2)}</td>
@@ -1693,8 +1398,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           `).join('');
         }
 
-        const evBody = document.getElementById('eventsBody');
-        evBody.innerHTML = (snap.events || []).map(ev => `
+        document.getElementById('eventsBody').innerHTML = (snap.events || []).map(ev => `
           <tr>
             <td class="code" style="color:var(--muted);width:100px;">${ev.time}</td>
             <td style="width:140px;"><span class="badge">${ev.category}</span></td>
@@ -1715,19 +1419,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         name: document.getElementById('bot_name').value.trim(),
         account_id: document.getElementById('bot_account_id').value,
         symbol: document.getElementById('bot_symbol').value,
-        category: catSel.value || 'Corretora MT5',
-        lot_size: Number(document.getElementById('bot_lot_size').value || 0.10),
+        category: catSel.value || 'Deriv',
+        lot_size: Number(document.getElementById('bot_lot_size').value || 10.0),
+        multiplier: Number(document.getElementById('bot_multiplier').value || 100),
         window_ticks: Number(document.getElementById('bot_window_ticks').value || 120),
         zscore_threshold: Number(document.getElementById('bot_zscore').value || 1.8),
         imbalance_threshold: Number(document.getElementById('bot_imbalance').value || 0.35),
         revert_sigma: Number(document.getElementById('bot_revert_sigma').value || 2.0),
         correlated_basket: document.getElementById('bot_corr_basket').value.split(',').map(s => s.trim()).filter(Boolean)
       };
-      if (editingId) {
-        payload.bot_id = editingId;
-      } else {
-        payload.auto_start = true;
-      }
+      if (editingId) payload.bot_id = editingId;
+      else payload.auto_start = true;
+
       const res = await fetch('/api/bots', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1748,8 +1451,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         bot_template_id: document.getElementById('bt_template_id').value,
         symbol: document.getElementById('bt_symbol').value,
         tick_count: Number(document.getElementById('bt_ticks').value || 1200),
-        initial_capital: Number(document.getElementById('bt_capital').value || 50000),
-        lot_size: Number(document.getElementById('bt_lots').value || 1.0),
+        initial_capital: Number(document.getElementById('bt_capital').value || 10000),
+        lot_size: Number(document.getElementById('bt_lots').value || 10.0),
         zscore_threshold: Number(document.getElementById('bt_zscore').value || 1.5),
         imbalance_threshold: Number(document.getElementById('bt_imbalance').value || 0.25),
         revert_sigma: Number(document.getElementById('bt_sigma').value || 1.8)
@@ -1777,7 +1480,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <div class="ledger-meta">${r.winning_trades} ganhos / ${r.losing_trades} perdas (${r.total_trades} trades)</div>
           </div>
           <div class="ledger-cell">
-            <div class="ledger-head"><span>Fator de lucro (Profit Factor)</span></div>
+            <div class="ledger-head"><span>Fator de lucro</span></div>
             <div class="ledger-figure" style="color:var(--gold);">${r.profit_factor}</div>
             <div class="ledger-meta">Bruto: +${r.gross_profit} / -${r.gross_loss}</div>
           </div>
@@ -1789,10 +1492,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         `;
         const tbody = document.getElementById('btTradesBody');
         const trades = r.trades || [];
-        if (trades.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma operação disparada com esses limiares.</td></tr>';
-        } else {
-          tbody.innerHTML = trades.map(t => `
+        tbody.innerHTML = trades.length === 0
+          ? '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma operação disparada.</td></tr>'
+          : trades.map(t => `
             <tr>
               <td class="code">#${t.id}</td>
               <td><span class="badge ${t.type === 'BUY' ? 'badge-bid' : 'badge-ask'}">${t.type}</span></td>
@@ -1803,8 +1505,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <td class="num"><strong>${t.equity_after.toFixed(2)}</strong></td>
             </tr>
           `).join('');
-        }
-        showToast(`Backtest concluído em ${r.symbol}: ${r.total_trades} operações.`);
+        showToast(`Backtest concluído em ${r.symbol}.`);
       }
     }
 
@@ -1814,16 +1515,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({bot_id: botId, action})
       });
-      const data = await res.json();
-      if (data.ok) {
-        const msgMap = {
-          'START': 'Robô iniciado.',
-          'STOP': 'Robô pausado.',
-          'DELETE': 'Robô apagado.',
-          'FIRE_BUY': 'Ordem de compra enviada.',
-          'FIRE_SELL': 'Ordem de venda enviada.'
-        };
-        showToast(msgMap[action] || 'Comando executado.');
+      if (res.ok) {
+        showToast('Comando executado.');
         refreshStatus();
       }
     }
@@ -1861,20 +1554,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
     }
 
-    async function saveMt5Account(e) {
+    async function saveDerivAccount(e) {
       e.preventDefault();
       const editingId = document.getElementById('editing_account_id').value.trim();
       const payload = {
         account_type: document.getElementById('acc_type').value,
         label: document.getElementById('acc_label').value.trim(),
-        mt5_login: document.getElementById('mt5_login').value.trim(),
-        mt5_password: document.getElementById('mt5_password').value,
-        mt5_server: document.getElementById('mt5_server').value.trim(),
-        connection_mode: document.getElementById('connection_mode').value,
-        metaapi_token: document.getElementById('metaapi_token').value.trim(),
-        metaapi_account_id: document.getElementById('metaapi_account_id').value.trim(),
-        metaapi_region: document.getElementById('metaapi_region').value,
-        connect_now: true
+        deriv_token: document.getElementById('deriv_token').value.trim(),
+        deriv_app_id: document.getElementById('deriv_app_id').value.trim() || '1089',
+        default_stake_usd: Number(document.getElementById('default_stake_usd').value || 10.0),
+        default_multiplier: Number(document.getElementById('default_multiplier').value || 100),
+        connection_mode: document.getElementById('connection_mode').value
       };
       if (editingId) payload.account_id = editingId;
 
@@ -1889,39 +1579,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         currentConfig.active_account_id = data.account.account_id;
         cancelAccountEdit();
         renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, data.account.account_id);
-        await loadBrokerServersCatalog();
         await loadBrokerSymbols();
-        showToast(`Conta "${data.account.label}" salva e conectada.`);
+        showToast(data.message || 'Token Deriv salvo e conectado!');
         refreshStatus();
-      }
-    }
-
-    async function provisionMetaApi() {
-      const payload = {
-        account_id: document.getElementById('editing_account_id').value.trim(),
-        account_type: document.getElementById('acc_type').value,
-        label: document.getElementById('acc_label').value.trim(),
-        mt5_login: document.getElementById('mt5_login').value.trim(),
-        mt5_password: document.getElementById('mt5_password').value,
-        mt5_server: document.getElementById('mt5_server').value.trim(),
-        metaapi_token: document.getElementById('metaapi_token').value.trim(),
-        metaapi_region: document.getElementById('metaapi_region').value
-      };
-      showToast('Registrando conta na MetaApi Cloud...');
-      const res = await fetch('/api/metaapi/provision', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (data.ok) {
-        currentConfig.accounts = data.accounts;
-        if (data.account) currentConfig.active_account_id = data.account.account_id;
-        renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, currentConfig.active_account_id);
-        showToast(data.message);
-        refreshStatus();
-      } else {
-        showToast(data.message || 'Erro ao conectar na MetaApi.');
       }
     }
 
@@ -1940,7 +1600,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     async function panicFlatten() {
       const res = await fetch('/api/flatten', {method: 'POST'});
       const data = await res.json();
-      showToast(data.message || 'Todas as posições foram encerradas.');
+      showToast(data.message || 'Contratos encerrados.');
       refreshStatus();
     }
 
@@ -1951,7 +1611,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         body: JSON.stringify({ticket})
       });
       const data = await res.json();
-      showToast(data.message || `Posição #${ticket} encerrada.`);
+      showToast(data.message || `Contrato #${ticket} encerrado.`);
       refreshStatus();
     }
 
@@ -1962,7 +1622,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     loadConfig();
     refreshStatus();
-    setInterval(refreshStatus, 1000);
+    setInterval(refreshStatus, 1200);
   </script>
 </body>
 </html>

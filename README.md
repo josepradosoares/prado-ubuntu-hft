@@ -1,14 +1,14 @@
-# 🏛️ Prado Institutional HFT & VWAP Universal — Ubuntu Server (Cloud API Edition)
+# 🏛️ Prado Institutional HFT & VWAP Universal — Ubuntu Server (Deriv Multipliers Edition)
 
-Plataforma 100% em Python puro para **Servidor Ubuntu**, com **Painel Web Institucional**, **Contas Demo & Real via MetaApi Cloud** (sem precisar deixar o MetaTrader aberto em lugar nenhum), **Frota de Robôs Matemáticos** e **Backtester Tick-a-Tick**.
+Plataforma 100% em Python puro para **Servidor Ubuntu**, com **Painel Web Institucional**, **Cofre de Tokens da Deriv (Demo & Real)**, **Frota de Robôs Matemáticos** e **Backtester Tick-a-Tick** — sem MetaTrader, sem Docker/Wine e 100% gratuita via WebSocket oficial da Deriv.
 
 ---
 
-## ✨ Arquitetura Cloud API (Leve e 24/7)
+## ✨ Recursos da Plataforma
 
-- **Zero MetaTrader aberto** (nem no PC Windows, nem na VPS Ubuntu via Wine/Docker).
-- **Consumo mínimo na VPS:** ~80 MB de RAM.
-- **Conexão direta via MetaApi Cloud (`https://app.metaapi.cloud`)**: lê saldo, equity, ativos da corretora, ticks ao vivo e envia ordens reais/demo via HTTPS em Python puro.
+- **Conexão Direta Deriv WebSocket (`wss://ws.derivws.com/websockets/v3`)**: lê ticks reais, saldo e executa **Multipliers (`MULTUP` / `MULTDOWN`)** com Stop Loss, Take Profit e encerramento imediato.
+- **Área de Tokens no Painel (`Tokens e Contas Deriv`)**: salve seu Token Demo e Real da Deriv direto pelo navegador, valide automaticamente e alterne entre eles com 1 clique.
+- **Motor 100% Matemático (Sem Gráficos):** VWAP, Bandas $\pm 1\sigma / \pm 2\sigma$, Z-Score de Agressão, Imbalance e Correlação de Cesta.
 
 ---
 

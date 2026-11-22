@@ -1,7 +1,7 @@
-"""Prado Institutional HFT Trading Engine, MT5 Python Package Connector & Multi-Robot Fleet Manager."""
+"""Prado Institutional HFT Trading Engine, Deriv WebSocket Multipliers Connector & Robot Fleet."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 import math
 from pathlib import Path
 import random
@@ -11,13 +11,12 @@ from typing import Any
 import uuid
 
 from prado_linux.config import (
-    DEFAULT_CATEGORIES,
-    KNOWN_BROKER_SERVERS,
     MATH_BOT_TEMPLATES,
     PradoServerConfig,
     deduplicate_accounts,
     save_config,
 )
+from prado_linux.deriv_client import DerivClient
 from prado_linux.flow_math import (
     TICK_FLAG_BUY,
     TICK_FLAG_SELL,
@@ -25,127 +24,107 @@ from prado_linux.flow_math import (
     compute_flow_metrics,
     compute_intraday_vwap,
 )
-from prado_linux.metaapi_client import MetaApiClient
 
-MAIN_BROKER_SYMBOLS: list[dict[str, str]] = [
-    {"name": "WIN$N", "category": "B3 Futuros (Mini Índice & Dólar)", "description": "Mini Índice Ibovespa Contínuo"},
-    {"name": "WDO$N", "category": "B3 Futuros (Mini Índice & Dólar)", "description": "Mini Dólar Futuro Contínuo"},
-    {"name": "IND$N", "category": "B3 Futuros (Mini Índice & Dólar)", "description": "Índice Cheio B3"},
-    {"name": "DOL$N", "category": "B3 Futuros (Mini Índice & Dólar)", "description": "Dólar Cheio B3"},
-    {"name": "PETR4", "category": "B3 Ações Blue Chips", "description": "Petrobras PN"},
-    {"name": "VALE3", "category": "B3 Ações Blue Chips", "description": "Vale ON"},
-    {"name": "ITUB4", "category": "B3 Ações Blue Chips", "description": "Itaú Unibanco PN"},
-    {"name": "BBDC4", "category": "B3 Ações Blue Chips", "description": "Bradesco PN"},
-    {"name": "BTCUSD#", "category": "Criptomoedas 24/7", "description": "Bitcoin vs US Dollar"},
-    {"name": "ETHUSD#", "category": "Criptomoedas 24/7", "description": "Ethereum vs US Dollar"},
-    {"name": "DOGEUSD#", "category": "Criptomoedas 24/7", "description": "Dogecoin vs US Dollar"},
-    {"name": "Crypto_10#", "category": "Criptomoedas 24/7", "description": "Índice Cripto Top 10"},
-    {"name": "US100Cash#", "category": "Índices Globais & Wall Street", "description": "Nasdaq 100 Tech Index"},
-    {"name": "US500Cash#", "category": "Índices Globais & Wall Street", "description": "S&P 500 Institutional Index"},
-    {"name": "EURUSD", "category": "Forex & Commodities", "description": "Euro vs US Dollar"},
-    {"name": "GOLD#", "category": "Forex & Commodities", "description": "Ouro Spot (XAUUSD)"},
+MAIN_DERIV_SYMBOLS: list[dict[str, str]] = [
+    {"name": "R_100", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 100 Index (24/7)"},
+    {"name": "R_75", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 75 Index (24/7)"},
+    {"name": "R_50", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 50 Index (24/7)"},
+    {"name": "R_25", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 25 Index (24/7)"},
+    {"name": "R_10", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 10 Index (24/7)"},
+    {"name": "1HZ100V", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 100 (1s) Index"},
+    {"name": "1HZ10V", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 10 (1s) Index"},
+    {"name": "frxEURUSD", "category": "Forex Principais", "description": "EUR/USD Forex"},
+    {"name": "frxGBPUSD", "category": "Forex Principais", "description": "GBP/USD Forex"},
+    {"name": "frxXAUUSD", "category": "Ouro & Commodities", "description": "Ouro Spot (XAU/USD)"},
+    {"name": "cryBTCUSD", "category": "Criptomoedas (24/7)", "description": "Bitcoin vs US Dollar (24/7)"},
+    {"name": "cryETHUSD", "category": "Criptomoedas (24/7)", "description": "Ethereum vs US Dollar (24/7)"},
 ]
 
-EXTENDED_ALL_SYMBOLS: list[dict[str, str]] = MAIN_BROKER_SYMBOLS + [
-    {"name": "BBAS3", "category": "B3 Ações Blue Chips", "description": "Banco do Brasil ON"},
-    {"name": "B3SA3", "category": "B3 Ações Blue Chips", "description": "B3 Brasil Bolsa Balcão ON"},
-    {"name": "WEGE3", "category": "B3 Ações Blue Chips", "description": "WEG ON"},
-    {"name": "ABEV3", "category": "B3 Ações Blue Chips", "description": "Ambev ON"},
-    {"name": "MGLU3", "category": "B3 Ações Blue Chips", "description": "Magazine Luiza ON"},
-    {"name": "PRIO3", "category": "B3 Ações Blue Chips", "description": "PRIO ON"},
-    {"name": "SOLUSD#", "category": "Criptomoedas 24/7", "description": "Solana vs US Dollar"},
-    {"name": "XRPUSD#", "category": "Criptomoedas 24/7", "description": "Ripple vs US Dollar"},
-    {"name": "US30Cash#", "category": "Índices Globais & Wall Street", "description": "Dow Jones 30 Index"},
-    {"name": "GER40Cash#", "category": "Índices Globais & Wall Street", "description": "DAX 40 Alemanha"},
-    {"name": "HK50Cash#", "category": "Índices Globais & Wall Street", "description": "Hang Seng 50 Hong Kong"},
-    {"name": "GBPUSD", "category": "Forex & Commodities", "description": "Libra Esterlina vs USD"},
-    {"name": "USDJPY", "category": "Forex & Commodities", "description": "US Dollar vs Iene Japonês"},
-    {"name": "AUDUSD", "category": "Forex & Commodities", "description": "Dólar Australiano vs USD"},
-    {"name": "SILVER#", "category": "Forex & Commodities", "description": "Prata Spot (XAGUSD)"},
-    {"name": "WTI#", "category": "Forex & Commodities", "description": "Petróleo WTI Crude"},
+EXTENDED_ALL_SYMBOLS: list[dict[str, str]] = MAIN_DERIV_SYMBOLS + [
+    {"name": "1HZ25V", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 25 (1s) Index"},
+    {"name": "1HZ50V", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 50 (1s) Index"},
+    {"name": "1HZ75V", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 75 (1s) Index"},
+    {"name": "frxUSDJPY", "category": "Forex Principais", "description": "USD/JPY Forex"},
+    {"name": "frxAUDUSD", "category": "Forex Principais", "description": "AUD/USD Forex"},
+    {"name": "frxUSDCAD", "category": "Forex Principais", "description": "USD/CAD Forex"},
+    {"name": "frxXAGUSD", "category": "Ouro & Commodities", "description": "Prata Spot (XAG/USD)"},
+    {"name": "BOOM500", "category": "Índices Crash & Boom", "description": "Boom 500 Index"},
+    {"name": "BOOM1000", "category": "Índices Crash & Boom", "description": "Boom 1000 Index"},
+    {"name": "CRASH500", "category": "Índices Crash & Boom", "description": "Crash 500 Index"},
+    {"name": "CRASH1000", "category": "Índices Crash & Boom", "description": "Crash 1000 Index"},
 ]
 
 
-class MT5UniversalConnector:
-    """Connects to MetaTrader 5 accounts 100% via MetaApi Cloud HTTPS (zero MT5 terminal needed) or Quant Simulation."""
+class DerivUniversalConnector:
+    """Connects directly to Deriv WebSocket API (100% Python, zero MT5) with Simulation fallback."""
 
     def __init__(self, cfg: PradoServerConfig) -> None:
         self.cfg = cfg
-        self._metaapi: MetaApiClient | None = None
-        self._metaapi_tick_buffers: dict[str, list[TickRecord]] = {}
+        self._deriv: DerivClient | None = None
+        self._deriv_auth: dict[str, Any] = {}
         self.connected: bool = False
-        self.backend_name: str = "DISCONNECTED"
+        self.backend_name: str = "SIMULATION_FEED"
         self.last_error: str = ""
         self._sim_ticks: dict[str, list[TickRecord]] = {}
         self._sim_positions: list[dict[str, Any]] = []
         self._sim_deals_history: list[dict[str, Any]] = []
         self._sim_daily_pnl: float = 0.0
-        self._sim_balance: float = 100_000.0
+        self._sim_balance: float = 10_000.0
 
-    def connect(
-        self,
-        login: str | None = None,
-        password: str | None = None,
-        server: str | None = None,
-        force_attempt: bool = False,
-    ) -> tuple[bool, str]:
-        target_login = (login if login is not None else self.cfg.mt5_login).strip()
-        mode = self.cfg.mt5_connection_mode.upper()
+    def connect(self, token: str | None = None, app_id: str | None = None) -> tuple[bool, str]:
+        target_token = (token if token is not None else self.cfg.deriv_token).strip()
+        target_app = (app_id if app_id is not None else self.cfg.deriv_app_id).strip() or "1089"
+        mode = self.cfg.connection_mode.upper()
 
-        # MetaApi Cloud Mode (100% pure Python on VPS, ZERO MetaTrader terminal needed anywhere)
-        if mode != "SIMULATION" and self.cfg.metaapi_token.strip() and self.cfg.metaapi_account_id.strip():
+        if self._deriv is not None:
+            self._deriv.close()
+            self._deriv = None
+
+        if mode != "SIMULATION" and target_token:
             try:
-                client = MetaApiClient(
-                    token=self.cfg.metaapi_token,
-                    account_id=self.cfg.metaapi_account_id,
-                    region=self.cfg.metaapi_region,
-                )
-                info = client.get_account_information()
-                self._metaapi = client
+                client = DerivClient(token=target_token, app_id=target_app)
+                auth = client.authorize()
+                self._deriv = client
+                self._deriv_auth = auth
                 self.connected = True
-                self.backend_name = "METAAPI_CLOUD_LIVE"
+                self.backend_name = "DERIV_LIVE_API"
                 self.last_error = ""
+                env_str = "DEMO" if auth.get("is_virtual") else "REAL"
                 return (
                     True,
-                    f"Conectado via MetaApi Cloud — Conta {info.get('login', target_login)} ({info.get('balance')} {info.get('currency', '')}).",
+                    f"Conectado à Deriv [{env_str}] — Conta {auth.get('loginid')} ({auth.get('balance')} {auth.get('currency', 'USD')}).",
                 )
             except Exception as exc:
-                self._metaapi = None
-                self.last_error = f"MetaApi Cloud falhou: {exc}"
+                self._deriv = None
+                self._deriv_auth = {}
+                self.last_error = str(exc)
+                return False, f"Erro ao conectar na Deriv: {exc}"
 
-        self._metaapi = None
+        self._deriv = None
+        self._deriv_auth = {}
         self.connected = True
         self.backend_name = "SIMULATION_FEED"
         return (
             True,
-            "Modo Simulação Quant Ativo (Informe seu MetaApi Token para operar ao vivo na corretora sem MT5 aberto).",
+            "Modo Simulação Quant Ativo (Salve seu Token da Deriv na aba 'Tokens e Contas Deriv' para operar ao vivo).",
         )
 
     def discover_broker_symbols(self, mode: str = "PRINCIPAIS") -> list[dict[str, Any]]:
-        """Return symbols from connected MT5 / MetaApi broker in either 'PRINCIPAIS' or 'TODOS' mode."""
         mode_upper = mode.upper()
-        if self._metaapi is not None:
+        if self._deriv is not None:
             try:
-                syms = self._metaapi.get_symbols()
+                syms = self._deriv.get_active_symbols()
                 if syms:
                     if mode_upper == "PRINCIPAIS":
-                        main_set = {m["name"] for m in MAIN_BROKER_SYMBOLS}
-                        filtered = [s for s in syms if s in main_set]
-                        syms = filtered if filtered else syms[:40]
-                    return [
-                        {
-                            "name": s,
-                            "category": "Corretora MT5 (MetaApi)",
-                            "description": s,
-                            "visible": True,
-                        }
-                        for s in syms[:500]
-                    ]
+                        main_set = {m["name"] for m in MAIN_DERIV_SYMBOLS}
+                        filtered = [s for s in syms if s["name"] in main_set]
+                        if filtered:
+                            return filtered
+                    return syms[:500]
             except Exception as exc:
-                self.last_error = f"Erro listando ativos MetaApi: {exc}"
+                self.last_error = f"Erro listando ativos Deriv: {exc}"
 
-        source = MAIN_BROKER_SYMBOLS if mode_upper == "PRINCIPAIS" else EXTENDED_ALL_SYMBOLS
-        # Also include any custom user category symbols
+        source = MAIN_DERIV_SYMBOLS if mode_upper == "PRINCIPAIS" else EXTENDED_ALL_SYMBOLS
         seen = {item["name"] for item in source}
         result = [dict(item, visible=True) for item in source]
         for cat_name, syms in self.cfg.custom_categories.items():
@@ -163,24 +142,29 @@ class MT5UniversalConnector:
         return result
 
     def get_account_summary(self) -> dict[str, Any]:
-        if self._metaapi is not None:
+        if self._deriv is not None:
             try:
-                info = self._metaapi.get_account_information()
-                bal = float(info.get("balance", 0.0))
-                eq = float(info.get("equity", bal))
+                auth = self._deriv.authorize()
+                self._deriv_auth = auth
+                bal = float(auth.get("balance", 0.0))
+                positions = self.get_open_positions()
+                floating = sum(float(p.get("profit", 0.0)) for p in positions)
+                is_virt = bool(auth.get("is_virtual", 1))
                 return {
                     "backend": self.backend_name,
                     "connected": True,
-                    "account_type": self.cfg.active_account_type,
+                    "account_type": "DEMO" if is_virt else "REAL",
                     "active_account_id": self.cfg.active_account_id,
-                    "login": str(info.get("login", self.cfg.mt5_login)),
-                    "server": str(info.get("server", self.cfg.mt5_server)),
-                    "name": str(info.get("name", "MetaApi Cloud Account")),
-                    "currency": str(info.get("currency", "USD")),
+                    "login": str(auth.get("loginid", "---")),
+                    "server": "Deriv WebSocket API",
+                    "name": str(auth.get("fullname", "Conta Deriv")),
+                    "currency": str(auth.get("currency", "USD")),
                     "balance": round(bal, 2),
-                    "equity": round(eq, 2),
-                    "profit": round(eq - bal, 2),
-                    "margin_free": round(float(info.get("freeMargin", eq)), 2),
+                    "equity": round(bal + floating, 2),
+                    "profit": round(floating, 2),
+                    "daily_realized": 0.0,
+                    "margin_free": round(bal, 2),
+                    "status_note": self.last_error,
                 }
             except Exception as exc:
                 self.last_error = str(exc)
@@ -191,10 +175,10 @@ class MT5UniversalConnector:
             "connected": self.connected,
             "account_type": self.cfg.active_account_type,
             "active_account_id": self.cfg.active_account_id,
-            "login": self.cfg.mt5_login or "SIM-990011",
-            "server": self.cfg.mt5_server or "Prado-Ubuntu-MT5",
-            "name": f"Prado Quant Desk ({self.cfg.active_account_type})",
-            "currency": "BRL/USD",
+            "login": "VRTC-SIM" if self.cfg.active_account_type == "DEMO" else "CR-SIM",
+            "server": "Deriv Quant Simulador",
+            "name": f"Mesa Deriv ({self.cfg.active_account_type})",
+            "currency": "USD",
             "balance": round(self._sim_balance + self._sim_daily_pnl, 2),
             "equity": round(self._sim_balance + self._sim_daily_pnl + floating, 2),
             "profit": round(floating, 2),
@@ -203,60 +187,36 @@ class MT5UniversalConnector:
             "status_note": self.last_error,
         }
 
-    def fetch_ticks(self, symbol: str, count: int = 1500) -> list[TickRecord]:
-        if self._metaapi is not None:
+    def fetch_ticks(self, symbol: str, count: int = 200) -> list[TickRecord]:
+        if self._deriv is not None:
             try:
-                tick = self._metaapi.get_current_tick(symbol)
-                if tick:
-                    bid = float(tick.get("bid", 0.0))
-                    ask = float(tick.get("ask", 0.0))
-                    last = float(tick.get("last") or (0.5 * (bid + ask) if bid and ask else 0.0))
-                    vol = float(tick.get("volume") or 1.0)
-                    buf = self._metaapi_tick_buffers.setdefault(symbol, [])
-                    buf.append(
-                        TickRecord(
-                            time_msc=int(time.time() * 1000),
-                            bid=bid,
-                            ask=ask,
-                            last=last,
-                            volume_real=vol,
-                            tick_volume=max(vol, 1.0),
-                            flags=0,
-                        )
-                    )
-                    if len(buf) > 600:
-                        self._metaapi_tick_buffers[symbol] = buf[-600:]
-                    return list(buf)
+                ticks = self._deriv.get_ticks_history(symbol, count=min(500, count))
+                if ticks:
+                    return ticks
             except Exception as exc:
-                self.last_error = f"Erro tick MetaApi {symbol}: {exc}"
-
+                self.last_error = f"Erro lendo ticks Deriv ({symbol}): {exc}"
         return self._generate_sim_ticks(symbol)
 
     def _generate_sim_ticks(self, symbol: str) -> list[TickRecord]:
         base_map = {
-            "WIN$N": 128500.0,
-            "WDO$N": 5810.0,
-            "IND$N": 128550.0,
-            "DOL$N": 5812.0,
-            "PETR4": 38.45,
-            "VALE3": 61.20,
-            "ITUB4": 34.80,
-            "BBDC4": 14.90,
-            "BTCUSD#": 94500.0,
-            "ETHUSD#": 3350.0,
-            "DOGEUSD#": 0.385,
-            "US100Cash#": 20850.0,
-            "US500Cash#": 5980.0,
-            "EURUSD": 1.0540,
-            "GOLD#": 2655.0,
-            "Crypto_10#": 4200.0,
+            "R_100": 1850.0,
+            "R_75": 42500.0,
+            "R_50": 145.0,
+            "R_25": 2350.0,
+            "R_10": 6500.0,
+            "1HZ100V": 1240.0,
+            "1HZ10V": 9100.0,
+            "frxEURUSD": 1.0540,
+            "frxGBPUSD": 1.2620,
+            "frxXAUUSD": 2655.0,
+            "cryBTCUSD": 94500.0,
+            "cryETHUSD": 3350.0,
         }
         base_price = base_map.get(symbol, 100.0)
         step_scale = base_price * 0.00025
-        is_b3 = symbol.endswith("$N") or (len(symbol) in (5, 6) and symbol[-1].isdigit())
-
         history = self._sim_ticks.get(symbol)
         now_msc = int(time.time() * 1000)
+
         if not history:
             history = []
             p = base_price
@@ -264,17 +224,16 @@ class MT5UniversalConnector:
             for i in range(240):
                 drift = math.sin(i / 18.0) * step_scale * 0.6 + rng.uniform(-step_scale, step_scale)
                 p = max(step_scale, p + drift)
-                is_buy = drift >= 0
-                flag = TICK_FLAG_BUY if is_buy else TICK_FLAG_SELL
-                vol = rng.randint(5, 85) * (10.0 if is_b3 else 1.0)
+                flag = TICK_FLAG_BUY if drift >= 0 else TICK_FLAG_SELL
+                vol = rng.randint(5, 85)
                 history.append(
                     TickRecord(
-                        time_msc=now_msc - (240 - i) * 500,
-                        bid=round(p - step_scale * 0.2, 6),
-                        ask=round(p + step_scale * 0.2, 6),
+                        time_msc=now_msc - (240 - i) * 1000,
+                        bid=round(p, 6),
+                        ask=round(p, 6),
                         last=round(p, 6),
-                        volume_real=vol if is_b3 else 0.0,
-                        tick_volume=vol,
+                        volume_real=0.0,
+                        tick_volume=float(vol),
                         flags=flag,
                     )
                 )
@@ -287,15 +246,15 @@ class MT5UniversalConnector:
             delta = wave + noise
             new_p = max(step_scale, last_p + delta)
             flag = TICK_FLAG_BUY if delta >= 0 else TICK_FLAG_SELL
-            vol = random.randint(10, 140) * (10.0 if is_b3 else 1.0)
+            vol = random.randint(10, 140)
             history.append(
                 TickRecord(
                     time_msc=int(time.time() * 1000),
-                    bid=round(new_p - step_scale * 0.2, 6),
-                    ask=round(new_p + step_scale * 0.2, 6),
+                    bid=round(new_p, 6),
+                    ask=round(new_p, 6),
                     last=round(new_p, 6),
-                    volume_real=vol if is_b3 else 0.0,
-                    tick_volume=vol,
+                    volume_real=0.0,
+                    tick_volume=float(vol),
                     flags=flag,
                 )
             )
@@ -306,28 +265,11 @@ class MT5UniversalConnector:
         return self._sim_ticks[symbol]
 
     def get_open_positions(self) -> list[dict[str, Any]]:
-        if self._metaapi is not None:
+        if self._deriv is not None:
             try:
-                raw_pos = self._metaapi.get_positions()
-                out: list[dict[str, Any]] = []
-                for p in raw_pos:
-                    ptype = "BUY" if "BUY" in str(p.get("type", "")).upper() else "SELL"
-                    out.append(
-                        {
-                            "ticket": str(p.get("id", "")),
-                            "symbol": str(p.get("symbol", "")),
-                            "type": ptype,
-                            "volume": float(p.get("volume", 0.0)),
-                            "price_open": round(float(p.get("openPrice", 0.0)), 6),
-                            "price_current": round(float(p.get("currentPrice", 0.0)), 6),
-                            "sl": round(float(p.get("stopLoss", 0.0)), 6),
-                            "tp": round(float(p.get("takeProfit", 0.0)), 6),
-                            "profit": round(float(p.get("profit", 0.0)), 2),
-                            "comment": str(p.get("comment", "")),
-                        }
-                    )
-                return out
-            except Exception:
+                return self._deriv.get_open_contracts()
+            except Exception as exc:
+                self.last_error = f"Erro lendo posições Deriv: {exc}"
                 return []
 
         for pos in list(self._sim_positions):
@@ -337,11 +279,10 @@ class MT5UniversalConnector:
                 curr = ticks[-1].effective_price()
                 pos["price_current"] = round(curr, 6)
                 is_buy = pos["type"] == "BUY"
-                diff = (curr - pos["price_open"]) if is_buy else (pos["price_open"] - curr)
-                mult = 0.20 if sym.startswith("WIN") else (1.0 if "BTC" in sym else 10.0)
-                pos["profit"] = round(diff * pos["volume"] * mult, 2)
+                pct_move = ((curr - pos["price_open"]) / max(pos["price_open"], 1e-6)) if is_buy else ((pos["price_open"] - curr) / max(pos["price_open"], 1e-6))
+                mult = int(pos.get("multiplier", 100))
+                pos["profit"] = round(pct_move * float(pos["volume"]) * mult, 2)
 
-                # Check TP or SL hit in simulation
                 hit_tp = (curr >= pos["tp"]) if is_buy else (curr <= pos["tp"])
                 hit_sl = (curr <= pos["sl"]) if is_buy else (curr >= pos["sl"])
                 if (pos["tp"] > 0 and hit_tp) or (pos["sl"] > 0 and hit_sl):
@@ -368,36 +309,38 @@ class MT5UniversalConnector:
         self,
         symbol: str,
         action: str,
-        volume: float,
+        stake: float,
         price: float,
         sl_points: float,
         tp_points: float,
-        magic: int,
+        multiplier: int = 100,
         bot_name: str = "PradoBot",
     ) -> tuple[bool, str]:
         is_buy = action.startswith("BUY")
-        sl = round(price - sl_points, 6) if is_buy else round(price + sl_points, 6)
-        tp = round(price + tp_points, 6) if is_buy else round(price - tp_points, 6)
-
-        if self._metaapi is not None:
-            return self._metaapi.place_order(
+        if self._deriv is not None:
+            sl_usd = round(max(1.0, stake * 0.5), 2)
+            tp_usd = round(max(1.5, stake * 0.9), 2)
+            return self._deriv.place_multiplier_order(
                 symbol=symbol,
                 is_buy=is_buy,
-                volume=volume,
-                sl=sl,
-                tp=tp,
-                comment=f"{bot_name[:12]}_{action}",
+                stake=stake,
+                multiplier=multiplier,
+                sl_amount=sl_usd,
+                tp_amount=tp_usd,
             )
 
         if any(p["symbol"] == symbol for p in self._sim_positions):
-            return False, f"Posicao ja aberta em {symbol}"
+            return False, f"Posição já aberta em {symbol}"
+        sl = round(price - sl_points, 6) if is_buy else round(price + sl_points, 6)
+        tp = round(price + tp_points, 6) if is_buy else round(price - tp_points, 6)
         ticket = int(time.time() * 1000) % 100_000_000
         self._sim_positions.append(
             {
                 "ticket": ticket,
                 "symbol": symbol,
                 "type": "BUY" if is_buy else "SELL",
-                "volume": float(volume),
+                "volume": float(stake),
+                "multiplier": int(multiplier),
                 "price_open": round(price, 6),
                 "price_current": round(price, 6),
                 "sl": sl,
@@ -406,17 +349,17 @@ class MT5UniversalConnector:
                 "comment": f"{bot_name[:14]}_{action}",
             }
         )
-        return True, f"[{bot_name}] Ordem {action} aberta em {symbol} @ {price} (Lote={volume})"
+        return True, f"[{bot_name}] Multiplier {action} ({multiplier}x) aberto em {symbol} (Stake=${stake})"
 
     def close_all_positions(self, reason: str = "MANUAL_PANIC_FLATTEN") -> tuple[int, str]:
-        if self._metaapi is not None:
+        if self._deriv is not None:
             positions = self.get_open_positions()
             closed = 0
             for p in positions:
-                ok, _ = self._metaapi.close_position(str(p["ticket"]))
+                ok, _ = self._deriv.close_contract(str(p["ticket"]))
                 if ok:
                     closed += 1
-            return closed, f"[MetaApi] {closed} posição(ões) encerrada(s) ({reason})."
+            return closed, f"[Deriv] {closed} contrato(s) encerrado(s) ({reason})."
 
         count = len(self._sim_positions)
         for p in self._sim_positions:
@@ -438,14 +381,14 @@ class MT5UniversalConnector:
                 },
             )
         self._sim_positions.clear()
-        return count, f"{count} posicao(oes) zerada(s) ({reason})."
+        return count, f"{count} posição(ões) zerada(s) ({reason})."
 
     def close_single_position(self, ticket: int | str) -> tuple[bool, str]:
-        if self._metaapi is not None:
-            return self._metaapi.close_position(str(ticket))
+        if self._deriv is not None:
+            return self._deriv.close_contract(str(ticket))
 
         for p in list(self._sim_positions):
-            if int(p["ticket"]) == int(ticket):
+            if str(p["ticket"]) == str(ticket):
                 pnl = float(p.get("profit", 0.0))
                 self._sim_daily_pnl += pnl
                 self._sim_deals_history.insert(
@@ -464,24 +407,24 @@ class MT5UniversalConnector:
                     },
                 )
                 self._sim_positions.remove(p)
-                return True, f"Posição #{ticket} ({p['symbol']}) encerrada com resultado {pnl:+.2f}."
-        return False, f"Posição #{ticket} não encontrada."
+                return True, f"Contrato #{ticket} ({p['symbol']}) encerrado com resultado {pnl:+.2f}."
+        return False, f"Contrato #{ticket} não encontrado."
 
 
 class PradoTradingService:
-    """Background daemon that manages MT5 Accounts, Broker Symbols/Categories, and the Running Robot Fleet."""
+    """Background daemon that manages Deriv Tokens, Symbols/Categories, and the Running Robot Fleet."""
 
     def __init__(self, cfg: PradoServerConfig, config_path: Path) -> None:
         self.cfg = cfg
         self.config_path = config_path
-        self.connector = MT5UniversalConnector(cfg)
+        self.connector = DerivUniversalConnector(cfg)
         self.connector.connect()
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
         self._latest_snapshot: dict[str, Any] = {}
         self._event_log: list[dict[str, str]] = []
-        self._log_event("SYSTEM", "Motor Prado Institutional HFT & Multi-Robot Fleet inicializado.")
+        self._log_event("SYSTEM", "Motor Prado Institutional HFT (Deriv Multipliers) inicializado.")
 
     def _log_event(self, category: str, message: str) -> None:
         entry = {
@@ -493,126 +436,70 @@ class PradoTradingService:
         if len(self._event_log) > 80:
             self._event_log = self._event_log[:80]
 
-    def reconnect_mt5(self) -> tuple[bool, str]:
+    def reconnect_broker(self) -> tuple[bool, str]:
         with self._lock:
             self.connector.cfg = self.cfg
-            ok, msg = self.connector.connect(force_attempt=bool(self.cfg.mt5_login))
-            self._log_event("MT5_CONNECT", msg)
+            ok, msg = self.connector.connect()
+            self._log_event("DERIV_CONNECT", msg)
             return ok, msg
 
-    def save_mt5_account(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def save_deriv_account(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
         with self._lock:
-            login = str(payload.get("mt5_login", "")).strip()
-            server = str(payload.get("mt5_server", "")).strip()
-            password = str(payload.get("mt5_password", "")).strip()
-            acc_type = str(payload.get("account_type") or "DEMO").upper().strip()
+            req_id = str(payload.get("account_id") or "").strip()
+            existing = next((a for a in self.cfg.accounts if req_id and a.get("account_id") == req_id), None)
+            acc_id = existing["account_id"] if existing else (req_id or f"deriv_{uuid.uuid4().hex[:8]}")
+
+            token_in = str(payload.get("deriv_token", "")).strip()
+            if token_in == "********" or not token_in:
+                token = str(existing.get("deriv_token", "")) if existing else ""
+            else:
+                token = token_in
+
+            app_id = str(payload.get("deriv_app_id") or (existing.get("deriv_app_id", "1089") if existing else "1089")).strip()
+            acc_type = str(payload.get("account_type") or (existing.get("account_type", "DEMO") if existing else "DEMO")).upper()
             if acc_type not in ("DEMO", "REAL"):
                 acc_type = "DEMO"
-            # Auto-correct 346595704 on XMGlobal-MT5 10 to DEMO
-            if login == "346595704" and server == "XMGlobal-MT5 10":
-                acc_type = "DEMO"
+            label = str(payload.get("label") or (existing.get("label") if existing else f"Deriv {acc_type}")).strip()
+            stake = float(payload.get("default_stake_usd") or self.cfg.default_stake_usd)
+            mult = int(payload.get("default_multiplier") or self.cfg.default_multiplier)
+            conn_mode = str(payload.get("connection_mode") or "DERIV_CLOUD").upper()
 
-            # Find existing by account_id OR by (mt5_login, mt5_server) so duplicates never happen
-            req_id = str(payload.get("account_id") or "").strip()
-            existing = next(
-                (
-                    a
-                    for a in self.cfg.accounts
-                    if (req_id and a.get("account_id") == req_id)
-                    or (login and a.get("mt5_login") == login and a.get("mt5_server") == server)
-                ),
-                None,
-            )
-            acc_id = existing["account_id"] if existing else (req_id or f"acc_{uuid.uuid4().hex[:8]}")
-            label = str(payload.get("label") or f"[{acc_type}] Conta {login} ({server})").strip()
-
-            metaapi_token = str(payload.get("metaapi_token", "")).strip()
-            metaapi_account_id = str(payload.get("metaapi_account_id", "")).strip()
-            metaapi_region = str(payload.get("metaapi_region") or "london").strip()
-            connection_mode = str(payload.get("connection_mode") or ("METAAPI_CLOUD" if metaapi_token else "AUTO_MT5_WINE")).strip()
-
+            acc_record: dict[str, Any] = {
+                "account_id": acc_id,
+                "account_type": acc_type,
+                "label": label,
+                "deriv_token": token,
+                "deriv_app_id": app_id,
+                "default_stake_usd": stake,
+                "default_multiplier": mult,
+                "connection_mode": conn_mode,
+                "loginid": existing.get("loginid", "---") if existing else "---",
+                "created_at": existing.get("created_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")) if existing else datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
             if existing:
-                existing["account_type"] = acc_type
-                existing["label"] = label
-                existing["mt5_login"] = login
-                if password and password != "********":
-                    existing["mt5_password"] = password
-                existing["mt5_server"] = server
-                existing["connection_mode"] = connection_mode
-                if metaapi_token:
-                    existing["metaapi_token"] = metaapi_token
-                if metaapi_account_id:
-                    existing["metaapi_account_id"] = metaapi_account_id
-                existing["metaapi_region"] = metaapi_region
-                acc_record = existing
+                existing.update(acc_record)
             else:
-                acc_record = {
-                    "account_id": acc_id,
-                    "account_type": acc_type,
-                    "label": label,
-                    "mt5_login": login,
-                    "mt5_password": password,
-                    "mt5_server": server,
-                    "connection_mode": connection_mode,
-                    "metaapi_token": metaapi_token,
-                    "metaapi_account_id": metaapi_account_id,
-                    "metaapi_region": metaapi_region,
-                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                }
                 self.cfg.accounts.append(acc_record)
 
             self.cfg.accounts = deduplicate_accounts(self.cfg.accounts)
-
-            # Set as active primary MT5 credentials too
             self.cfg.active_account_id = acc_id
             self.cfg.active_account_type = acc_type
-            self.cfg.mt5_connection_mode = connection_mode
-            if metaapi_token:
-                self.cfg.metaapi_token = metaapi_token
-            if metaapi_account_id:
-                self.cfg.metaapi_account_id = metaapi_account_id
-            self.cfg.metaapi_region = metaapi_region
-            if login:
-                self.cfg.mt5_login = login
-            if password and password != "********":
-                self.cfg.mt5_password = password
-            if server:
-                self.cfg.mt5_server = server
+            self.cfg.deriv_token = token
+            self.cfg.deriv_app_id = app_id
+            self.cfg.default_stake_usd = stake
+            self.cfg.default_multiplier = mult
+            self.cfg.connection_mode = conn_mode
+
+            ok, conn_msg = self.connector.connect(token=token, app_id=app_id)
+            if ok and self.connector._deriv_auth:
+                auth = self.connector._deriv_auth
+                acc_record["loginid"] = str(auth.get("loginid", "---"))
+                acc_record["account_type"] = "DEMO" if auth.get("is_virtual") else "REAL"
+                self.cfg.active_account_type = acc_record["account_type"]
 
             save_config(self.cfg, self.config_path)
-            self._log_event("ACCOUNT", f"Conta {acc_type} '{label}' ({login} @ {server}) salva/atualizada com sucesso.")
-            return acc_record
-
-    def delete_all_bots(self) -> list[dict[str, Any]]:
-        with self._lock:
-            self.cfg.bots.clear()
-            save_config(self.cfg, self.config_path)
-            self._log_event("BOT_FLEET", "Todos os robôs foram removidos pelo usuário.")
-            return self.cfg.bots
-
-    def delete_mt5_account(self, account_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            self.cfg.accounts = [a for a in self.cfg.accounts if a.get("account_id") != account_id]
-            save_config(self.cfg, self.config_path)
-            self._log_event("ACCOUNT", f"Conta '{account_id}' removida.")
-            return self.cfg.accounts
-
-    def clear_all_accounts(self) -> list[dict[str, Any]]:
-        with self._lock:
-            self.cfg.accounts.clear()
-            save_config(self.cfg, self.config_path)
-            self._log_event("ACCOUNT", "Lista de contas limpa pelo usuário.")
-            return self.cfg.accounts
-
-    def reset_daily_risk_lock(self) -> dict[str, Any]:
-        with self._lock:
-            self.connector._sim_daily_pnl = 0.0
-            self.connector._sim_positions.clear()
-            if self.cfg.max_daily_loss_money < 2000.0:
-                self.cfg.max_daily_loss_money = 5000.0
-                save_config(self.cfg, self.config_path)
-            self._log_event("RISK_GUARD", "Trava de perda diária resetada e robôs liberados para operar!")
-            return {"ok": True, "max_daily_loss_money": self.cfg.max_daily_loss_money}
+            self._log_event("TOKEN_VAULT", f"Token '{label}' salvo. {conn_msg}")
+            return acc_record, conn_msg
 
     def select_active_account(self, account_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -621,82 +508,205 @@ class PradoTradingService:
                 return None
             self.cfg.active_account_id = str(target["account_id"])
             self.cfg.active_account_type = str(target.get("account_type", "DEMO"))
-            self.cfg.mt5_login = str(target.get("mt5_login", ""))
-            if target.get("mt5_password") and target.get("mt5_password") != "********":
-                self.cfg.mt5_password = str(target["mt5_password"])
-            self.cfg.mt5_server = str(target.get("mt5_server", ""))
-            self.cfg.mt5_connection_mode = str(target.get("connection_mode", self.cfg.mt5_connection_mode))
-            self.cfg.metaapi_token = str(target.get("metaapi_token", ""))
-            self.cfg.metaapi_account_id = str(target.get("metaapi_account_id", ""))
-            self.cfg.metaapi_region = str(target.get("metaapi_region", "london"))
+            self.cfg.deriv_token = str(target.get("deriv_token", ""))
+            self.cfg.deriv_app_id = str(target.get("deriv_app_id", "1089"))
+            self.cfg.default_stake_usd = float(target.get("default_stake_usd", 10.0))
+            self.cfg.default_multiplier = int(target.get("default_multiplier", 100))
+            self.cfg.connection_mode = str(target.get("connection_mode", "DERIV_CLOUD"))
             save_config(self.cfg, self.config_path)
-            ok, msg = self.connector.connect(
-                login=self.cfg.mt5_login,
-                password=self.cfg.mt5_password,
-                server=self.cfg.mt5_server,
-                force_attempt=bool(self.cfg.metaapi_token and self.cfg.metaapi_account_id),
-            )
-            self._log_event(
-                "ACCOUNT_SWITCH",
-                f"Conta ativa alterada para [{self.cfg.active_account_type}] {target.get('label')} — {msg}",
-            )
-            return {k: ("********" if k in ("mt5_password", "metaapi_token") else v) for k, v in target.items()}
+            ok, msg = self.connector.connect(token=self.cfg.deriv_token, app_id=self.cfg.deriv_app_id)
+            self._log_event("ACCOUNT_SWITCH", f"Token ativo alterado para [{self.cfg.active_account_type}] {target.get('label')} — {msg}")
+            return {k: ("********" if k == "deriv_token" and v else v) for k, v in target.items()}
 
-    def provision_metaapi_account(self, payload: dict[str, Any]) -> tuple[bool, str, dict[str, Any] | None]:
+    def delete_account(self, account_id: str) -> list[dict[str, Any]]:
         with self._lock:
-            token = str(payload.get("metaapi_token") or self.cfg.metaapi_token).strip()
-            login = str(payload.get("mt5_login") or self.cfg.mt5_login).strip()
-            password = str(payload.get("mt5_password") or self.cfg.mt5_password).strip()
-            server = str(payload.get("mt5_server") or self.cfg.mt5_server).strip()
-            label = str(payload.get("label") or f"Prado_{login}").strip()
-            region = str(payload.get("metaapi_region") or "london").strip()
+            self.cfg.accounts = [a for a in self.cfg.accounts if a.get("account_id") != account_id]
+            if self.cfg.active_account_id == account_id:
+                self.cfg.active_account_id = ""
+                self.cfg.deriv_token = ""
+                self.connector.connect(token="")
+            save_config(self.cfg, self.config_path)
+            self._log_event("TOKEN_VAULT", f"Token/Conta '{account_id}' removido.")
+            return self.cfg.accounts
 
-            if not token or not login or not password or not server:
-                return False, "Informe Token MetaApi, Login, Senha e Servidor da corretora.", None
+    def clear_all_accounts(self) -> list[dict[str, Any]]:
+        with self._lock:
+            self.cfg.accounts.clear()
+            self.cfg.active_account_id = ""
+            self.cfg.deriv_token = ""
+            self.connector.connect(token="")
+            save_config(self.cfg, self.config_path)
+            self._log_event("TOKEN_VAULT", "Todos os tokens/contas foram removidos.")
+            return self.cfg.accounts
 
-            client = MetaApiClient(token=token, region=region)
-            ok, resp = client.provision_mt5_account(
-                login=login,
-                password=password,
-                server=server,
-                name=label,
-                magic=self.cfg.magic_number,
-            )
-            if not ok:
-                msg = resp.get("message") or str(resp)
-                self._log_event("METAAPI_ERROR", f"Falha ao provisionar na MetaApi: {msg}")
-                return False, f"Erro MetaApi: {msg}", None
+    def save_custom_category(self, category_name: str, symbols: list[str]) -> dict[str, list[str]]:
+        with self._lock:
+            clean_name = category_name.strip()
+            clean_syms = [s.strip() for s in symbols if s.strip()]
+            if clean_name and clean_syms:
+                self.cfg.custom_categories[clean_name] = clean_syms
+                for s in clean_syms:
+                    if s not in self.cfg.active_symbols:
+                        self.cfg.active_symbols.append(s)
+                save_config(self.cfg, self.config_path)
+                self._log_event("CATEGORY", f"Categoria '{clean_name}' salva com {len(clean_syms)} ativo(s).")
+            return dict(self.cfg.custom_categories)
 
-            metaapi_acc_id = str(resp["id"])
-            acc = self.save_mt5_account(
-                {
-                    "account_id": payload.get("account_id") or "",
-                    "account_type": payload.get("account_type") or self.cfg.active_account_type,
-                    "label": label,
-                    "mt5_login": login,
-                    "mt5_password": password,
-                    "mt5_server": server,
-                    "connection_mode": "METAAPI_CLOUD",
-                    "metaapi_token": token,
-                    "metaapi_account_id": metaapi_acc_id,
-                    "metaapi_region": region,
-                }
-            )
-            self.connector.cfg = self.cfg
-            self.connector.connect(force_attempt=True)
-            self._log_event("METAAPI_CLOUD", f"Conta {login} provisionada na MetaApi Cloud (ID: {metaapi_acc_id}) sem MT5 aberto!")
-            return True, f"Conta provisionada na MetaApi Cloud! ID: {metaapi_acc_id}", acc
+    def delete_custom_category(self, category_name: str) -> dict[str, list[str]]:
+        with self._lock:
+            if category_name in self.cfg.custom_categories:
+                self.cfg.custom_categories.pop(category_name, None)
+                save_config(self.cfg, self.config_path)
+                self._log_event("CATEGORY", f"Categoria '{category_name}' apagada.")
+            return dict(self.cfg.custom_categories)
+
+    def create_bot(self, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            req_bot_id = str(payload.get("bot_id") or "").strip()
+            existing_bot = next((b for b in self.cfg.bots if req_bot_id and b.get("bot_id") == req_bot_id), None)
+            bot_id = existing_bot["bot_id"] if existing_bot else (req_bot_id or f"bot_{uuid.uuid4().hex[:8]}")
+
+            symbol = str(payload.get("symbol", existing_bot.get("symbol", "R_100") if existing_bot else "R_100")).strip()
+            account_id = str(payload.get("account_id", self.cfg.active_account_id or "default")).strip()
+            acc_obj = next((a for a in self.cfg.accounts if a.get("account_id") == account_id), None)
+            account_type = str(acc_obj.get("account_type", self.cfg.active_account_type)) if acc_obj else self.cfg.active_account_type
+            account_label = acc_obj["label"] if acc_obj else f"Deriv {account_type}"
+
+            template_id = str(
+                payload.get(
+                    "bot_template_id",
+                    existing_bot.get("bot_template_id", "WALL_STREET_HYBRID_BOTH") if existing_bot else "WALL_STREET_HYBRID_BOTH",
+                )
+            ).strip()
+            tpl = next((t for t in MATH_BOT_TEMPLATES if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
+            auto_start = bool(payload.get("auto_start", True))
+
+            bot_record: dict[str, Any] = {
+                "bot_id": bot_id,
+                "name": str(payload.get("name") or (existing_bot.get("name") if existing_bot else f"{tpl['name'].split('—')[0].strip()} ({symbol})")).strip(),
+                "bot_template_id": template_id,
+                "bot_template_name": tpl["name"],
+                "formula": tpl["formula"],
+                "account_id": account_id,
+                "account_type": account_type,
+                "account_label": account_label,
+                "symbol": symbol,
+                "category": str(payload.get("category") or (existing_bot.get("category") if existing_bot else "Deriv")).strip(),
+                "operation_mode": str(payload.get("operation_mode") or tpl["operation_mode"]),
+                "lot_size": float(payload.get("lot_size") if payload.get("lot_size") is not None else self.cfg.default_stake_usd),
+                "multiplier": int(payload.get("multiplier") if payload.get("multiplier") is not None else self.cfg.default_multiplier),
+                "window_ticks": int(payload.get("window_ticks") or tpl["window_ticks"]),
+                "zscore_threshold": float(payload.get("zscore_threshold") if payload.get("zscore_threshold") is not None else tpl["zscore_threshold"]),
+                "imbalance_threshold": float(payload.get("imbalance_threshold") if payload.get("imbalance_threshold") is not None else tpl["imbalance_threshold"]),
+                "revert_sigma": float(payload.get("revert_sigma") if payload.get("revert_sigma") is not None else tpl["revert_sigma"]),
+                "sl_sigma_mult": float(payload.get("sl_sigma_mult") or tpl["sl_sigma_mult"]),
+                "tp_sigma_mult": float(payload.get("tp_sigma_mult") or tpl["tp_sigma_mult"]),
+                "correlated_basket": list(payload.get("correlated_basket") or self.cfg.correlated_basket),
+                "status": existing_bot.get("status", "RUNNING") if existing_bot and "auto_start" not in payload else ("RUNNING" if auto_start else "STOPPED"),
+                "last_signal": existing_bot.get("last_signal", "WAIT") if existing_bot else "WAIT",
+                "last_regime": existing_bot.get("last_regime", "NEUTRAL") if existing_bot else "NEUTRAL",
+                "last_price": existing_bot.get("last_price", 0.0) if existing_bot else 0.0,
+                "vwap": existing_bot.get("vwap", 0.0) if existing_bot else 0.0,
+                "aggression_zscore": existing_bot.get("aggression_zscore", 0.0) if existing_bot else 0.0,
+                "imbalance_ratio": existing_bot.get("imbalance_ratio", 0.0) if existing_bot else 0.0,
+                "trades_executed": existing_bot.get("trades_executed", 0) if existing_bot else 0,
+                "created_at": existing_bot.get("created_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")) if existing_bot else datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            if existing_bot:
+                existing_bot.update(bot_record)
+            else:
+                self.cfg.bots.append(bot_record)
+
+            if symbol not in self.cfg.active_symbols:
+                self.cfg.active_symbols.append(symbol)
+            save_config(self.cfg, self.config_path)
+            self._log_event("BOT_FLEET", f"Robô '{bot_record['name']}' ({symbol} | Stake ${bot_record['lot_size']} | {bot_record['multiplier']}x) salvo.")
+            return bot_record
+
+    def control_bot(self, bot_id: str, action: str) -> dict[str, Any] | None:
+        with self._lock:
+            act = action.upper()
+            for idx, b in enumerate(self.cfg.bots):
+                if b.get("bot_id") == bot_id:
+                    if act == "START":
+                        b["status"] = "RUNNING"
+                        self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) iniciado.")
+                    elif act == "STOP":
+                        b["status"] = "STOPPED"
+                        self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) pausado.")
+                    elif act in ("FIRE_BUY", "FIRE_SELL"):
+                        sym = str(b.get("symbol", "R_100"))
+                        ticks = self.connector.fetch_ticks(sym, count=120)
+                        vwap_b = compute_intraday_vwap(ticks)
+                        last_p = ticks[-1].effective_price() if ticks else 100.0
+                        bw = max(vwap_b.std_dev, abs(last_p) * 0.0020, 1e-4)
+                        ord_act = "BUY_FLOW" if act == "FIRE_BUY" else "SELL_FLOW"
+                        if self.connector._sim_daily_pnl <= -abs(self.cfg.max_daily_loss_money):
+                            self.connector._sim_daily_pnl = 0.0
+                        ok, msg = self.connector.place_order(
+                            symbol=sym,
+                            action=ord_act,
+                            stake=float(b.get("lot_size", self.cfg.default_stake_usd)),
+                            price=last_p,
+                            sl_points=round(bw * float(b.get("sl_sigma_mult", 1.0)), 6),
+                            tp_points=round(bw * float(b.get("tp_sigma_mult", 1.8)), 6),
+                            multiplier=int(b.get("multiplier", self.cfg.default_multiplier)),
+                            bot_name=str(b.get("name", "PradoBot")),
+                        )
+                        if ok:
+                            b["trades_executed"] = int(b.get("trades_executed", 0)) + 1
+                        self._log_event("BOT_EXEC", msg)
+                    elif act == "DELETE":
+                        removed = self.cfg.bots.pop(idx)
+                        save_config(self.cfg, self.config_path)
+                        self._log_event("BOT_FLEET", f"Robô '{removed['name']}' apagado.")
+                        return removed
+                    save_config(self.cfg, self.config_path)
+                    return b
+            return None
+
+    def delete_all_bots(self) -> list[dict[str, Any]]:
+        with self._lock:
+            self.cfg.bots.clear()
+            save_config(self.cfg, self.config_path)
+            self._log_event("BOT_FLEET", "Frota de robôs limpa.")
+            return self.cfg.bots
+
+    def update_config(self, updates: dict[str, Any]) -> PradoServerConfig:
+        with self._lock:
+            for key, val in updates.items():
+                if hasattr(self.cfg, key):
+                    setattr(self.cfg, key, val)
+            save_config(self.cfg, self.config_path)
+            self._log_event("CONFIG", "Configurações operacionais atualizadas.")
+            return self.cfg
+
+    def flatten_all(self, reason: str = "ZERAR_TUDO_WEB") -> tuple[int, str]:
+        with self._lock:
+            count, msg = self.connector.close_all_positions(reason)
+            self._log_event("RISK_GUARD", msg)
+            return count, msg
+
+    def reset_daily_risk_lock(self) -> dict[str, Any]:
+        with self._lock:
+            self.connector._sim_daily_pnl = 0.0
+            self.connector._sim_positions.clear()
+            if self.cfg.max_daily_loss_money < 2000.0:
+                self.cfg.max_daily_loss_money = 5000.0
+                save_config(self.cfg, self.config_path)
+            self._log_event("RISK_GUARD", "Limite diário destravado.")
+            return {"ok": True, "max_daily_loss_money": self.cfg.max_daily_loss_money}
 
     def run_mathematical_backtest(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Pure mathematical tick-by-tick backtester (No UI chart rendering overhead)."""
         with self._lock:
-            symbol = str(params.get("symbol") or "WIN$N").strip()
+            symbol = str(params.get("symbol") or "R_100").strip()
             template_id = str(params.get("bot_template_id") or "WALL_STREET_HYBRID_BOTH").strip()
             tpl = next((t for t in MATH_BOT_TEMPLATES if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
 
             tick_count = max(120, min(5000, int(params.get("tick_count") or 800)))
-            initial_capital = float(params.get("initial_capital") or 50000.0)
-            lot_size = float(params.get("lot_size") or self.cfg.default_lot_size)
+            initial_capital = float(params.get("initial_capital") or 10000.0)
+            stake = float(params.get("lot_size") or self.cfg.default_stake_usd)
+            multiplier = int(params.get("multiplier") or self.cfg.default_multiplier)
             window_ticks = int(params.get("window_ticks") or tpl["window_ticks"])
             z_thresh = float(params.get("zscore_threshold") or tpl["zscore_threshold"])
             imb_thresh = float(params.get("imbalance_threshold") or tpl["imbalance_threshold"])
@@ -705,9 +715,7 @@ class PradoTradingService:
             tp_mult = float(params.get("tp_sigma_mult") or tpl["tp_sigma_mult"])
             op_mode = str(params.get("operation_mode") or tpl["operation_mode"])
 
-            # Fetch real MT5 historical ticks if connected, or generate deterministic high-fidelity quant tick series
             ticks = self._build_backtest_tick_series(symbol, tick_count)
-
             balance = initial_capital
             peak_balance = initial_capital
             max_drawdown = 0.0
@@ -717,21 +725,18 @@ class PradoTradingService:
             step_stride = max(1, tick_count // 250)
             for idx in range(40, len(ticks), step_stride):
                 sub_ticks = ticks[: idx + 1]
-                curr_tick = sub_ticks[-1]
-                curr_price = curr_tick.effective_price()
+                curr_price = sub_ticks[-1].effective_price()
 
-                # Check open position SL / TP exit
                 if open_pos is not None:
                     is_buy = open_pos["type"] == "BUY"
                     hit_tp = (curr_price >= open_pos["tp"]) if is_buy else (curr_price <= open_pos["tp"])
                     hit_sl = (curr_price <= open_pos["sl"]) if is_buy else (curr_price >= open_pos["sl"])
                     if hit_tp or hit_sl or idx >= len(ticks) - step_stride:
-                        raw_diff = (curr_price - open_pos["entry"]) if is_buy else (open_pos["entry"] - curr_price)
-                        pnl = round(raw_diff * lot_size * open_pos["point_value"], 2)
+                        pct = ((curr_price - open_pos["entry"]) / open_pos["entry"]) if is_buy else ((open_pos["entry"] - curr_price) / open_pos["entry"])
+                        pnl = round(pct * stake * multiplier, 2)
                         balance = round(balance + pnl, 2)
                         peak_balance = max(peak_balance, balance)
-                        dd = round(peak_balance - balance, 2)
-                        max_drawdown = max(max_drawdown, dd)
+                        max_drawdown = max(max_drawdown, round(peak_balance - balance, 2))
                         trades.append(
                             {
                                 "id": len(trades) + 1,
@@ -764,14 +769,12 @@ class PradoTradingService:
                         is_b = act.startswith("BUY")
                         sl_pts = max(flow.sl_points, curr_price * 0.0005)
                         tp_pts = max(flow.tp_points, curr_price * 0.0009)
-                        pt_val = 0.20 if symbol.startswith("WIN") else (10.0 if symbol.startswith("WDO") else 10.0)
                         open_pos = {
                             "type": "BUY" if is_b else "SELL",
                             "signal": act,
                             "entry": curr_price,
                             "sl": (curr_price - sl_pts) if is_b else (curr_price + sl_pts),
                             "tp": (curr_price + tp_pts) if is_b else (curr_price - tp_pts),
-                            "point_value": pt_val,
                         }
 
             wins = [t for t in trades if t["pnl"] > 0]
@@ -807,220 +810,39 @@ class PradoTradingService:
             self.cfg.backtest_history.insert(0, {k: v for k, v in report.items() if k != "trades"})
             self.cfg.backtest_history = self.cfg.backtest_history[:15]
             save_config(self.cfg, self.config_path)
-            self._log_event(
-                "BACKTEST",
-                f"Backtest Matemático concluído em {symbol} ({tpl['name']}): {len(trades)} trades | Lucro Líquido: {net_profit:+.2f} | WinRate: {win_rate}%",
-            )
+            self._log_event("BACKTEST", f"Backtest em {symbol}: {len(trades)} trades | Lucro: {net_profit:+.2f} | WinRate: {win_rate}%")
             return report
 
     def _build_backtest_tick_series(self, symbol: str, count: int) -> list[TickRecord]:
-        base_map = {
-            "WIN$N": 128500.0,
-            "WDO$N": 5810.0,
-            "PETR4": 38.45,
-            "VALE3": 61.20,
-            "BTCUSD#": 94500.0,
-            "US100Cash#": 20850.0,
-            "EURUSD": 1.0540,
-        }
-        base_price = base_map.get(symbol, 100.0)
-        step = base_price * 0.00045
+        base_price = 1850.0 if symbol == "R_100" else 1000.0
+        step = base_price * 0.0005
         rng = random.Random(42 + (hash(symbol) & 0xFFFF))
         out: list[TickRecord] = []
         p = base_price
         now_msc = int(time.time() * 1000)
         for i in range(count):
-            # Alternate between strong institutional trends and mean-reverting oscillations
             phase = i % 90
             if phase < 30:
                 delta = step * 0.85 + rng.uniform(-step * 0.2, step * 0.4)
                 flag = TICK_FLAG_BUY
-                vol = rng.randint(60, 220) * 10.0
+                vol = rng.randint(60, 220)
             elif phase < 60:
                 delta = -step * 0.75 + rng.uniform(-step * 0.4, step * 0.2)
                 flag = TICK_FLAG_SELL
-                vol = rng.randint(50, 190) * 10.0
+                vol = rng.randint(50, 190)
             else:
                 delta = math.sin(i / 4.0) * step * 0.5
                 flag = TICK_FLAG_BUY if delta >= 0 else TICK_FLAG_SELL
-                vol = rng.randint(15, 65) * 10.0
+                vol = rng.randint(15, 65)
             p = max(step, p + delta)
-            out.append(
-                TickRecord(
-                    time_msc=now_msc - (count - i) * 500,
-                    bid=round(p - step * 0.1, 6),
-                    ask=round(p + step * 0.1, 6),
-                    last=round(p, 6),
-                    volume_real=vol,
-                    tick_volume=vol,
-                    flags=flag,
-                )
-            )
+            out.append(TickRecord(now_msc - (count - i) * 1000, p, p, p, 0.0, float(vol), flag))
         return out
-
-    def save_custom_category(self, category_name: str, symbols: list[str]) -> dict[str, list[str]]:
-        with self._lock:
-            clean_name = category_name.strip()
-            clean_syms = [s.strip() for s in symbols if s.strip()]
-            if clean_name and clean_syms:
-                self.cfg.custom_categories[clean_name] = clean_syms
-                for s in clean_syms:
-                    if s not in self.cfg.active_symbols:
-                        self.cfg.active_symbols.append(s)
-                save_config(self.cfg, self.config_path)
-                self._log_event("CATEGORY", f"Categoria '{clean_name}' criada/atualizada com {len(clean_syms)} ativo(s).")
-            return dict(self.cfg.custom_categories)
-
-    def delete_custom_category(self, category_name: str) -> dict[str, list[str]]:
-        with self._lock:
-            if category_name in self.cfg.custom_categories:
-                self.cfg.custom_categories.pop(category_name, None)
-                save_config(self.cfg, self.config_path)
-                self._log_event("CATEGORY", f"Categoria '{category_name}' removida.")
-            return dict(self.cfg.custom_categories)
-
-    def create_bot(self, payload: dict[str, Any]) -> dict[str, Any]:
-        with self._lock:
-            req_bot_id = str(payload.get("bot_id") or "").strip()
-            existing_bot = next((b for b in self.cfg.bots if req_bot_id and b.get("bot_id") == req_bot_id), None)
-            bot_id = existing_bot["bot_id"] if existing_bot else (req_bot_id or f"bot_{uuid.uuid4().hex[:8]}")
-
-            symbol = str(payload.get("symbol", existing_bot.get("symbol", "WIN$N") if existing_bot else "WIN$N")).strip()
-            account_id = str(
-                payload.get("account_id", existing_bot.get("account_id", self.cfg.active_account_id) if existing_bot else self.cfg.active_account_id)
-            ).strip()
-            acc_obj = next((a for a in self.cfg.accounts if a.get("account_id") == account_id), None)
-            account_type = str(acc_obj.get("account_type", "DEMO")) if acc_obj else self.cfg.active_account_type
-            account_label = (
-                f"[{account_type}] {acc_obj['label']}"
-                if acc_obj
-                else (
-                    f"[{account_type}] {self.cfg.mt5_login} ({self.cfg.mt5_server})"
-                    if self.cfg.mt5_login
-                    else f"[{account_type}] Conta Principal MT5"
-                )
-            )
-            template_id = str(
-                payload.get(
-                    "bot_template_id",
-                    existing_bot.get("bot_template_id", "WALL_STREET_HYBRID_BOTH") if existing_bot else "WALL_STREET_HYBRID_BOTH",
-                )
-            ).strip()
-            tpl = next((t for t in MATH_BOT_TEMPLATES if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
-            auto_start = bool(payload.get("auto_start", True))
-
-            bot_record: dict[str, Any] = {
-                "bot_id": bot_id,
-                "name": str(payload.get("name") or (existing_bot.get("name") if existing_bot else f"{tpl['name'].split('—')[0].strip()} ({symbol})")).strip(),
-                "bot_template_id": template_id,
-                "bot_template_name": tpl["name"],
-                "formula": tpl["formula"],
-                "account_id": account_id,
-                "account_type": account_type,
-                "account_label": account_label,
-                "symbol": symbol,
-                "category": str(payload.get("category") or (existing_bot.get("category") if existing_bot else "Geral")).strip(),
-                "operation_mode": str(payload.get("operation_mode") or tpl["operation_mode"]),
-                "lot_size": float(payload.get("lot_size") if payload.get("lot_size") is not None else self.cfg.default_lot_size),
-                "window_ticks": int(payload.get("window_ticks") or tpl["window_ticks"]),
-                "zscore_threshold": float(payload.get("zscore_threshold") if payload.get("zscore_threshold") is not None else tpl["zscore_threshold"]),
-                "imbalance_threshold": float(payload.get("imbalance_threshold") if payload.get("imbalance_threshold") is not None else tpl["imbalance_threshold"]),
-                "revert_sigma": float(payload.get("revert_sigma") if payload.get("revert_sigma") is not None else tpl["revert_sigma"]),
-                "sl_sigma_mult": float(payload.get("sl_sigma_mult") or tpl["sl_sigma_mult"]),
-                "tp_sigma_mult": float(payload.get("tp_sigma_mult") or tpl["tp_sigma_mult"]),
-                "correlated_basket": list(payload.get("correlated_basket") or self.cfg.correlated_basket),
-                "status": existing_bot.get("status", "RUNNING") if existing_bot and "auto_start" not in payload else ("RUNNING" if auto_start else "STOPPED"),
-                "last_signal": existing_bot.get("last_signal", "WAIT") if existing_bot else "WAIT",
-                "last_regime": existing_bot.get("last_regime", "NEUTRAL") if existing_bot else "NEUTRAL",
-                "last_price": existing_bot.get("last_price", 0.0) if existing_bot else 0.0,
-                "vwap": existing_bot.get("vwap", 0.0) if existing_bot else 0.0,
-                "aggression_zscore": existing_bot.get("aggression_zscore", 0.0) if existing_bot else 0.0,
-                "imbalance_ratio": existing_bot.get("imbalance_ratio", 0.0) if existing_bot else 0.0,
-                "trades_executed": existing_bot.get("trades_executed", 0) if existing_bot else 0,
-                "created_at": existing_bot.get("created_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")) if existing_bot else datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            }
-            if existing_bot:
-                existing_bot.update(bot_record)
-                action_word = "atualizado/editado"
-            else:
-                self.cfg.bots.append(bot_record)
-                action_word = "criado"
-
-            if symbol not in self.cfg.active_symbols:
-                self.cfg.active_symbols.append(symbol)
-            save_config(self.cfg, self.config_path)
-            self._log_event(
-                "BOT_FLEET",
-                f"Robô '{bot_record['name']}' ({symbol} | Lote {bot_record['lot_size']} | Conta {account_label}) {action_word} com sucesso.",
-            )
-            return bot_record
-
-    def control_bot(self, bot_id: str, action: str) -> dict[str, Any] | None:
-        with self._lock:
-            act = action.upper()
-            for idx, b in enumerate(self.cfg.bots):
-                if b.get("bot_id") == bot_id:
-                    if act == "START":
-                        b["status"] = "RUNNING"
-                        self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) INICIADO e rodando automaticamente.")
-                    elif act == "STOP":
-                        b["status"] = "STOPPED"
-                        self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) PAUSADO.")
-                    elif act in ("FIRE_BUY", "FIRE_SELL"):
-                        sym = str(b.get("symbol", "WIN$N"))
-                        ticks = self.connector.fetch_ticks(sym, count=200)
-                        vwap_b = compute_intraday_vwap(ticks)
-                        last_p = ticks[-1].effective_price() if ticks else 100.0
-                        bw = max(vwap_b.std_dev, abs(last_p) * 0.0020, 1e-4)
-                        ord_act = "BUY_FLOW" if act == "FIRE_BUY" else "SELL_FLOW"
-                        # unlock risk if locked so manual fire works immediately
-                        if self.connector._sim_daily_pnl <= -abs(self.cfg.max_daily_loss_money):
-                            self.connector._sim_daily_pnl = 0.0
-                        ok, msg = self.connector.place_order(
-                            symbol=sym,
-                            action=ord_act,
-                            volume=float(b.get("lot_size", self.cfg.default_lot_size)),
-                            price=last_p,
-                            sl_points=round(bw * float(b.get("sl_sigma_mult", 1.0)), 6),
-                            tp_points=round(bw * float(b.get("tp_sigma_mult", 1.8)), 6),
-                            magic=self.cfg.magic_number,
-                            bot_name=str(b.get("name", "PradoBot")),
-                        )
-                        if ok:
-                            b["trades_executed"] = int(b.get("trades_executed", 0)) + 1
-                        self._log_event("BOT_EXEC", msg)
-                    elif act == "DELETE":
-                        removed = self.cfg.bots.pop(idx)
-                        save_config(self.cfg, self.config_path)
-                        self._log_event("BOT_FLEET", f"Robô '{removed['name']}' removido.")
-                        return removed
-                    save_config(self.cfg, self.config_path)
-                    return b
-            return None
-
-    def update_config(self, updates: dict[str, Any]) -> PradoServerConfig:
-        with self._lock:
-            for key, val in updates.items():
-                if hasattr(self.cfg, key):
-                    setattr(self.cfg, key, val)
-            save_config(self.cfg, self.config_path)
-            self._log_event("CONFIG", "Configurações operacionais atualizadas pelo painel web.")
-            return self.cfg
-
-    def flatten_all(self, reason: str = "ZERAR_TUDO_WEB") -> tuple[int, str]:
-        with self._lock:
-            count, msg = self.connector.close_all_positions(reason)
-            self._log_event("RISK_GUARD", msg)
-            return count, msg
 
     def step_once(self) -> dict[str, Any]:
         with self._lock:
-            now_str = datetime.now().strftime("%H:%M")
-
-            # 1. Calculate Correlated Basket Bias
             corr_scores: list[float] = []
             for corr_sym in self.cfg.correlated_basket:
-                c_ticks = self.connector.fetch_ticks(corr_sym, count=400)
+                c_ticks = self.connector.fetch_ticks(corr_sym, count=150)
                 if len(c_ticks) >= 5:
                     c_vwap = compute_intraday_vwap(c_ticks)
                     c_flow = compute_flow_metrics(
@@ -1033,45 +855,29 @@ class PradoTradingService:
                     corr_scores.append(c_flow.imbalance_ratio)
             corr_bias = round(sum(corr_scores) / len(corr_scores), 4) if corr_scores else 0.0
 
-            # 2. EOD Flatten Rule ("HFT sempre dorme zerado") — Only applies to B3 cash/futures symbols (not 24/7 Crypto/Forex)
             positions = self.connector.get_open_positions()
-            if self.cfg.enforce_eod_flatten and now_str >= self.cfg.eod_flatten_time and positions:
-                b3_positions = [
-                    p
-                    for p in positions
-                    if p["symbol"].endswith("$N") or (len(p["symbol"]) in (5, 6) and p["symbol"][-1].isdigit())
-                ]
-                if b3_positions:
-                    for bp in b3_positions:
-                        self.connector.close_single_position(int(bp["ticket"]))
-                    self._log_event("EOD_FLATTEN", f"{len(b3_positions)} posição(ões) B3 encerrada(s) no fim do pregão.")
-                    positions = self.connector.get_open_positions()
-
-            # 3. Daily Loss & Target Guard
             acc = self.connector.get_account_summary()
             current_pnl = float(acc.get("profit", 0.0)) + float(acc.get("daily_realized", 0.0))
             risk_locked = False
-            risk_status = "OPERACIONAL NORMAL"
+            risk_status = "Operacional normal"
             if self.cfg.max_daily_loss_money > 0 and current_pnl <= -abs(self.cfg.max_daily_loss_money):
                 risk_locked = True
-                risk_status = f"TRAVA DE PERDA DIÁRIA ATINGIDA ({current_pnl:.2f})"
+                risk_status = f"Trava de perda diária ({current_pnl:.2f})"
                 if positions:
                     self.connector.close_all_positions("MAX_DAILY_LOSS_GUARD")
             elif self.cfg.daily_target_money > 0 and current_pnl >= abs(self.cfg.daily_target_money):
                 risk_locked = True
-                risk_status = f"META DIÁRIA BATIDA ({current_pnl:.2f})"
+                risk_status = f"Meta diária atingida ({current_pnl:.2f})"
 
-            # Ensure all symbols from running bots are also monitored
             monitored_symbols = list(self.cfg.active_symbols)
             for b in self.cfg.bots:
                 bsym = b.get("symbol")
                 if bsym and bsym not in monitored_symbols:
                     monitored_symbols.append(bsym)
 
-            # 4. Compute VWAP & Order Flow per monitored symbol
             symbols_data: dict[str, Any] = {}
             for sym in monitored_symbols:
-                ticks = self.connector.fetch_ticks(sym, count=1200)
+                ticks = self.connector.fetch_ticks(sym, count=200)
                 vwap_bands = compute_intraday_vwap(ticks)
                 flow = compute_flow_metrics(
                     ticks,
@@ -1084,7 +890,6 @@ class PradoTradingService:
                     tp_sigma_mult=self.cfg.tp_sigma_mult,
                     operation_mode=self.cfg.operation_mode,
                 )
-
                 action = flow.recommended_action
                 if action in ("BUY_FLOW", "BUY_REVERT_VWAP") and corr_bias <= -abs(self.cfg.correlation_block_threshold):
                     action = "WAIT_CORRELATION_BLOCK"
@@ -1097,7 +902,6 @@ class PradoTradingService:
                     if vwap_bands.std_dev > 0
                     else 0.0
                 )
-
                 symbols_data[sym] = {
                     "symbol": sym,
                     "last_price": round(last_price, 6),
@@ -1108,23 +912,16 @@ class PradoTradingService:
                     "upper_2": round(vwap_bands.upper_2, 6),
                     "lower_2": round(vwap_bands.lower_2, 6),
                     "distance_sigma": distance_sigma,
-                    "buy_volume": round(flow.buy_volume, 2),
-                    "sell_volume": round(flow.sell_volume, 2),
-                    "delta_volume": round(flow.delta_volume, 2),
                     "imbalance_ratio": round(flow.imbalance_ratio, 4),
                     "aggression_zscore": round(flow.aggression_zscore, 4),
                     "correlation_bias": corr_bias,
                     "regime": flow.regime,
                     "action": action,
-                    "sl_points": round(flow.sl_points, 6),
-                    "tp_points": round(flow.tp_points, 6),
-                    "is_real_volume": vwap_bands.is_real_volume,
                 }
 
-            # 5. Execute each Individual Robot Instance in the Fleet ("Robôs Rodando")
             for bot in self.cfg.bots:
                 bsym = bot.get("symbol", "")
-                ticks = self.connector.fetch_ticks(bsym, count=1200)
+                ticks = self.connector.fetch_ticks(bsym, count=200)
                 vwap_bands = compute_intraday_vwap(ticks)
                 bot_flow = compute_flow_metrics(
                     ticks,
@@ -1139,23 +936,6 @@ class PradoTradingService:
                 )
                 last_price = ticks[-1].effective_price() if ticks else 0.0
                 bot_action = bot_flow.recommended_action
-                bot_corr_list = bot.get("correlated_basket") or []
-                bot_corr_bias = corr_bias
-                if bot_corr_list:
-                    b_scores = []
-                    for csym in bot_corr_list:
-                        ct = self.connector.fetch_ticks(csym, count=200)
-                        if len(ct) >= 5:
-                            cv = compute_intraday_vwap(ct)
-                            cf = compute_flow_metrics(ct, cv, window_size=min(60, len(ct)))
-                            b_scores.append(cf.imbalance_ratio)
-                    if b_scores:
-                        bot_corr_bias = round(sum(b_scores) / len(b_scores), 4)
-
-                if bot_action in ("BUY_FLOW", "BUY_REVERT_VWAP") and bot_corr_bias <= -0.80:
-                    bot_action = "WAIT_CORRELATION_BLOCK"
-                elif bot_action in ("SELL_FLOW", "SELL_REVERT_VWAP") and bot_corr_bias >= 0.80:
-                    bot_action = "WAIT_CORRELATION_BLOCK"
 
                 bot["last_price"] = round(last_price, 6)
                 bot["vwap"] = round(vwap_bands.vwap, 6)
@@ -1175,11 +955,11 @@ class PradoTradingService:
                         ok, msg = self.connector.place_order(
                             symbol=bsym,
                             action=bot_action,
-                            volume=float(bot.get("lot_size", self.cfg.default_lot_size)),
+                            stake=float(bot.get("lot_size", self.cfg.default_stake_usd)),
                             price=last_price,
                             sl_points=bot_flow.sl_points,
                             tp_points=bot_flow.tp_points,
-                            magic=self.cfg.magic_number,
+                            multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
                             bot_name=str(bot.get("name", "PradoBot")),
                         )
                         if ok:
@@ -1191,7 +971,7 @@ class PradoTradingService:
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "account": acc,
                 "accounts": [
-                    {k: ("********" if k == "mt5_password" else v) for k, v in a.items()}
+                    {k: ("********" if k == "deriv_token" and v else v) for k, v in a.items()}
                     for a in self.cfg.accounts
                 ],
                 "categories": self.cfg.custom_categories,
@@ -1224,7 +1004,7 @@ class PradoTradingService:
                     self.step_once()
                 except Exception as exc:
                     self._log_event("ERROR", f"Erro no ciclo HFT: {exc}")
-                time.sleep(max(0.2, float(self.cfg.poll_interval_sec)))
+                time.sleep(max(0.5, float(self.cfg.poll_interval_sec)))
 
         self._thread = threading.Thread(target=_loop, daemon=True)
         self._thread.start()

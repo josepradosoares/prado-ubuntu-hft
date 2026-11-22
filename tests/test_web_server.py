@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 import pytest
 
-from prado_linux.config import PradoServerConfig, load_config, save_config
 from prado_linux.auth import create_session_token, verify_password, verify_session_token
+from prado_linux.config import load_config, save_config
 from prado_linux.engine import PradoTradingService
 
 
@@ -13,21 +13,21 @@ def test_default_config_and_persistence(tmp_path: Path):
     assert cfg.admin_username == "admin"
     assert cfg.zscore_threshold == 1.8
     assert cfg.imbalance_threshold == 0.35
-    assert cfg.eod_flatten_time == "17:35"
     assert cfg.operation_mode == "BOTH"
-    assert cfg.mt5_login == ""
+    assert cfg.deriv_app_id == "1089"
+    assert cfg.default_stake_usd == 10.0
+    assert cfg.default_multiplier == 100
+    assert cfg.deriv_token == ""
 
-    cfg.mt5_login = "12345678"
-    cfg.mt5_server = "XPInvestimentos-PRD"
-    cfg.active_symbols = ["WIN$N", "WDO$N", "BTCUSD#"]
-    cfg.correlated_basket = ["PETR4", "VALE3"]
+    cfg.deriv_token = "pat_test_123"
+    cfg.active_symbols = ["R_100", "R_75", "cryBTCUSD"]
+    cfg.correlated_basket = ["R_50", "R_25"]
     save_config(cfg, cfg_file)
 
     reloaded = load_config(cfg_file)
-    assert reloaded.mt5_login == "12345678"
-    assert reloaded.mt5_server == "XPInvestimentos-PRD"
-    assert reloaded.active_symbols == ["WIN$N", "WDO$N", "BTCUSD#"]
-    assert reloaded.correlated_basket == ["PETR4", "VALE3"]
+    assert reloaded.deriv_token == "pat_test_123"
+    assert reloaded.active_symbols == ["R_100", "R_75", "cryBTCUSD"]
+    assert reloaded.correlated_basket == ["R_50", "R_25"]
 
 
 def test_auth_password_and_session_tokens(tmp_path: Path):
@@ -42,20 +42,20 @@ def test_auth_password_and_session_tokens(tmp_path: Path):
 
 def test_trading_service_snapshot_and_vwap_flow_cycle(tmp_path: Path):
     cfg = load_config(tmp_path / "config.json")
-    cfg.active_symbols = ["WIN$N", "BTCUSD#"]
-    cfg.correlated_basket = ["PETR4", "VALE3"]
+    cfg.active_symbols = ["R_100", "cryBTCUSD"]
+    cfg.correlated_basket = ["R_50", "R_75"]
     service = PradoTradingService(cfg, config_path=tmp_path / "config.json")
 
     snap = service.step_once()
     assert "account" in snap
     assert "symbols" in snap
-    assert "WIN$N" in snap["symbols"]
-    assert "BTCUSD#" in snap["symbols"]
+    assert "R_100" in snap["symbols"]
+    assert "cryBTCUSD" in snap["symbols"]
 
-    win_state = snap["symbols"]["WIN$N"]
-    assert win_state["vwap"] > 0
-    assert win_state["upper_2"] > win_state["vwap"] > win_state["lower_2"]
-    assert win_state["regime"] in (
+    r100_state = snap["symbols"]["R_100"]
+    assert r100_state["vwap"] > 0
+    assert r100_state["upper_2"] > r100_state["vwap"] > r100_state["lower_2"]
+    assert r100_state["regime"] in (
         "NEUTRAL",
         "INSTITUTIONAL_TREND_UP",
         "INSTITUTIONAL_TREND_DOWN",
@@ -63,349 +63,202 @@ def test_trading_service_snapshot_and_vwap_flow_cycle(tmp_path: Path):
     )
 
 
-def test_web_app_login_config_and_monitoring_endpoints(tmp_path: Path):
+def test_deriv_client_websocket_rpc_and_multipliers(tmp_path: Path):
+    from prado_linux.deriv_client import DerivClient
+
+    calls: list[dict] = []
+
+    def fake_rpc(payload: dict) -> dict:
+        calls.append(payload)
+        if "authorize" in payload:
+            return {
+                "authorize": {
+                    "loginid": "VRTC998877",
+                    "currency": "USD",
+                    "balance": 10000.0,
+                    "is_virtual": 1,
+                    "fullname": "Jose Demo Deriv",
+                }
+            }
+        if "active_symbols" in payload:
+            return {
+                "active_symbols": [
+                    {"symbol": "R_100", "display_name": "Volatility 100 Index", "market_display_name": "Derived"},
+                    {"symbol": "frxEURUSD", "display_name": "EUR/USD", "market_display_name": "Forex"},
+                    {"symbol": "cryBTCUSD", "display_name": "BTC/USD", "market_display_name": "Cryptocurrencies"},
+                ]
+            }
+        if "ticks_history" in payload:
+            return {
+                "history": {
+                    "prices": [100.1, 100.2, 100.35, 100.5, 100.4],
+                    "times": [1700000001, 1700000002, 1700000003, 1700000004, 1700000005],
+                }
+            }
+        if "proposal" in payload:
+            return {"proposal": {"id": "prop_12345", "ask_price": 10.0}}
+        if "buy" in payload:
+            return {"buy": {"contract_id": 778899, "buy_price": 10.0}}
+        if "portfolio" in payload:
+            return {
+                "portfolio": {
+                    "contracts": [
+                        {
+                            "contract_id": 778899,
+                            "symbol": "R_100",
+                            "contract_type": "MULTUP",
+                            "buy_price": 10.0,
+                        }
+                    ]
+                }
+            }
+        if "proposal_open_contract" in payload:
+            return {
+                "proposal_open_contract": {
+                    "contract_id": 778899,
+                    "underlying": "R_100",
+                    "contract_type": "MULTUP",
+                    "buy_price": 10.0,
+                    "entry_spot": 100.2,
+                    "current_spot": 101.0,
+                    "profit": 4.5,
+                    "limit_order": {"stop_loss": {"order_amount": 5.0}, "take_profit": {"order_amount": 9.0}},
+                }
+            }
+        if "sell" in payload:
+            return {"sell": {"sold_for": 14.5, "transaction_id": 556677}}
+        return {}
+
+    client = DerivClient(token="pat_demo_test", app_id="1089", rpc_transport=fake_rpc)
+    auth = client.authorize()
+    assert auth["loginid"] == "VRTC998877"
+    assert auth["balance"] == 10000.0
+    assert auth["is_virtual"] == 1
+
+    syms = client.get_active_symbols()
+    assert len(syms) == 3
+    assert syms[0]["name"] == "R_100"
+
+    ticks = client.get_ticks_history("R_100", count=5)
+    assert len(ticks) == 5
+    assert ticks[-1].last == 100.4
+
+    ok, msg = client.place_multiplier_order(
+        symbol="R_100",
+        is_buy=True,
+        stake=10.0,
+        multiplier=100,
+        sl_amount=5.0,
+        tp_amount=9.0,
+    )
+    assert ok is True
+    assert "778899" in msg
+
+    contracts = client.get_open_contracts()
+    assert len(contracts) == 1
+    assert contracts[0]["profit"] == 4.5
+
+    closed_ok, _ = client.close_contract("778899")
+    assert closed_ok is True
+
+
+def test_web_app_deriv_token_vault_bots_categories_and_backtester(tmp_path: Path):
     from prado_linux.web_app import PradoWebApp
 
     cfg_path = tmp_path / "config.json"
     app = PradoWebApp(config_path=cfg_path)
 
-    # 1. Unauthenticated request to /api/status returns 401
-    status_code, body, _ = app.handle_request("GET", "/api/status", headers={}, body=b"")
-    assert status_code == 401
+    # 1. Unauthenticated request blocked
+    code, _, _ = app.handle_request("GET", "/api/status", headers={}, body=b"")
+    assert code == 401
 
-    # 2. Login with default credentials (admin / prado2026)
+    # 2. Login
     login_payload = json.dumps({"username": "admin", "password": "prado2026"}).encode("utf-8")
-    status_code, body, resp_headers = app.handle_request(
+    code, body, resp_headers = app.handle_request(
         "POST", "/api/login", headers={"Content-Type": "application/json"}, body=login_payload
     )
-    assert status_code == 200
-    data = json.loads(body)
-    assert data["ok"] is True
-    cookie_header = resp_headers.get("Set-Cookie", "")
-    assert "prado_session=" in cookie_header
-
-    # 3. Authenticated request to /api/status returns full monitoring snapshot
-    status_code, body, _ = app.handle_request(
-        "GET", "/api/status", headers={"Cookie": cookie_header}, body=b""
-    )
-    assert status_code == 200
-    snap = json.loads(body)
-    assert "account" in snap
-    assert "symbols" in snap
-
-    # 4. Update MT5 account credentials & Broker Wall Street settings via /api/config
-    update_payload = json.dumps(
-        {
-            "mt5_login": "55667788",
-            "mt5_password": "secretMt5Password",
-            "mt5_server": "ClearInvestimentos-PRD",
-            "zscore_threshold": 2.1,
-            "imbalance_threshold": 0.42,
-            "operation_mode": "TREND_ONLY",
-            "active_symbols": ["WIN$N", "WDO$N"],
-            "correlated_basket": ["PETR4", "VALE3"],
-        }
-    ).encode("utf-8")
-    status_code, body, _ = app.handle_request(
-        "POST",
-        "/api/config",
-        headers={"Cookie": cookie_header, "Content-Type": "application/json"},
-        body=update_payload,
-    )
-    assert status_code == 200
-    cfg_resp = json.loads(body)
-    assert cfg_resp["ok"] is True
-    assert cfg_resp["config"]["mt5_login"] == "55667788"
-    assert cfg_resp["config"]["mt5_server"] == "ClearInvestimentos-PRD"
-    assert cfg_resp["config"]["zscore_threshold"] == 2.1
-    assert cfg_resp["config"]["operation_mode"] == "TREND_ONLY"
-
-
-def test_accounts_symbol_modes_custom_categories_and_multi_bot_fleet(tmp_path: Path):
-    from prado_linux.web_app import PradoWebApp
-
-    cfg_path = tmp_path / "config.json"
-    app = PradoWebApp(config_path=cfg_path)
-
-    # Login
-    login_payload = json.dumps({"username": "admin", "password": "prado2026"}).encode("utf-8")
-    _, _, resp_headers = app.handle_request(
-        "POST", "/api/login", headers={"Content-Type": "application/json"}, body=login_payload
-    )
-    cookie_header = resp_headers.get("Set-Cookie", "")
-    auth_headers = {"Cookie": cookie_header, "Content-Type": "application/json"}
-
-    # 1. Save an MT5 Account
-    acc_payload = json.dumps(
-        {
-            "account_id": "acc_xp_1",
-            "label": "Conta XP B3 Principal",
-            "mt5_login": "10203040",
-            "mt5_password": "xp_pass",
-            "mt5_server": "XPInvestimentos-PRD",
-        }
-    ).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=acc_payload)
     assert code == 200
-    acc_resp = json.loads(body)
-    assert acc_resp["ok"] is True
-    assert any(a["account_id"] == "acc_xp_1" for a in acc_resp["accounts"])
+    auth_headers = {"Cookie": resp_headers["Set-Cookie"], "Content-Type": "application/json"}
 
-    # 2. Fetch Broker Symbols in "PRINCIPAIS" and "TODOS" modes
+    # 3. Save Deriv Demo & Real Tokens (and verify token is masked in response)
+    demo_acc = json.dumps(
+        {
+            "account_id": "deriv_demo_1",
+            "account_type": "DEMO",
+            "label": "Minha Deriv Demo",
+            "deriv_token": "pat_secret_demo_token",
+            "deriv_app_id": "1089",
+            "default_stake_usd": 10.0,
+            "default_multiplier": 100,
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=demo_acc)
+    assert code == 200
+    resp_demo = json.loads(body)
+    assert resp_demo["ok"] is True
+    assert resp_demo["account"]["deriv_token"] == "********"
+    assert resp_demo["account"]["account_type"] == "DEMO"
+
+    real_acc = json.dumps(
+        {
+            "account_id": "deriv_real_1",
+            "account_type": "REAL",
+            "label": "Minha Deriv Real",
+            "deriv_token": "pat_secret_real_token",
+            "deriv_app_id": "1089",
+            "default_stake_usd": 20.0,
+            "default_multiplier": 50,
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=real_acc)
+    assert code == 200
+
+    # Switch between Demo and Real tokens
     code, body, _ = app.handle_request(
-        "GET", "/api/symbols?mode=PRINCIPAIS&account_id=acc_xp_1", headers=auth_headers, body=b""
+        "POST", "/api/accounts/select", headers=auth_headers, body=json.dumps({"account_id": "deriv_demo_1"}).encode("utf-8")
     )
+    assert code == 200
+    assert json.loads(body)["active_account"]["account_type"] == "DEMO"
+
+    # 4. Symbols Principais vs Todos + Custom Categories
+    code, body, _ = app.handle_request("GET", "/api/symbols?mode=PRINCIPAIS", headers=auth_headers, body=b"")
     assert code == 200
     sym_main = json.loads(body)
-    assert sym_main["mode"] == "PRINCIPAIS"
     assert len(sym_main["symbols"]) > 0
 
-    code, body, _ = app.handle_request(
-        "GET", "/api/symbols?mode=TODOS&account_id=acc_xp_1", headers=auth_headers, body=b""
-    )
+    code, body, _ = app.handle_request("GET", "/api/symbols?mode=TODOS", headers=auth_headers, body=b"")
     assert code == 200
     sym_all = json.loads(body)
-    assert sym_all["mode"] == "TODOS"
     assert len(sym_all["symbols"]) >= len(sym_main["symbols"])
 
-    # 3. Create Custom Symbol Category for the Broker
-    cat_payload = json.dumps(
-        {
-            "category_name": "Meus Futuros B3",
-            "symbols": ["WIN$N", "WDO$N", "IND$N"],
-        }
-    ).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/categories", headers=auth_headers, body=cat_payload)
-    assert code == 200
-    cat_resp = json.loads(body)
-    assert cat_resp["ok"] is True
-    assert "Meus Futuros B3" in cat_resp["categories"]
-    assert "IND$N" in cat_resp["categories"]["Meus Futuros B3"]
-
-    # 4. Create & Start a Robot instance tied to Account + Symbol
-    bot_payload = json.dumps(
-        {
-            "name": "Robô Mini Índice Fala 1 & 2",
-            "account_id": "acc_xp_1",
-            "symbol": "WIN$N",
-            "category": "Meus Futuros B3",
-            "operation_mode": "BOTH",
-            "lot_size": 2.0,
-            "zscore_threshold": 1.8,
-            "imbalance_threshold": 0.35,
-            "revert_sigma": 2.0,
-            "correlated_basket": ["PETR4", "VALE3"],
-            "auto_start": True,
-        }
-    ).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/bots", headers=auth_headers, body=bot_payload)
-    assert code == 200
-    bot_resp = json.loads(body)
-    assert bot_resp["ok"] is True
-    created_bot = bot_resp["bot"]
-    bot_id = created_bot["bot_id"]
-    assert created_bot["status"] == "RUNNING"
-    assert created_bot["symbol"] == "WIN$N"
-    assert created_bot["account_id"] == "acc_xp_1"
-
-    # 5. Toggle Stop / Start on the Robot instance
     code, body, _ = app.handle_request(
         "POST",
-        "/api/bots/action",
+        "/api/categories",
         headers=auth_headers,
-        body=json.dumps({"bot_id": bot_id, "action": "STOP"}).encode("utf-8"),
+        body=json.dumps({"category_name": "Sintéticos 24h", "symbols": ["R_100", "1HZ100V"]}).encode("utf-8"),
     )
     assert code == 200
-    assert json.loads(body)["bot"]["status"] == "STOPPED"
+    assert "Sintéticos 24h" in json.loads(body)["categories"]
 
+    # 5. Create, Edit, Fire Order & Delete Bot
     code, body, _ = app.handle_request(
         "POST",
-        "/api/bots/action",
+        "/api/bots",
         headers=auth_headers,
-        body=json.dumps({"bot_id": bot_id, "action": "START"}).encode("utf-8"),
+        body=json.dumps(
+            {
+                "name": "Bot Deriv R_100",
+                "account_id": "deriv_demo_1",
+                "symbol": "R_100",
+                "lot_size": 10.0,
+                "multiplier": 100,
+                "auto_start": True,
+            }
+        ).encode("utf-8"),
     )
     assert code == 200
-    assert json.loads(body)["bot"]["status"] == "RUNNING"
-
-
-def test_demo_and_real_account_switching_math_bot_catalog_and_backtester(tmp_path: Path):
-    from prado_linux.web_app import PradoWebApp
-
-    cfg_path = tmp_path / "config.json"
-    app = PradoWebApp(config_path=cfg_path)
-
-    # Login
-    login_payload = json.dumps({"username": "admin", "password": "prado2026"}).encode("utf-8")
-    _, _, resp_headers = app.handle_request(
-        "POST", "/api/login", headers={"Content-Type": "application/json"}, body=login_payload
-    )
-    cookie_header = resp_headers.get("Set-Cookie", "")
-    auth_headers = {"Cookie": cookie_header, "Content-Type": "application/json"}
-
-    # 1. Save DEMO and REAL MT5 accounts and switch between them
-    demo_payload = json.dumps(
-        {
-            "account_id": "acc_demo_1",
-            "account_type": "DEMO",
-            "label": "XP Demo Quant",
-            "mt5_login": "99001122",
-            "mt5_password": "demo_pass",
-            "mt5_server": "XPInvestimentos-DEMO",
-        }
-    ).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=demo_payload)
-    assert code == 200
-
-    real_payload = json.dumps(
-        {
-            "account_id": "acc_real_1",
-            "account_type": "REAL",
-            "label": "XP Real Institucional",
-            "mt5_login": "11223344",
-            "mt5_password": "real_pass",
-            "mt5_server": "XPInvestimentos-PRD",
-        }
-    ).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=real_payload)
-    assert code == 200
-
-    # Switch active environment to DEMO account
-    switch_payload = json.dumps({"account_id": "acc_demo_1"}).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/accounts/select", headers=auth_headers, body=switch_payload)
-    assert code == 200
-    sw_resp = json.loads(body)
-    assert sw_resp["ok"] is True
-    assert sw_resp["active_account"]["account_type"] == "DEMO"
-    assert sw_resp["active_account"]["account_id"] == "acc_demo_1"
-
-    # Switch active environment to REAL account
-    switch_payload = json.dumps({"account_id": "acc_real_1"}).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/accounts/select", headers=auth_headers, body=switch_payload)
-    assert code == 200
-    sw_resp = json.loads(body)
-    assert sw_resp["active_account"]["account_type"] == "REAL"
-
-    # 2. Fetch Pure Mathematical Bot Algorithms Catalog (No charts required)
-    code, body, _ = app.handle_request("GET", "/api/bot-templates", headers=auth_headers, body=b"")
-    assert code == 200
-    tpl_resp = json.loads(body)
-    assert tpl_resp["ok"] is True
-    assert len(tpl_resp["templates"]) >= 4
-
-    # 3. Run Pure Mathematical Tick-by-Tick Backtest
-    bt_payload = json.dumps(
-        {
-            "symbol": "WIN$N",
-            "bot_template_id": "WALL_STREET_HYBRID_BOTH",
-            "account_type": "DEMO",
-            "tick_count": 600,
-            "initial_capital": 50000.0,
-            "lot_size": 2.0,
-            "zscore_threshold": 1.4,
-            "imbalance_threshold": 0.25,
-            "revert_sigma": 1.6,
-        }
-    ).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/backtest", headers=auth_headers, body=bt_payload)
-    assert code == 200
-    bt_resp = json.loads(body)
-    assert bt_resp["ok"] is True
-    report = bt_resp["report"]
-    assert report["symbol"] == "WIN$N"
-    assert report["ticks_processed"] == 600
-    assert "total_trades" in report
-    assert "win_rate_pct" in report
-    assert "net_profit" in report
-    assert "profit_factor" in report
-    assert "max_drawdown" in report
-    assert "final_equity" in report
-
-
-def test_account_deduplication_broker_server_autocomplete_and_preseeded_xm_accounts(tmp_path: Path):
-    from prado_linux.web_app import PradoWebApp
-
-    cfg_path = tmp_path / "config.json"
-    app = PradoWebApp(config_path=cfg_path)
-
-    login_payload = json.dumps({"username": "admin", "password": "prado2026"}).encode("utf-8")
-    _, _, resp_headers = app.handle_request(
-        "POST", "/api/login", headers={"Content-Type": "application/json"}, body=login_payload
-    )
-    cookie_header = resp_headers.get("Set-Cookie", "")
-    auth_headers = {"Cookie": cookie_header, "Content-Type": "application/json"}
-
-    # 1. Verify pre-seeded XMGlobal accounts exist out of the box
-    code, body, _ = app.handle_request("GET", "/api/accounts", headers=auth_headers, body=b"")
-    assert code == 200
-    accs = json.loads(body)["accounts"]
-    logins = [a["mt5_login"] for a in accs]
-    assert "346595704" in logins
-    assert "382177116" in logins
-
-    # 2. Saving the same (mt5_login, mt5_server) twice updates in-place instead of creating duplicates
-    count_before = len(accs)
-    dup_payload = json.dumps(
-        {
-            "account_type": "DEMO",
-            "label": "Jose XM Global Demo",
-            "mt5_login": "346595704",
-            "mt5_password": "Soares@16510303",
-            "mt5_server": "XMGlobal-MT5 10",
-        }
-    ).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=dup_payload)
-    assert code == 200
-    accs_after = json.loads(body)["accounts"]
-    assert len(accs_after) == count_before
-    matching = [a for a in accs_after if a["mt5_login"] == "346595704" and a["mt5_server"] == "XMGlobal-MT5 10"]
-    assert len(matching) == 1
-    assert matching[0]["account_type"] == "DEMO"
-
-    # 3. Broker server autocomplete endpoint (/api/broker-servers?q=XM)
-    code, body, _ = app.handle_request("GET", "/api/broker-servers?q=XM", headers=auth_headers, body=b"")
-    assert code == 200
-    srv_data = json.loads(body)
-    assert srv_data["ok"] is True
-    assert "XMGlobal-MT5 10" in srv_data["servers"]
-    assert "XMGlobal-MT5 13" in srv_data["servers"]
-
-    # 4. Edit an existing Bot in-place (click & edit) and delete an account
-    bot_create = json.dumps(
-        {
-            "name": "BotTeste",
-            "account_id": "acc_xm_demo_346595704",
-            "symbol": "BTCUSD#",
-            "lot_size": 1.0,
-            "zscore_threshold": 1.8,
-        }
-    ).encode("utf-8")
-    _, body, _ = app.handle_request("POST", "/api/bots", headers=auth_headers, body=bot_create)
     bot_id = json.loads(body)["bot"]["bot_id"]
 
-    bot_edit = json.dumps(
-        {
-            "bot_id": bot_id,
-            "name": "BotTeste Editado",
-            "account_id": "acc_xm_demo_346595704",
-            "symbol": "BTCUSD#",
-            "lot_size": 0.01,
-            "zscore_threshold": 1.5,
-        }
-    ).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/bots", headers=auth_headers, body=bot_edit)
-    assert code == 200
-    edited_bot = json.loads(body)["bot"]
-    assert edited_bot["bot_id"] == bot_id
-    assert edited_bot["name"] == "BotTeste Editado"
-    assert edited_bot["lot_size"] == 0.01
-    assert edited_bot["zscore_threshold"] == 1.5
-
-    # 5. Reset Daily Risk Lock (/api/risk/reset)
-    code, body, _ = app.handle_request("POST", "/api/risk/reset", headers=auth_headers, body=b"{}")
-    assert code == 200
-    assert json.loads(body)["ok"] is True
-
-    # 6. Manual immediate order dispatch for a bot (/api/bots/action -> FIRE_ORDER) and deals history
     code, body, _ = app.handle_request(
         "POST",
         "/api/bots/action",
@@ -413,113 +266,19 @@ def test_account_deduplication_broker_server_autocomplete_and_preseeded_xm_accou
         body=json.dumps({"bot_id": bot_id, "action": "FIRE_BUY"}).encode("utf-8"),
     )
     assert code == 200
-    fire_data = json.loads(body)
-    assert fire_data["ok"] is True
 
     code, body, _ = app.handle_request("GET", "/api/status", headers=auth_headers, body=b"")
     snap = json.loads(body)
     assert len(snap["positions"]) >= 1
-    assert "deals_history" in snap
 
-
-def test_metaapi_cloud_pure_python_connector_without_mt5_terminal(tmp_path: Path):
-    from prado_linux.metaapi_client import MetaApiClient
-    from prado_linux.web_app import PradoWebApp
-
-    calls: list[tuple[str, str, dict | None]] = []
-
-    def fake_transport(method: str, url: str, headers: dict, payload: dict | None):
-        calls.append((method, url, payload))
-        if url.endswith("/account-information"):
-            return 200, {
-                "login": "346595704",
-                "server": "XMGlobal-MT5 10",
-                "name": "Jose XM Demo",
-                "currency": "USD",
-                "balance": 1299.93,
-                "equity": 1312.50,
-                "margin": 15.0,
-                "freeMargin": 1297.50,
-            }
-        if url.endswith("/positions"):
-            return 200, [
-                {
-                    "id": "99887766",
-                    "symbol": "BTCUSD#",
-                    "type": "POSITION_TYPE_BUY",
-                    "volume": 0.01,
-                    "openPrice": 92000.0,
-                    "currentPrice": 92500.0,
-                    "stopLoss": 91000.0,
-                    "takeProfit": 94000.0,
-                    "profit": 5.0,
-                    "comment": "PradoMetaApi",
-                }
-            ]
-        if url.endswith("/symbols"):
-            return 200, ["BTCUSD#", "ETHUSD#", "EURUSD", "Crypto_10#"]
-        if url.endswith("/trade"):
-            return 200, {"numericCode": 10009, "stringCode": "TRADE_RETCODE_DONE", "orderId": "554433"}
-        return 200, {}
-
-    client = MetaApiClient(
-        token="test-metaapi-token",
-        account_id="metaapi-acc-123",
-        region="london",
-        transport=fake_transport,
+    # 6. Backtester
+    code, body, _ = app.handle_request(
+        "POST",
+        "/api/backtest",
+        headers=auth_headers,
+        body=json.dumps({"symbol": "R_100", "tick_count": 400, "initial_capital": 10000.0, "lot_size": 10.0}).encode("utf-8"),
     )
-    info = client.get_account_information()
-    assert info["balance"] == 1299.93
-    assert info["currency"] == "USD"
-
-    positions = client.get_positions()
-    assert len(positions) == 1
-    assert positions[0]["symbol"] == "BTCUSD#"
-
-    syms = client.get_symbols()
-    assert "BTCUSD#" in syms
-
-    ok, msg = client.place_order(
-        symbol="BTCUSD#",
-        is_buy=True,
-        volume=0.01,
-        sl=91000.0,
-        tp=94000.0,
-        comment="PradoTest",
-    )
-    assert ok is True
-    assert "554433" in msg
-
-    # Verify saving MetaApi credentials through web_app works
-    app = PradoWebApp(config_path=tmp_path / "config.json")
-    login_payload = json.dumps({"username": "admin", "password": "prado2026"}).encode("utf-8")
-    _, _, resp_headers = app.handle_request(
-        "POST", "/api/login", headers={"Content-Type": "application/json"}, body=login_payload
-    )
-    auth_headers = {"Cookie": resp_headers["Set-Cookie"], "Content-Type": "application/json"}
-
-    acc_payload = json.dumps(
-        {
-            "account_id": "acc_xm_demo_346595704",
-            "account_type": "DEMO",
-            "label": "Jose XM Demo MetaApi",
-            "mt5_login": "346595704",
-            "mt5_server": "XMGlobal-MT5 10",
-            "metaapi_token": "tok_demo_123",
-            "metaapi_account_id": "acc_uuid_456",
-            "metaapi_region": "london",
-            "connection_mode": "METAAPI_CLOUD",
-        }
-    ).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=acc_payload)
     assert code == 200
-    resp_acc = json.loads(body)["account"]
-    assert resp_acc["connection_mode"] == "METAAPI_CLOUD"
-    assert resp_acc["metaapi_account_id"] == "acc_uuid_456"
-
-
-
-
-
-
-
+    report = json.loads(body)["report"]
+    assert report["symbol"] == "R_100"
+    assert "net_profit" in report

@@ -1,4 +1,4 @@
-"""Zero-dependency HTTP Web Application & REST API for Prado Institutional HFT Ubuntu Server."""
+"""Zero-dependency HTTP Web Application & REST API for Prado Institutional HFT (Deriv Multipliers)."""
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -10,13 +10,13 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from prado_linux.auth import create_session_token, hash_password, verify_password, verify_session_token
-from prado_linux.config import KNOWN_BROKER_SERVERS, MATH_BOT_TEMPLATES, load_config
+from prado_linux.config import MATH_BOT_TEMPLATES, load_config
 from prado_linux.engine import PradoTradingService
 from prado_linux.templates import DASHBOARD_HTML, LOGIN_HTML
 
 
 class PradoWebApp:
-    """Testable WSGI/HTTP router for Login, MT5 Accounts, Broker Symbols, Categories, Robot Fleet, and Monitoring."""
+    """Testable HTTP router for Login, Deriv Token Vault, Symbols, Categories, Robot Fleet, and Backtest."""
 
     def __init__(self, config_path: Path) -> None:
         self.config_path = config_path
@@ -41,16 +41,16 @@ class PradoWebApp:
         d = asdict(self.cfg)
         d.pop("admin_password_hash", None)
         d.pop("secret_key", None)
-        if d.get("mt5_password"):
-            d["mt5_password_set"] = True
-            d["mt5_password"] = "********"
+        if d.get("deriv_token"):
+            d["deriv_token_set"] = True
+            d["deriv_token"] = "********"
         else:
-            d["mt5_password_set"] = False
+            d["deriv_token_set"] = False
         safe_accs = []
         for a in d.get("accounts", []):
             cp = dict(a)
-            if cp.get("mt5_password"):
-                cp["mt5_password"] = "********"
+            if cp.get("deriv_token"):
+                cp["deriv_token"] = "********"
             safe_accs.append(cp)
         d["accounts"] = safe_accs
         return d
@@ -67,7 +67,6 @@ class PradoWebApp:
         clean_path = parsed_url.path
         query_params = parse_qs(parsed_url.query)
 
-        # Public Endpoints
         if method == "GET" and clean_path == "/login":
             return 200, LOGIN_HTML, {"Content-Type": "text/html; charset=utf-8"}
 
@@ -86,39 +85,26 @@ class PradoWebApp:
                     json.dumps({"ok": True, "username": username}),
                     {"Content-Type": "application/json", "Set-Cookie": cookie_val},
                 )
-            return (
-                401,
-                json.dumps({"ok": False, "error": "Credenciais invalidas."}),
-                {"Content-Type": "application/json"},
-            )
+            return 401, json.dumps({"ok": False, "error": "Credenciais invalidas."}), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/logout":
             return (
                 200,
                 json.dumps({"ok": True}),
-                {
-                    "Content-Type": "application/json",
-                    "Set-Cookie": "prado_session=; HttpOnly; Path=/; Max-Age=0",
-                },
+                {"Content-Type": "application/json", "Set-Cookie": "prado_session=; HttpOnly; Path=/; Max-Age=0"},
             )
 
-        # Auth Check for Protected Routes
         user = self._extract_session_user(headers)
         if not user:
             if clean_path.startswith("/api/"):
-                return (
-                    401,
-                    json.dumps({"ok": False, "error": "Nao autenticado."}),
-                    {"Content-Type": "application/json"},
-                )
-            return (302, "", {"Location": "/login"})
+                return 401, json.dumps({"ok": False, "error": "Nao autenticado."}), {"Content-Type": "application/json"}
+            return 302, "", {"Location": "/login"}
 
         if method == "GET" and clean_path == "/":
             return 200, DASHBOARD_HTML, {"Content-Type": "text/html; charset=utf-8"}
 
         if method == "GET" and clean_path == "/api/status":
-            snap = self.service.get_snapshot()
-            return 200, json.dumps(snap, ensure_ascii=False), {"Content-Type": "application/json"}
+            return 200, json.dumps(self.service.get_snapshot(), ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "GET" and clean_path == "/api/config":
             return (
@@ -132,29 +118,20 @@ class PradoWebApp:
                 updates = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
-
-            reconnect = bool(updates.pop("reconnect", False))
             new_admin_pwd = updates.pop("new_admin_password", None)
             if new_admin_pwd and str(new_admin_pwd).strip():
                 updates["admin_password_hash"] = hash_password(str(new_admin_pwd).strip())
-
-            if updates.get("mt5_password") == "********":
-                updates.pop("mt5_password", None)
-
+            if updates.get("deriv_token") == "********":
+                updates.pop("deriv_token", None)
             self.service.update_config(updates)
-            msg = "Configuracao salva com sucesso."
-            if reconnect:
-                _, conn_msg = self.service.reconnect_mt5()
-                msg = conn_msg
-
             self.service.step_once()
             return (
                 200,
-                json.dumps({"ok": True, "message": msg, "config": self._safe_config_dict()}, ensure_ascii=False),
+                json.dumps({"ok": True, "message": "Configuracao salva.", "config": self._safe_config_dict()}, ensure_ascii=False),
                 {"Content-Type": "application/json"},
             )
 
-        # Accounts API
+        # Deriv Tokens & Accounts API
         if method == "GET" and clean_path == "/api/accounts":
             return (
                 200,
@@ -169,68 +146,22 @@ class PradoWebApp:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
             act_acc = str(payload.get("action", "")).upper()
             if act_acc == "DELETE":
-                acc_id = str(payload.get("account_id", "")).strip()
-                self.service.delete_mt5_account(acc_id)
-                return (
-                    200,
-                    json.dumps({"ok": True, "accounts": self._safe_config_dict()["accounts"]}, ensure_ascii=False),
-                    {"Content-Type": "application/json"},
-                )
+                self.service.delete_account(str(payload.get("account_id", "")).strip())
+                return 200, json.dumps({"ok": True, "accounts": self._safe_config_dict()["accounts"]}, ensure_ascii=False), {"Content-Type": "application/json"}
             if act_acc == "DELETE_ALL":
                 self.service.clear_all_accounts()
-                return (
-                    200,
-                    json.dumps({"ok": True, "accounts": []}, ensure_ascii=False),
-                    {"Content-Type": "application/json"},
-                )
-            acc = self.service.save_mt5_account(payload)
-            if payload.get("connect_now"):
-                self.service.reconnect_mt5()
+                return 200, json.dumps({"ok": True, "accounts": []}, ensure_ascii=False), {"Content-Type": "application/json"}
+
+            acc, conn_msg = self.service.save_deriv_account(payload)
+            safe_acc = {k: ("********" if k == "deriv_token" and v else v) for k, v in acc.items()}
+            self.service.step_once()
             return (
                 200,
                 json.dumps(
                     {
                         "ok": True,
-                        "account": {k: ("********" if k == "mt5_password" else v) for k, v in acc.items()},
-                        "accounts": self._safe_config_dict()["accounts"],
-                    },
-                    ensure_ascii=False,
-                ),
-                {"Content-Type": "application/json"},
-            )
-
-        if method == "GET" and clean_path == "/api/broker-servers":
-            q = (query_params.get("q", [""])[0] or "").strip().lower()
-            extra = [str(a.get("mt5_server", "")) for a in self.cfg.accounts if a.get("mt5_server")]
-            all_srvs = list(dict.fromkeys(KNOWN_BROKER_SERVERS + extra))
-            if q:
-                filtered = [s for s in all_srvs if q in s.lower()]
-            else:
-                filtered = all_srvs
-            return (
-                200,
-                json.dumps({"ok": True, "servers": filtered}, ensure_ascii=False),
-                {"Content-Type": "application/json"},
-            )
-
-        if method == "POST" and clean_path == "/api/risk/reset":
-            res = self.service.reset_daily_risk_lock()
-            self.service.step_once()
-            return 200, json.dumps(res, ensure_ascii=False), {"Content-Type": "application/json"}
-
-        if method == "POST" and clean_path == "/api/metaapi/provision":
-            try:
-                payload = json.loads(body.decode("utf-8") or "{}")
-            except Exception:
-                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
-            ok, msg, acc = self.service.provision_metaapi_account(payload)
-            return (
-                200 if ok else 400,
-                json.dumps(
-                    {
-                        "ok": ok,
-                        "message": msg,
-                        "account": acc,
+                        "message": conn_msg,
+                        "account": safe_acc,
                         "accounts": self._safe_config_dict()["accounts"],
                     },
                     ensure_ascii=False,
@@ -243,47 +174,21 @@ class PradoWebApp:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
-            acc_id = str(payload.get("account_id", "")).strip()
-            selected = self.service.select_active_account(acc_id)
+            selected = self.service.select_active_account(str(payload.get("account_id", "")).strip())
             if selected is None:
-                return 404, json.dumps({"ok": False, "error": "Conta nao encontrada"}), {"Content-Type": "application/json"}
+                return 404, json.dumps({"ok": False, "error": "Token/conta nao encontrado"}), {"Content-Type": "application/json"}
             self.service.step_once()
             return (
                 200,
-                json.dumps(
-                    {
-                        "ok": True,
-                        "active_account": selected,
-                        "accounts": self._safe_config_dict()["accounts"],
-                    },
-                    ensure_ascii=False,
-                ),
+                json.dumps({"ok": True, "active_account": selected, "accounts": self._safe_config_dict()["accounts"]}, ensure_ascii=False),
                 {"Content-Type": "application/json"},
             )
 
-        if method == "GET" and clean_path == "/api/bot-templates":
-            return (
-                200,
-                json.dumps({"ok": True, "templates": MATH_BOT_TEMPLATES}, ensure_ascii=False),
-                {"Content-Type": "application/json"},
-            )
+        if method == "POST" and clean_path == "/api/risk/reset":
+            res = self.service.reset_daily_risk_lock()
+            self.service.step_once()
+            return 200, json.dumps(res, ensure_ascii=False), {"Content-Type": "application/json"}
 
-        if method == "POST" and clean_path == "/api/backtest":
-            try:
-                payload = json.loads(body.decode("utf-8") or "{}")
-            except Exception:
-                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
-            report = self.service.run_mathematical_backtest(payload)
-            return (
-                200,
-                json.dumps(
-                    {"ok": True, "report": report, "history": self.cfg.backtest_history},
-                    ensure_ascii=False,
-                ),
-                {"Content-Type": "application/json"},
-            )
-
-        # Broker Symbols Discovery API ("PRINCIPAIS" vs "TODOS")
         if method == "GET" and clean_path == "/api/symbols":
             mode = (query_params.get("mode", ["PRINCIPAIS"])[0] or "PRINCIPAIS").upper()
             category_filter = (query_params.get("category", [""])[0] or "").strip()
@@ -297,25 +202,12 @@ class PradoWebApp:
                 ]
             return (
                 200,
-                json.dumps(
-                    {
-                        "ok": True,
-                        "mode": mode,
-                        "symbols": symbols,
-                        "categories": self.cfg.custom_categories,
-                    },
-                    ensure_ascii=False,
-                ),
+                json.dumps({"ok": True, "mode": mode, "symbols": symbols, "categories": self.cfg.custom_categories}, ensure_ascii=False),
                 {"Content-Type": "application/json"},
             )
 
-        # Custom Broker Symbol Categories API
         if method == "GET" and clean_path == "/api/categories":
-            return (
-                200,
-                json.dumps({"ok": True, "categories": self.cfg.custom_categories}, ensure_ascii=False),
-                {"Content-Type": "application/json"},
-            )
+            return 200, json.dumps({"ok": True, "categories": self.cfg.custom_categories}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/categories":
             try:
@@ -331,19 +223,13 @@ class PradoWebApp:
                 if isinstance(raw_syms, str):
                     raw_syms = [s.strip() for s in raw_syms.split(",") if s.strip()]
                 cats = self.service.save_custom_category(cat_name, list(raw_syms))
-            return (
-                200,
-                json.dumps({"ok": True, "categories": cats}, ensure_ascii=False),
-                {"Content-Type": "application/json"},
-            )
+            return 200, json.dumps({"ok": True, "categories": cats}, ensure_ascii=False), {"Content-Type": "application/json"}
 
-        # Multi-Bot Fleet API (Criar Robô, Selecionar Conta + Ativo, Executar / Pausar)
+        if method == "GET" and clean_path == "/api/bot-templates":
+            return 200, json.dumps({"ok": True, "templates": MATH_BOT_TEMPLATES}, ensure_ascii=False), {"Content-Type": "application/json"}
+
         if method == "GET" and clean_path == "/api/bots":
-            return (
-                200,
-                json.dumps({"ok": True, "bots": self.cfg.bots}, ensure_ascii=False),
-                {"Content-Type": "application/json"},
-            )
+            return 200, json.dumps({"ok": True, "bots": self.cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/bots":
             try:
@@ -352,11 +238,7 @@ class PradoWebApp:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
             bot = self.service.create_bot(payload)
             self.service.step_once()
-            return (
-                200,
-                json.dumps({"ok": True, "bot": bot, "bots": self.cfg.bots}, ensure_ascii=False),
-                {"Content-Type": "application/json"},
-            )
+            return 200, json.dumps({"ok": True, "bot": bot, "bots": self.cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/bots/action":
             try:
@@ -368,20 +250,20 @@ class PradoWebApp:
             if action == "DELETE_ALL":
                 self.service.delete_all_bots()
                 self.service.step_once()
-                return (
-                    200,
-                    json.dumps({"ok": True, "bots": []}, ensure_ascii=False),
-                    {"Content-Type": "application/json"},
-                )
+                return 200, json.dumps({"ok": True, "bots": []}, ensure_ascii=False), {"Content-Type": "application/json"}
             updated = self.service.control_bot(bot_id, action)
             if updated is None:
                 return 404, json.dumps({"ok": False, "error": "Robô não encontrado"}), {"Content-Type": "application/json"}
             self.service.step_once()
-            return (
-                200,
-                json.dumps({"ok": True, "bot": updated, "bots": self.cfg.bots}, ensure_ascii=False),
-                {"Content-Type": "application/json"},
-            )
+            return 200, json.dumps({"ok": True, "bot": updated, "bots": self.cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
+
+        if method == "POST" and clean_path == "/api/backtest":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            report = self.service.run_mathematical_backtest(payload)
+            return 200, json.dumps({"ok": True, "report": report, "history": self.cfg.backtest_history}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/flatten":
             try:
@@ -390,20 +272,12 @@ class PradoWebApp:
                 payload = {}
             ticket = payload.get("ticket")
             if ticket is not None:
-                ok, msg = self.service.connector.close_single_position(int(ticket))
+                ok, msg = self.service.connector.close_single_position(ticket)
                 self.service.step_once()
-                return (
-                    200,
-                    json.dumps({"ok": ok, "message": msg}, ensure_ascii=False),
-                    {"Content-Type": "application/json"},
-                )
+                return 200, json.dumps({"ok": ok, "message": msg}, ensure_ascii=False), {"Content-Type": "application/json"}
             cnt, msg = self.service.flatten_all("ZERAR_TUDO_PAINEL_WEB")
             self.service.step_once()
-            return (
-                200,
-                json.dumps({"ok": True, "closed": cnt, "message": msg}, ensure_ascii=False),
-                {"Content-Type": "application/json"},
-            )
+            return 200, json.dumps({"ok": True, "closed": cnt, "message": msg}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         return 404, json.dumps({"error": "Not found"}), {"Content-Type": "application/json"}
 
@@ -436,8 +310,8 @@ def run_http_server(config_path: Path, host: str = "0.0.0.0", port: int | None =
             return
 
     server = ThreadingHTTPServer((host, bind_port), _Handler)
-    print(f"[PRADO UBUNTU WEB SERVER] Painel rodando em http://{host}:{bind_port}")
-    print("[PRADO UBUNTU WEB SERVER] Login padrao: admin / prado2026")
+    print(f"[PRADO UBUNTU DERIV SERVER] Painel rodando em http://{host}:{bind_port}")
+    print("[PRADO UBUNTU DERIV SERVER] Login padrao: admin / prado2026")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

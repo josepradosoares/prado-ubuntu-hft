@@ -1,4 +1,4 @@
-"""Configuration persistence for Prado Institutional HFT Ubuntu Server (Demo/Real Accounts, Math Bots & Backtester)."""
+"""Configuration persistence for Prado Institutional HFT Ubuntu Server (Deriv Multipliers & Token Vault)."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -10,98 +10,12 @@ from typing import Any
 from prado_linux.auth import hash_password
 
 DEFAULT_CATEGORIES: dict[str, list[str]] = {
-    "B3 Futuros (Mini Índice & Dólar)": ["WIN$N", "WDO$N", "IND$N", "DOL$N"],
-    "B3 Ações Blue Chips": ["PETR4", "VALE3", "ITUB4", "BBDC4", "BBAS3", "B3SA3", "WEGE3"],
-    "Criptomoedas 24/7": ["BTCUSD#", "ETHUSD#", "SOLUSD#", "DOGEUSD#", "Crypto_10#"],
-    "Índices Globais & Wall Street": ["US100Cash#", "US500Cash#", "US30Cash#", "GER40Cash#", "HK50Cash#"],
-    "Forex & Commodities": ["EURUSD", "GBPUSD", "USDJPY", "GOLD#", "SILVER#", "WTI#"],
+    "Índices Sintéticos Volatility (24/7)": ["R_10", "R_25", "R_50", "R_75", "R_100", "1HZ10V", "1HZ50V", "1HZ100V"],
+    "Forex Principais": ["frxEURUSD", "frxGBPUSD", "frxUSDJPY", "frxAUDUSD", "frxUSDCAD"],
+    "Ouro & Commodities": ["frxXAUUSD", "frxXAGUSD"],
+    "Criptomoedas (24/7)": ["cryBTCUSD", "cryETHUSD"],
+    "Índices Crash & Boom": ["BOOM500", "BOOM1000", "CRASH500", "CRASH1000"],
 }
-
-KNOWN_BROKER_SERVERS: list[str] = [
-    "XMGlobal-MT5 10",
-    "XMGlobal-MT5 13",
-    "XMGlobal-MT5",
-    "XMGlobal-MT5 2",
-    "XMGlobal-MT5 4",
-    "XMGlobal-MT5 5",
-    "XMGlobal-MT5 6",
-    "XMGlobal-MT5 7",
-    "XMGlobal-MT5 8",
-    "XMGlobal-MT5 9",
-    "XMGlobal-MT5 11",
-    "XMGlobal-MT5 12",
-    "XMGlobal-MT5 14",
-    "XMGlobal-MT5 15",
-    "XPInvestimentos-PRD",
-    "XPInvestimentos-DEMO",
-    "ClearInvestimentos-PRD",
-    "ClearInvestimentos-DEMO",
-    "RicoInvestimentos-PRD",
-    "RicoInvestimentos-DEMO",
-    "BTGPactual-PRD",
-    "BTGPactual-DEMO",
-    "GenialInvestimentos-PRD",
-    "GenialInvestimentos-DEMO",
-    "ModalMais-PRD",
-    "ModalMais-DEMO",
-    "ToroInvestimentos-PRD",
-    "ToroInvestimentos-DEMO",
-    "CMCapital-PRD",
-    "CMCapital-DEMO",
-    "TerraInvestimentos-PRD",
-    "GuideInvestimentos-PRD",
-    "Orama-PRD",
-    "ICMarketsSC-Demo",
-    "ICMarketsSC-MT5",
-    "ICMarketsSC-MT5-2",
-    "ICMarketsSC-MT5-4",
-    "Exness-MT5Trial",
-    "Exness-MT5Real",
-    "Pepperstone-Demo",
-    "Pepperstone-MT5-Live01",
-    "FBS-Demo",
-    "FBS-Real",
-    "Tickmill-Demo",
-    "Tickmill-Live",
-    "FP-Markets-MT5-Demo",
-    "FP-Markets-MT5-Live",
-    "AdmiralMarkets-Demo",
-    "AdmiralMarkets-Live",
-    "VantageInternational-Demo",
-    "VantageInternational-Live",
-    "HFM-Demo",
-    "HFM-LiveServer",
-    "OctaFX-Demo",
-    "OctaFX-Real",
-    "RoboForex-ECN",
-    "RoboForex-Pro",
-    "FTMO-Demo",
-    "FTMO-Server",
-    "The5ers-Demo",
-    "The5ers-Live",
-    "MetaQuotes-Demo",
-]
-
-DEFAULT_PRESEEDED_ACCOUNTS: list[dict[str, Any]] = [
-    {
-        "account_id": "acc_xm_demo_346595704",
-        "account_type": "DEMO",
-        "label": "Jose XM Global Demo (346595704)",
-        "mt5_login": "346595704",
-        "mt5_password": "Soares@16510303",
-        "mt5_server": "XMGlobal-MT5 10",
-        "created_at": "2026-11-21 16:30:00",
-    },
-    {
-        "account_id": "acc_xm_real_382177116",
-        "account_type": "REAL",
-        "label": "Jose do Prado Pinheiro - XM Global Real (382177116)",
-        "mt5_login": "382177116",
-        "mt5_password": "Soares@16510303",
-        "mt5_server": "XMGlobal-MT5 13",
-        "created_at": "2026-11-21 16:30:00",
-    },
-]
 
 MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     {
@@ -119,10 +33,10 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     },
     {
         "template_id": "FIX_VWAP_TREND_TRAIN",
-        "name": "2. Fala 1 — Trem Institucional FIX VWAP (Seguidor Puro de Fluxo de Agressão)",
+        "name": "2. Fala 1 — Trem Institucional VWAP (Seguidor Puro de Fluxo de Agressão)",
         "operation_mode": "TREND_ONLY",
         "formula": "Sinal = sign(ΔVol) quando |Z_agressão| ≥ 1.8 ∧ |Imbalance| ≥ 0.35 ∧ sign(P - VWAP) == sign(Z)",
-        "description": "Detecta quando algoritmos institucionais (protocolo FIX) calibram agressividade máxima na pedra a favor da VWAP.",
+        "description": "Detecta aceleração de fluxo direcional a favor da VWAP e abre Multiplier na direção da tendência.",
         "window_ticks": 100,
         "zscore_threshold": 1.8,
         "imbalance_threshold": 0.35,
@@ -135,7 +49,7 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
         "name": "3. Fala 2 — Giro HFT Provedor de Liquidez (Reversão Matemática à Média ±2σ)",
         "operation_mode": "REVERT_ONLY",
         "formula": "Venda se P ≥ VWAP + 2σ ∧ Imbalance ≤ 0 | Compra se P ≤ VWAP - 2σ ∧ Imbalance ≥ 0 (Alvo = VWAP)",
-        "description": "Matemática pura dos HFTs não-direcionais: fornece liquidez nos extremos de desvio padrão quando o fluxo agressor perde força.",
+        "description": "Matemática pura de retorno à média nos extremos de desvio padrão quando o fluxo agressor perde força.",
         "window_ticks": 80,
         "zscore_threshold": 2.0,
         "imbalance_threshold": 0.25,
@@ -148,7 +62,7 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
         "name": "4. HFT Explosão de Agressão (Scalper Estatístico de Curto Alcance)",
         "operation_mode": "TREND_ONLY",
         "formula": "Janela curta w=50 ticks | Disparo em micro-explosão Z ≥ 2.2 ∧ Imbalance ≥ 0.45 | Alvo rápido 1.2σ",
-        "description": "Focado em explosões súbitas de agressão no Times & Trades com realização rápida em poucos segundos.",
+        "description": "Focado em explosões súbitas de micro-tendência em Índices Volatility 24/7 com realização rápida.",
         "window_ticks": 50,
         "zscore_threshold": 2.2,
         "imbalance_threshold": 0.45,
@@ -158,7 +72,7 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     },
     {
         "template_id": "STAT_ARB_CORRELATION_BASKET",
-        "name": "5. Arbitragem Estatística & Correlação de Cesta (B3 WIN/PETR4/VALE3 & Cripto)",
+        "name": "5. Arbitragem Estatística & Correlação de Cesta (Volatility / Forex / Cripto)",
         "operation_mode": "BOTH",
         "formula": "Bias_Cesta = (1/N)·Σ Imbalance(Ativo_k) | Opera somente alinhado ao vetor matemático da cesta",
         "description": "Cruza a matemática da cesta correlacionada com o desvio padrão da VWAP do ativo-alvo sem precisar abrir nenhum gráfico.",
@@ -173,19 +87,12 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
 
 
 def deduplicate_accounts(accounts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Ensure no duplicate accounts with same (mt5_login, mt5_server) or account_id."""
+    """Ensure no duplicate accounts with same account_id or label+type."""
     by_key: dict[str, dict[str, Any]] = {}
     for acc in accounts:
-        login = str(acc.get("mt5_login", "")).strip()
-        srv = str(acc.get("mt5_server", "")).strip()
-        key = f"{login}@{srv}" if login else str(acc.get("account_id", ""))
+        key = str(acc.get("account_id", "")).strip() or f"{acc.get('account_type', 'DEMO')}_{acc.get('label', '')}"
         if not key:
             continue
-        # Correct known XM Global 346595704 demo type if mistakenly saved as REAL
-        if login == "346595704" and srv == "XMGlobal-MT5 10":
-            acc["account_type"] = "DEMO"
-            if acc.get("label", "").strip().lower() == "jose":
-                acc["label"] = "Jose XM Global Demo (346595704)"
         by_key[key] = acc
     return list(by_key.values())
 
@@ -198,38 +105,36 @@ class PradoServerConfig:
     secret_key: str = ""
     web_port: int = 8080
 
-    # Primary MetaTrader 5 Credentials & Active Account Selection (DEMO vs REAL) via MetaApi Cloud
-    mt5_connection_mode: str = "METAAPI_CLOUD"
-    active_account_id: str = "acc_xm_demo_346595704"
+    # Deriv API Credentials & Active Account Selection (DEMO vs REAL)
+    connection_mode: str = "DERIV_CLOUD"  # "DERIV_CLOUD" or "SIMULATION"
+    active_account_id: str = ""
     active_account_type: str = "DEMO"
-    mt5_login: str = ""
-    mt5_password: str = ""
-    mt5_server: str = ""
-    metaapi_token: str = ""
-    metaapi_account_id: str = ""
-    metaapi_region: str = "london"
+    deriv_token: str = ""
+    deriv_app_id: str = "1089"
+    default_stake_usd: float = 10.0
+    default_multiplier: int = 100
 
-    # Saved MT5 Accounts (Both DEMO and REAL)
-    accounts: list[dict[str, Any]] = field(default_factory=lambda: [dict(a) for a in DEFAULT_PRESEEDED_ACCOUNTS])
+    # Saved Deriv Token Accounts (Demo & Real Vault)
+    accounts: list[dict[str, Any]] = field(default_factory=list)
 
-    # Symbol Selection Mode ("PRINCIPAIS" vs "TODOS") and Custom Broker Categories
+    # Symbol Selection Mode ("PRINCIPAIS" vs "TODOS") and Custom Categories
     symbol_selection_mode: str = "PRINCIPAIS"
     custom_categories: dict[str, list[str]] = field(default_factory=lambda: dict(DEFAULT_CATEGORIES))
 
     # Active Running / Configured Robot Fleet
     bots: list[dict[str, Any]] = field(default_factory=list)
 
-    # Last Backtest Results History
+    # Backtest Results History
     backtest_history: list[dict[str, Any]] = field(default_factory=list)
 
     # Operational Rules from Wall Street Institutional Broker Transcript ("Fio")
     auto_trading_enabled: bool = True
     operation_mode: str = "BOTH"
     active_symbols: list[str] = field(
-        default_factory=lambda: ["WIN$N", "WDO$N", "BTCUSD#", "US100Cash#", "EURUSD"]
+        default_factory=lambda: ["R_100", "R_75", "1HZ100V", "frxEURUSD", "cryBTCUSD"]
     )
     correlated_basket: list[str] = field(
-        default_factory=lambda: ["PETR4", "VALE3", "Crypto_10#"]
+        default_factory=lambda: ["R_50", "R_25"]
     )
 
     # VWAP & Order Flow Aggression Calibration
@@ -238,21 +143,13 @@ class PradoServerConfig:
     imbalance_threshold: float = 0.35
     revert_sigma: float = 2.0
     correlation_block_threshold: float = 0.40
-    poll_interval_sec: float = 0.5
+    poll_interval_sec: float = 1.0
 
-    # Risk Guard & Execution ("HFT sempre dorme zerado")
-    default_lot_size: float = 0.10
+    # Risk Guard
     sl_sigma_mult: float = 1.0
     tp_sigma_mult: float = 1.8
-    breakeven_trigger_sigma: float = 0.7
-    trailing_step_sigma: float = 0.4
-    max_daily_loss_money: float = 5000.0
-    daily_target_money: float = 10000.0
-    trading_start_time: str = "09:05"
-    trading_end_time: str = "17:20"
-    eod_flatten_time: str = "17:35"
-    enforce_eod_flatten: bool = True
-    magic_number: int = 20261121
+    max_daily_loss_money: float = 500.0
+    daily_target_money: float = 1000.0
 
 
 def load_config(config_path: Path) -> PradoServerConfig:
@@ -273,19 +170,10 @@ def load_config(config_path: Path) -> PradoServerConfig:
         cfg.custom_categories = dict(DEFAULT_CATEGORIES)
         changed = True
 
-    # Ensure pre-seeded XM Global accounts exist and deduplicate any existing accounts
-    existing_logins = {str(a.get("mt5_login", "")) for a in cfg.accounts}
-    for pre in DEFAULT_PRESEEDED_ACCOUNTS:
-        if pre["mt5_login"] not in existing_logins:
-            cfg.accounts.append(dict(pre))
-            changed = True
-
     deduped = deduplicate_accounts(cfg.accounts)
     if len(deduped) != len(cfg.accounts):
         cfg.accounts = deduped
         changed = True
-    else:
-        cfg.accounts = deduped
 
     if changed or not config_path.exists():
         save_config(cfg, config_path)
