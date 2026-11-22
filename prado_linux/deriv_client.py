@@ -29,6 +29,7 @@ class DerivClient:
         self._authorized_info: dict[str, Any] = {}
 
     DERIV_ENDPOINTS = (
+        "wss://red.derivws.com/websockets/v3",
         "wss://green.derivws.com/websockets/v3",
         "wss://blue.derivws.com/websockets/v3",
         "wss://ws.derivws.com/websockets/v3",
