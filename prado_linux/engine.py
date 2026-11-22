@@ -73,6 +73,8 @@ class DerivUniversalConnector:
         self._sim_deals_history: list[dict[str, Any]] = []
         self._sim_daily_pnl: float = 0.0
         self._sim_balance: float = 10_000.0
+        self._tick_cache: dict[str, tuple[float, list[TickRecord]]] = {}
+        self._symbols_cache: tuple[float, list[dict[str, Any]]] | None = None
 
     def connect(self, token: str | None = None, app_id: str | None = None) -> tuple[bool, str]:
         target_token = (token if token is not None else self.cfg.deriv_token).strip()
@@ -143,17 +145,24 @@ class DerivUniversalConnector:
         if client is None and self.cfg.connection_mode.upper() != "SIMULATION":
             client = self._get_public_deriv()
         if client is not None:
-            try:
-                syms = client.get_active_symbols()
-                if syms:
-                    if mode_upper == "PRINCIPAIS":
-                        main_set = {m["name"] for m in MAIN_DERIV_SYMBOLS}
-                        filtered = [s for s in syms if s["name"] in main_set]
-                        if filtered:
-                            return filtered
-                    return syms[:500]
-            except Exception as exc:
-                self.last_error = f"Erro listando ativos Deriv: {exc}"
+            now = time.time()
+            if self._symbols_cache and (now - self._symbols_cache[0]) < 60.0:
+                syms = self._symbols_cache[1]
+            else:
+                try:
+                    syms = client.get_active_symbols()
+                    if syms:
+                        self._symbols_cache = (now, syms)
+                except Exception as exc:
+                    self.last_error = f"Erro listando ativos Deriv: {exc}"
+                    syms = []
+            if syms:
+                if mode_upper == "PRINCIPAIS":
+                    main_set = {m["name"] for m in MAIN_DERIV_SYMBOLS}
+                    filtered = [s for s in syms if s["name"] in main_set]
+                    if filtered:
+                        return filtered
+                return syms[:500]
 
         source = MAIN_DERIV_SYMBOLS if mode_upper == "PRINCIPAIS" else EXTENDED_ALL_SYMBOLS
         seen = {item["name"] for item in source}
@@ -237,6 +246,10 @@ class DerivUniversalConnector:
         }
 
     def fetch_ticks(self, symbol: str, count: int = 200) -> list[TickRecord]:
+        now = time.time()
+        cached = self._tick_cache.get(symbol)
+        if cached and (now - cached[0]) < 3.0 and len(cached[1]) >= min(count, 40):
+            return cached[1]
         client = self._deriv
         if client is None and self.cfg.connection_mode.upper() != "SIMULATION":
             client = self._get_public_deriv()
@@ -244,8 +257,11 @@ class DerivUniversalConnector:
             try:
                 ticks = client.get_ticks_history(symbol, count=min(500, count))
                 if ticks:
+                    self._tick_cache[symbol] = (now, ticks)
                     return ticks
             except Exception as exc:
+                if cached:
+                    return cached[1]
                 if self._deriv is not None:
                     self.last_error = f"Erro lendo ticks Deriv ({symbol}): {exc}"
         return self._generate_sim_ticks(symbol)
@@ -752,6 +768,40 @@ class PradoTradingService:
                 save_config(self.cfg, self.config_path)
             self._log_event("RISK_GUARD", "Limite diário destravado.")
             return {"ok": True, "max_daily_loss_money": self.cfg.max_daily_loss_money}
+
+    def get_chart_series(self, symbol: str) -> list[dict[str, Any]]:
+        ticks = self.connector.fetch_ticks(symbol, count=180)
+        if not ticks:
+            return []
+        points: list[dict[str, Any]] = []
+        pv_sum = 0.0
+        v_sum = 0.0
+        prices: list[float] = []
+        last_t = 0
+        for tk in ticks:
+            p = float(tk.effective_price())
+            vol = float(tk.tick_volume or 1.0)
+            pv_sum += p * vol
+            v_sum += vol
+            vwap = pv_sum / max(v_sum, 1e-9)
+            prices.append(p)
+            mean_p = sum(prices) / len(prices)
+            var = sum((x - mean_p) ** 2 for x in prices) / max(len(prices), 1)
+            std = math.sqrt(var)
+            t = int(tk.time_msc // 1000)
+            if t <= last_t:
+                t = last_t + 1
+            last_t = t
+            points.append(
+                {
+                    "time": t,
+                    "price": round(p, 6),
+                    "vwap": round(vwap, 6),
+                    "upper_2": round(vwap + 2.0 * std, 6),
+                    "lower_2": round(vwap - 2.0 * std, 6),
+                }
+            )
+        return points
 
     def run_mathematical_backtest(self, params: dict[str, Any]) -> dict[str, Any]:
         with self._lock:

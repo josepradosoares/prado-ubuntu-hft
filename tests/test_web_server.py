@@ -319,3 +319,14 @@ def test_web_app_deriv_token_vault_bots_categories_and_backtester(tmp_path: Path
     report = json.loads(body)["report"]
     assert report["symbol"] == "R_100"
     assert "net_profit" in report
+
+    # 7. Lightweight Charts API & React Static Build
+    code, body, _ = app.handle_request("GET", "/api/chart?symbol=R_100", headers=auth_headers, body=b"")
+    assert code == 200
+    chart_data = json.loads(body)
+    assert chart_data["ok"] is True
+    assert len(chart_data["points"]) > 0
+
+    code, html_body, _ = app.handle_request("GET", "/", headers=auth_headers, body=b"")
+    assert code == 200
+    assert "Prado Institutional HFT" in html_body

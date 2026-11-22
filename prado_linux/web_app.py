@@ -5,6 +5,7 @@ from dataclasses import asdict
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import mimetypes
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -12,7 +13,8 @@ from urllib.parse import parse_qs, urlparse
 from prado_linux.auth import create_session_token, hash_password, verify_password, verify_session_token
 from prado_linux.config import MATH_BOT_TEMPLATES, load_config
 from prado_linux.engine import PradoTradingService
-from prado_linux.templates import DASHBOARD_HTML, LOGIN_HTML
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 class PradoWebApp:
@@ -55,6 +57,12 @@ class PradoWebApp:
         d["accounts"] = safe_accs
         return d
 
+    def _serve_index(self) -> tuple[int, str, dict[str, str]]:
+        idx = STATIC_DIR / "index.html"
+        if idx.exists():
+            return 200, idx.read_text(encoding="utf-8"), {"Content-Type": "text/html; charset=utf-8"}
+        return 200, "<!doctype html><html><body>Prado HFT Static Build Missing</body></html>", {"Content-Type": "text/html; charset=utf-8"}
+
     def handle_request(
         self,
         method: str,
@@ -67,8 +75,16 @@ class PradoWebApp:
         clean_path = parsed_url.path
         query_params = parse_qs(parsed_url.query)
 
+        if method == "GET" and clean_path.startswith("/assets/"):
+            rel = clean_path.lstrip("/")
+            target = (STATIC_DIR / rel).resolve()
+            if STATIC_DIR.resolve() in target.parents and target.is_file():
+                ctype, _ = mimetypes.guess_type(str(target))
+                return 200, target.read_text(encoding="utf-8"), {"Content-Type": f"{ctype or 'application/octet-stream'}; charset=utf-8"}
+            return 404, "Not found", {"Content-Type": "text/plain; charset=utf-8"}
+
         if method == "GET" and clean_path == "/login":
-            return 200, LOGIN_HTML, {"Content-Type": "text/html; charset=utf-8"}
+            return self._serve_index()
 
         if method == "POST" and clean_path == "/api/login":
             try:
@@ -101,10 +117,15 @@ class PradoWebApp:
             return 302, "", {"Location": "/login"}
 
         if method == "GET" and clean_path == "/":
-            return 200, DASHBOARD_HTML, {"Content-Type": "text/html; charset=utf-8"}
+            return self._serve_index()
 
         if method == "GET" and clean_path == "/api/status":
             return 200, json.dumps(self.service.get_snapshot(), ensure_ascii=False), {"Content-Type": "application/json"}
+
+        if method == "GET" and clean_path == "/api/chart":
+            sym = str(query_params.get("symbol", ["R_100"])[0] or "R_100").strip()
+            points = self.service.get_chart_series(sym)
+            return 200, json.dumps({"ok": True, "symbol": sym, "points": points}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "GET" and clean_path == "/api/config":
             return (

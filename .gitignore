@@ -7,3 +7,4 @@ venv/
 data/*.json
 data/mt5_wine/
 *.log
+frontend/node_modules/
