@@ -1003,6 +1003,66 @@ class PradoTradingService:
             self._log_event("BOT_FLEET", "Frota de robôs limpa.")
             return self.cfg.bots
 
+    def _sync_deriv_accounts_locked(self) -> tuple[bool, str]:
+        if self.connector._deriv is None:
+            return False, "Conecte um Token e App ID válidos primeiro em Configuração Deriv."
+        try:
+            remote_accounts = self.connector._deriv.list_accounts()
+        except Exception as exc:
+            return False, f"Erro ao sincronizar contas da Deriv: {exc}"
+        if not remote_accounts:
+            return False, "Nenhuma conta retornada pela Deriv para este token."
+
+        synced_count = 0
+        for acc in remote_accounts:
+            loginid = str(acc.get("account_id") or acc.get("loginid") or "").strip()
+            if not loginid or loginid == "---":
+                continue
+            raw_type = str(acc.get("account_type", "")).lower()
+            acc_type = "DEMO" if (raw_type == "demo" or acc.get("is_virtual") in (1, True)) else "REAL"
+            existing = next(
+                (a for a in self.cfg.accounts if str(a.get("loginid", "")) == loginid or a.get("account_id") == f"deriv_{loginid}"),
+                None,
+            )
+            if existing is not None:
+                existing["account_type"] = acc_type
+                existing["deriv_token"] = self.cfg.deriv_token
+                existing["deriv_app_id"] = self.cfg.deriv_app_id
+                existing["loginid"] = loginid
+            else:
+                self.cfg.accounts.append(
+                    {
+                        "account_id": f"deriv_{loginid}",
+                        "account_type": acc_type,
+                        "label": f"Deriv {acc_type.title()} ({loginid})",
+                        "deriv_token": self.cfg.deriv_token,
+                        "deriv_app_id": self.cfg.deriv_app_id,
+                        "default_stake_usd": self.cfg.default_stake_usd,
+                        "default_multiplier": self.cfg.default_multiplier,
+                        "connection_mode": "DERIV_CLOUD",
+                        "loginid": loginid,
+                        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                )
+            synced_count += 1
+
+        self.cfg.accounts = deduplicate_accounts(self.cfg.accounts)
+        if not any(a.get("account_id") == self.cfg.active_account_id for a in self.cfg.accounts) and self.cfg.accounts:
+            demo = next((a for a in self.cfg.accounts if a.get("account_type") == "DEMO"), self.cfg.accounts[0])
+            self.cfg.active_account_id = demo["account_id"]
+            self.cfg.active_account_type = demo["account_type"]
+        return True, f"{synced_count} conta(s) Deriv sincronizada(s) com sucesso."
+
+    def sync_deriv_accounts(self) -> tuple[bool, str, list[dict[str, Any]]]:
+        with self._lock:
+            if self.connector._deriv is None and self.cfg.deriv_token:
+                self.connector.connect()
+            ok, msg = self._sync_deriv_accounts_locked()
+            if ok:
+                save_config(self.cfg, self.config_path)
+            self._log_event("TOKEN_VAULT", msg)
+            return ok, msg, list(self.cfg.accounts)
+
     def update_config(self, updates: dict[str, Any]) -> PradoServerConfig:
         with self._lock:
             for key, val in updates.items():
@@ -1011,6 +1071,10 @@ class PradoTradingService:
             if any(k in updates for k in ("deriv_token", "deriv_app_id", "connection_mode")):
                 ok, msg = self.connector.connect()
                 self._log_event("DERIV_CONFIG", msg)
+                if ok and self.connector._deriv is not None:
+                    s_ok, s_msg = self._sync_deriv_accounts_locked()
+                    if s_ok:
+                        self._log_event("TOKEN_VAULT", s_msg)
             save_config(self.cfg, self.config_path)
             self._log_event("CONFIG", "Configurações operacionais atualizadas.")
             return self.cfg

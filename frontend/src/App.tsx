@@ -173,6 +173,8 @@ export default function App() {
   const [accStake, setAccStake] = useState(10)
   const [accMult, setAccMult] = useState(100)
   const [accConnMode, setAccConnMode] = useState('DERIV_CLOUD')
+  const [useCustomCreds, setUseCustomCreds] = useState(false)
+  const [syncingAccounts, setSyncingAccounts] = useState(false)
 
   // Settings password state
   const [newAdminPassword, setNewAdminPassword] = useState('')
@@ -575,7 +577,7 @@ export default function App() {
         setCfgToken('')
         setAccAppId(d.config.deriv_app_id || '1089')
         setAccConnMode(d.config.connection_mode || 'DERIV_CLOUD')
-        showToast('Configuração Deriv salva!')
+        showToast('Configuração Deriv salva e contas sincronizadas!')
         const stRes = await fetch('/api/status')
         if (stRes.ok) setSnapshot(await stRes.json())
       } else {
@@ -586,13 +588,35 @@ export default function App() {
     }
   }
 
+  async function syncDerivAccounts() {
+    setSyncingAccounts(true)
+    try {
+      const res = await fetch('/api/accounts/sync', { method: 'POST' })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        if (config) {
+          setConfig({ ...config, accounts: d.accounts, active_account_id: d.active_account_id || config.active_account_id })
+        }
+        showToast(d.message || 'Contas sincronizadas da Deriv!')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.message || d.error || 'Não foi possível sincronizar as contas.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao sincronizar contas da Deriv.', true)
+    } finally {
+      setSyncingAccounts(false)
+    }
+  }
+
   async function saveDerivAccount(e: FormEvent) {
     e.preventDefault()
     const payload: Record<string, unknown> = {
       account_type: accType,
       label: accLabel.trim(),
-      deriv_token: accToken.trim(),
-      deriv_app_id: accAppId.trim() || '1089',
+      deriv_token: useCustomCreds ? accToken.trim() : '',
+      deriv_app_id: useCustomCreds ? accAppId.trim() || '1089' : '',
       default_stake_usd: Number(accStake),
       default_multiplier: Number(accMult),
       connection_mode: accConnMode,
@@ -1742,12 +1766,20 @@ export default function App() {
               {activeTab === 'deriv-tokens' && (
                 <div className="space-y-6">
                   <Card>
-                    <CardHeader>
+                    <CardHeader className="flex flex-wrap items-center justify-between gap-3">
                       <CardTitle>
                         {editingAccId
                           ? 'Editar conta Deriv'
-                          : 'Cofre de Tokens e Contas Deriv (Demo e Real)'}
+                          : 'Cofre de Contas Deriv (Demo e Real)'}
                       </CardTitle>
+                      <button
+                        type="button"
+                        onClick={syncDerivAccounts}
+                        disabled={syncingAccounts}
+                        className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3.5 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-300 disabled:opacity-50"
+                      >
+                        {syncingAccounts ? 'Sincronizando...' : 'Sincronizar contas da Deriv'}
+                      </button>
                     </CardHeader>
                     <CardBody>
                       <form
@@ -1767,7 +1799,7 @@ export default function App() {
                             <option value="REAL">Conta Real Deriv (CR)</option>
                           </select>
                         </div>
-                        <div>
+                        <div className="md:col-span-1 lg:col-span-2">
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
                             Nome de identificação
                           </label>
@@ -1780,33 +1812,62 @@ export default function App() {
                             required
                           />
                         </div>
-                        <div>
-                          <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
-                            Deriv App ID
-                          </label>
-                          <input
-                            type="text"
-                            value={accAppId}
-                            onChange={(e) => setAccAppId(e.target.value)}
-                            className={`${inputClass} font-mono`}
-                          />
-                        </div>
-                        <div className="lg:col-span-3">
-                          <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
-                            Deriv API Token
-                          </label>
-                          <input
-                            type="password"
-                            value={accToken}
-                            onChange={(e) => setAccToken(e.target.value)}
-                            placeholder={
-                              config?.deriv_token_set
-                                ? 'Token padrão carregado (deixe em branco para usar o salvo)'
-                                : 'Cole seu token da Deriv'
-                            }
-                            className={`${inputClass} font-mono`}
-                          />
-                        </div>
+
+                        {config?.deriv_token_set && !useCustomCreds ? (
+                          <div className="lg:col-span-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-4 py-2.5 text-xs">
+                            <span className="text-emerald-700 dark:text-emerald-300">
+                              Usando Token e App ID (<strong className="font-mono">{config.deriv_app_id}</strong>) salvos em <strong>Configuração Deriv</strong>.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setUseCustomCreds(true)}
+                              className="text-slate-600 dark:text-slate-300 underline hover:text-blue-500"
+                            >
+                              Usar outro token / App ID
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div>
+                              <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
+                                Deriv App ID
+                              </label>
+                              <input
+                                type="text"
+                                value={accAppId}
+                                onChange={(e) => setAccAppId(e.target.value)}
+                                className={`${inputClass} font-mono`}
+                              />
+                            </div>
+                            <div className="lg:col-span-2">
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="block text-xs text-slate-500 dark:text-slate-400">
+                                  Deriv API Token
+                                </label>
+                                {config?.deriv_token_set && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setUseCustomCreds(false)}
+                                    className="text-[11px] text-blue-500 underline"
+                                  >
+                                    Voltar a usar o token padrão
+                                  </button>
+                                )}
+                              </div>
+                              <input
+                                type="password"
+                                value={accToken}
+                                onChange={(e) => setAccToken(e.target.value)}
+                                placeholder={
+                                  config?.deriv_token_set
+                                    ? 'Token padrão carregado (deixe em branco para usar o salvo)'
+                                    : 'Cole seu token da Deriv'
+                                }
+                                className={`${inputClass} font-mono`}
+                              />
+                            </div>
+                          </>
+                        )}
                         <div>
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
                             Stake padrão (USD)

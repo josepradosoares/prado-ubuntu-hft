@@ -186,7 +186,10 @@ def load_config(config_path: Path) -> PradoServerConfig:
         cfg.custom_categories = dict(DEFAULT_CATEGORIES)
         changed = True
 
-    legacy_mt5 = {"WIN$N", "WDO$N", "IND$N", "DOL$N", "BTCUSD#", "US100Cash#", "EURUSD", "Crypto_10#"}
+    legacy_mt5 = {
+        "WIN$N", "WDO$N", "IND$N", "DOL$N", "BTCUSD#", "US100Cash#", "EURUSD", "Crypto_10#",
+        "VALE3", "PETR4", "ITUB4", "BBDC4", "BBAS3", "ABEV3", "B3SA3", "MGLU3", "WEGE3",
+    }
 
     def _is_legacy_mt5(sym: str) -> bool:
         return sym in legacy_mt5 or "#" in sym or "$" in sym

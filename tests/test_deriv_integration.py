@@ -417,3 +417,36 @@ def test_get_account_summary_propagates_auth_error_and_daily_realized() -> None:
     assert summary_err["auth_state"] == "TOKEN_EXPIRED"
     assert summary_err["trading_state"] == "BLOCKED"
     assert summary_err["backend"] == "DERIV_DISCONNECTED"
+
+
+def test_sync_deriv_accounts_and_vale3_cleanup(tmp_path) -> None:
+    from prado_linux.config import load_config
+    from prado_linux.web_app import PradoWebApp
+
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(
+        json.dumps({"active_symbols": ["VALE3", "R_100"], "correlated_basket": ["PETR4", "R_50"]}),
+        encoding="utf-8",
+    )
+    cfg = load_config(cfg_path)
+    assert cfg.active_symbols == ["R_100"]
+    assert cfg.correlated_basket == ["R_50"]
+
+    app = PradoWebApp(config_path=cfg_path)
+    app.service.cfg.deriv_token = "pat_test_sync_token"
+    app.service.cfg.deriv_app_id = "351TestAppId"
+
+    class _FakeDeriv:
+        def list_accounts(self):
+            return [
+                {"account_id": "VRTC9991", "account_type": "demo", "balance": 10000.0, "currency": "USD"},
+                {"account_id": "CR8882", "account_type": "real", "balance": 25.5, "currency": "USD"},
+            ]
+
+    app.service.connector._deriv = _FakeDeriv()  # type: ignore[assignment]
+    ok, msg, accs = app.service.sync_deriv_accounts()
+    assert ok is True
+    assert "2 conta(s)" in msg
+    loginids = {a["loginid"] for a in accs}
+    assert {"VRTC9991", "CR8882"}.issubset(loginids)
+    assert all(a["deriv_app_id"] == "351TestAppId" for a in accs if a["loginid"] in ("VRTC9991", "CR8882"))

@@ -231,6 +231,24 @@ class PradoWebApp:
                 {"Content-Type": "application/json"},
             )
 
+        if method == "POST" and clean_path == "/api/accounts/sync":
+            ok, msg, _ = self.service.sync_deriv_accounts()
+            self.service.step_once()
+            safe_cfg = self._safe_config_dict()
+            return (
+                200 if ok else 400,
+                json.dumps(
+                    {
+                        "ok": ok,
+                        "message": msg,
+                        "accounts": safe_cfg["accounts"],
+                        "active_account_id": safe_cfg["active_account_id"],
+                    },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+
         if method == "POST" and clean_path == "/api/accounts/select":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")

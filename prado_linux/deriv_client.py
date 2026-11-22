@@ -475,6 +475,27 @@ class DerivClient:
                 return acc
         return accounts[0]
 
+    def list_accounts(self) -> list[dict[str, Any]]:
+        """List all accounts (Demo & Real) belonging to the configured token + App ID."""
+        if self._rpc_transport is None and (self.is_pat_token or len(self.token) > 40):
+            if self.app_id == "1089":
+                raise DerivAuthError(
+                    "APP_ID_MISMATCH",
+                    "Token 'pat_...' não é aceito com App ID 1089.",
+                )
+            data = self._rest_call("GET", "/trading/v1/options/accounts")
+            accounts = data.get("data", []) if isinstance(data, dict) else []
+            return list(accounts)
+        auth = self.authorize()
+        return [
+            {
+                "account_id": auth.get("loginid", "---"),
+                "account_type": "demo" if auth.get("is_virtual", 1) else "real",
+                "balance": float(auth.get("balance", 0.0)),
+                "currency": str(auth.get("currency", "USD")),
+            }
+        ]
+
     def authorize(self) -> dict[str, Any]:
         if self._rpc_transport is None and self.is_pat_token and self.app_id == "1089":
             self.auth_state = "APP_ID_MISMATCH"
