@@ -63,24 +63,46 @@ class PradoWebApp:
             return 200, idx.read_text(encoding="utf-8"), {"Content-Type": "text/html; charset=utf-8"}
         return 200, "<!doctype html><html><body>Prado HFT Static Build Missing</body></html>", {"Content-Type": "text/html; charset=utf-8"}
 
+    def _serve_static_file(self, rel_path: str) -> tuple[int, str | bytes, dict[str, str]] | None:
+        rel = rel_path.lstrip("/")
+        if not rel:
+            return None
+        static_root = STATIC_DIR.resolve()
+        target = (static_root / rel).resolve()
+        if (static_root == target.parent or static_root in target.parents) and target.is_file():
+            ctype, _ = mimetypes.guess_type(str(target))
+            if target.suffix.lower() == ".svg":
+                ctype = "image/svg+xml"
+            elif target.suffix.lower() == ".ico":
+                ctype = "image/x-icon"
+            is_text = (ctype or "").startswith(("text/", "application/javascript", "application/json", "image/svg+xml"))
+            if is_text:
+                return 200, target.read_text(encoding="utf-8"), {"Content-Type": f"{ctype or 'text/plain'}; charset=utf-8"}
+            return 200, target.read_bytes(), {"Content-Type": ctype or "application/octet-stream"}
+        return None
+
     def handle_request(
         self,
         method: str,
         path: str,
         headers: dict[str, str],
         body: bytes = b"",
-    ) -> tuple[int, str, dict[str, str]]:
+    ) -> tuple[int, str | bytes, dict[str, str]]:
         method = method.upper()
         parsed_url = urlparse(path)
         clean_path = parsed_url.path
         query_params = parse_qs(parsed_url.query)
 
+        if method == "GET" and clean_path in ("/favicon.ico", "/favicon.svg"):
+            served = self._serve_static_file(clean_path)
+            if served is not None:
+                return served
+            return 404, "Not found", {"Content-Type": "text/plain; charset=utf-8"}
+
         if method == "GET" and clean_path.startswith("/assets/"):
-            rel = clean_path.lstrip("/")
-            target = (STATIC_DIR / rel).resolve()
-            if STATIC_DIR.resolve() in target.parents and target.is_file():
-                ctype, _ = mimetypes.guess_type(str(target))
-                return 200, target.read_text(encoding="utf-8"), {"Content-Type": f"{ctype or 'application/octet-stream'}; charset=utf-8"}
+            served = self._serve_static_file(clean_path)
+            if served is not None:
+                return served
             return 404, "Not found", {"Content-Type": "text/plain; charset=utf-8"}
 
         if method == "GET" and clean_path == "/login":
@@ -319,7 +341,7 @@ def run_http_server(config_path: Path, host: str = "0.0.0.0", port: int | None =
                 self.send_header(hk, hv)
             self.end_headers()
             if resp_body:
-                self.wfile.write(resp_body.encode("utf-8"))
+                self.wfile.write(resp_body if isinstance(resp_body, bytes) else resp_body.encode("utf-8"))
 
         def do_GET(self) -> None:
             self._dispatch("GET")
