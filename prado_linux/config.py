@@ -142,6 +142,7 @@ class PradoServerConfig:
 
     # Active Running / Configured Robot Fleet
     bots: list[dict[str, Any]] = field(default_factory=list)
+    custom_templates: list[dict[str, Any]] = field(default_factory=list)
 
     # Backtest Results History
     backtest_history: list[dict[str, Any]] = field(default_factory=list)

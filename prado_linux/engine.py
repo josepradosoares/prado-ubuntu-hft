@@ -30,6 +30,12 @@ from prado_linux.flow_math import (
     compute_flow_metrics,
     compute_intraday_vwap,
 )
+from prado_linux.indicators import (
+    DEFAULT_PYTHON_STRATEGY_TEMPLATE,
+    INDICATOR_CATALOG,
+    evaluate_indicator_model,
+    evaluate_python_model,
+)
 from prado_linux.news_scout import NewsScout
 
 MAIN_DERIV_SYMBOLS: list[dict[str, str]] = [
@@ -922,7 +928,7 @@ class PradoTradingService:
                     existing_bot.get("bot_template_id", "WALL_STREET_HYBRID_BOTH") if existing_bot else "WALL_STREET_HYBRID_BOTH",
                 )
             ).strip()
-            tpl = next((t for t in MATH_BOT_TEMPLATES if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
+            tpl = next((t for t in self.get_all_templates() if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
             auto_start = bool(payload.get("auto_start", True))
 
             bot_status = (
@@ -1159,6 +1165,127 @@ class PradoTradingService:
             self._log_event("RISK_GUARD", "Limite diário destravado.")
             return {"ok": True, "max_daily_loss_money": self.cfg.max_daily_loss_money}
 
+    def get_all_templates(self) -> list[dict[str, Any]]:
+        native = [{**t, "is_custom": False} for t in MATH_BOT_TEMPLATES]
+        custom = [{**t, "is_custom": True} for t in self.cfg.custom_templates]
+        return native + custom
+
+    def save_custom_template(self, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            tid = str(payload.get("template_id") or "").strip() or f"CUSTOM_{uuid.uuid4().hex[:8].upper()}"
+            if any(t["template_id"] == tid for t in MATH_BOT_TEMPLATES):
+                raise ValueError("Não é permitido sobrescrever modelos nativos.")
+            mode = str(payload.get("custom_mode") or "INDICATORS").strip().upper()
+            if mode not in ("INDICATORS", "PYTHON"):
+                mode = "INDICATORS"
+            name = str(payload.get("name") or "Modelo Customizado").strip()
+            indicators_cfg = list(payload.get("indicators") or [])
+            combine_mode = str(payload.get("combine_mode") or "MAJORITY").strip().upper()
+            python_code = str(payload.get("python_code") or DEFAULT_PYTHON_STRATEGY_TEMPLATE)
+            if mode == "INDICATORS":
+                ind_names = ", ".join(str(i.get("id", "")) for i in indicators_cfg) or "Sem indicadores"
+                formula = f"Indicadores ({combine_mode}): {ind_names}"
+            else:
+                formula = "Python Customizado: def evaluate(prices, ticks, params)"
+
+            rec: dict[str, Any] = {
+                "template_id": tid,
+                "name": name,
+                "operation_mode": "CUSTOM",
+                "custom_mode": mode,
+                "is_custom": True,
+                "formula": formula,
+                "description": str(payload.get("description") or "Modelo matemático criado pelo usuário.").strip(),
+                "window_ticks": max(20, int(payload.get("window_ticks") or 120)),
+                "zscore_threshold": float(payload.get("zscore_threshold") or 1.8),
+                "imbalance_threshold": float(payload.get("imbalance_threshold") or 0.35),
+                "revert_sigma": float(payload.get("revert_sigma") or 2.0),
+                "sl_sigma_mult": float(payload.get("sl_sigma_mult") or 1.0),
+                "tp_sigma_mult": float(payload.get("tp_sigma_mult") or 1.8),
+                "indicators": indicators_cfg,
+                "combine_mode": combine_mode,
+                "python_code": python_code,
+            }
+            existing = next((t for t in self.cfg.custom_templates if t.get("template_id") == tid), None)
+            if existing is not None:
+                existing.update(rec)
+            else:
+                self.cfg.custom_templates.append(rec)
+            save_config(self.cfg, self.config_path)
+            self._log_event("TEMPLATE", f"Modelo matemático '{name}' ({mode}) salvo.")
+            return rec
+
+    def delete_custom_template(self, template_id: str) -> bool:
+        with self._lock:
+            if any(t["template_id"] == template_id for t in MATH_BOT_TEMPLATES):
+                raise ValueError("Modelos nativos não podem ser excluídos.")
+            before = len(self.cfg.custom_templates)
+            self.cfg.custom_templates = [t for t in self.cfg.custom_templates if t.get("template_id") != template_id]
+            removed = len(self.cfg.custom_templates) < before
+            if removed:
+                save_config(self.cfg, self.config_path)
+                self._log_event("TEMPLATE", f"Modelo customizado '{template_id}' removido.")
+            return removed
+
+    def test_custom_template(self, payload: dict[str, Any]) -> dict[str, Any]:
+        symbol = str(payload.get("symbol") or "R_100").strip()
+        timeframe = str(payload.get("timeframe") or "TICKS").strip().upper()
+        gran = self.connector.TIMEFRAME_GRANULARITIES.get(timeframe, 0)
+        ticks = self.connector.fetch_ticks(symbol, count=200, granularity=gran)
+        prices = [float(t.effective_price()) for t in ticks]
+        mode = str(payload.get("custom_mode") or "INDICATORS").strip().upper()
+        if mode == "PYTHON":
+            res = evaluate_python_model(
+                str(payload.get("python_code") or ""),
+                prices=prices,
+                ticks=ticks,
+                params=dict(payload.get("params") or {}),
+            )
+            res["symbol"] = symbol
+            res["ticks_count"] = len(ticks)
+            return res
+        ind_res = evaluate_indicator_model(
+            ticks,
+            list(payload.get("indicators") or []),
+            combine_mode=str(payload.get("combine_mode") or "MAJORITY"),
+        )
+        return {
+            "ok": True,
+            "symbol": symbol,
+            "ticks_count": len(ticks),
+            "signal": ind_res["signal"],
+            "buy_votes": ind_res["buy_votes"],
+            "sell_votes": ind_res["sell_votes"],
+            "details": ind_res["details"],
+            "elapsed_ms": 0.0,
+            "stdout": "",
+            "error": "",
+        }
+
+    def _evaluate_custom_template(
+        self,
+        tpl: dict[str, Any],
+        ticks: list[TickRecord],
+        params: dict[str, Any] | None = None,
+    ) -> str:
+        mode = str(tpl.get("custom_mode") or "").strip().upper()
+        if mode == "PYTHON":
+            prices = [float(t.effective_price()) for t in ticks]
+            res = evaluate_python_model(str(tpl.get("python_code") or ""), prices, ticks, params or {})
+            if not res["ok"]:
+                return "WAIT"
+            sig = res["signal"]
+            return "BUY_FLOW" if sig == "BUY" else ("SELL_FLOW" if sig == "SELL" else "WAIT")
+        if mode == "INDICATORS":
+            res = evaluate_indicator_model(
+                ticks,
+                list(tpl.get("indicators") or []),
+                combine_mode=str(tpl.get("combine_mode") or "MAJORITY"),
+            )
+            sig = res["signal"]
+            return "BUY_FLOW" if sig == "BUY" else ("SELL_FLOW" if sig == "SELL" else "WAIT")
+        return ""
+
     def get_chart_series(self, symbol: str, timeframe: str = "TICKS") -> list[dict[str, Any]]:
         gran = self.connector.TIMEFRAME_GRANULARITIES.get(str(timeframe or "TICKS").strip().upper(), 0)
         ticks = self.connector.fetch_ticks(symbol, count=180, granularity=gran)
@@ -1198,7 +1325,7 @@ class PradoTradingService:
         with self._lock:
             symbol = str(params.get("symbol") or "R_100").strip()
             template_id = str(params.get("bot_template_id") or "WALL_STREET_HYBRID_BOTH").strip()
-            tpl = next((t for t in MATH_BOT_TEMPLATES if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
+            tpl = next((t for t in self.get_all_templates() if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
 
             tick_count = max(120, min(5000, int(params.get("tick_count") or 800)))
             initial_capital = float(params.get("initial_capital") or 10000.0)
@@ -1262,6 +1389,10 @@ class PradoTradingService:
                         operation_mode=op_mode,
                     )
                     act = flow.recommended_action
+                    if tpl.get("is_custom"):
+                        custom_act = self._evaluate_custom_template(tpl, sub_ticks, params)
+                        if custom_act:
+                            act = custom_act
                     if act in ("BUY_FLOW", "SELL_FLOW", "BUY_REVERT_VWAP", "SELL_REVERT_VWAP"):
                         is_b = act.startswith("BUY")
                         sl_pts = max(flow.sl_points, curr_price * 0.0005)
@@ -1751,6 +1882,15 @@ class PradoTradingService:
                     bot["active"] = bot.get("status") == "RUNNING"
                     bot["template_id"] = bot.get("template_id") or bot.get("bot_template_id", "")
                     bot["template_name"] = bot.get("template_name") or bot.get("bot_template_name", "")
+
+                    custom_tpl = next(
+                        (t for t in self.cfg.custom_templates if t.get("template_id") == bot["template_id"]),
+                        None,
+                    )
+                    if custom_tpl is not None:
+                        custom_act = self._evaluate_custom_template(custom_tpl, ticks, bot)
+                        if custom_act:
+                            bot_action = custom_act
 
                     if bot["template_id"] == "GRID_LINEAR_HFT" or str(bot.get("operation_mode", "")).upper() == "GRID_LINEAR":
                         positions = self._evaluate_grid_bot(bot, last_price, positions, risk_locked)

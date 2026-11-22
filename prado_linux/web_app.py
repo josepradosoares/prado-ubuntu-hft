@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 from prado_linux.auth import create_session_token, hash_password, verify_password, verify_session_token
 from prado_linux.config import MATH_BOT_TEMPLATES, load_config
 from prado_linux.engine import PradoTradingService
+from prado_linux.indicators import DEFAULT_PYTHON_STRATEGY_TEMPLATE, INDICATOR_CATALOG
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -326,7 +327,46 @@ class PradoWebApp:
             return 200, json.dumps({"ok": True, "news_feeds": feeds}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "GET" and clean_path == "/api/bot-templates":
-            return 200, json.dumps({"ok": True, "templates": MATH_BOT_TEMPLATES}, ensure_ascii=False), {"Content-Type": "application/json"}
+            return (
+                200,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "templates": self.service.get_all_templates(),
+                        "indicators": INDICATOR_CATALOG,
+                        "python_template": DEFAULT_PYTHON_STRATEGY_TEMPLATE,
+                    },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/bot-templates":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            act = str(payload.get("action") or "SAVE").strip().upper()
+            try:
+                if act == "DELETE":
+                    self.service.delete_custom_template(str(payload.get("template_id") or "").strip())
+                else:
+                    self.service.save_custom_template(payload)
+            except ValueError as exc:
+                return 400, json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), {"Content-Type": "application/json"}
+            return (
+                200,
+                json.dumps({"ok": True, "templates": self.service.get_all_templates()}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/bot-templates/test":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            res = self.service.test_custom_template(payload)
+            return 200, json.dumps(res, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "GET" and clean_path == "/api/bots":
             return 200, json.dumps({"ok": True, "bots": self.cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}

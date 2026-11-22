@@ -788,3 +788,63 @@ def test_bot_timeframe_ticks_and_candles_mode(tmp_path):
     assert len(ticks) == 2
     assert sent_payloads[-1]["style"] == "ticks"
     assert "granularity" not in sent_payloads[-1]
+
+
+def test_21_indicators_and_custom_templates_crud_test_and_execution(tmp_path):
+    from prado_linux.config import load_config
+    from prado_linux.engine import PradoTradingService
+    from prado_linux.flow_math import TickRecord
+    from prado_linux.indicators import INDICATOR_CATALOG, evaluate_indicator_model, evaluate_python_model, evaluate_single_indicator
+
+    assert len(INDICATOR_CATALOG) == 21
+    ticks = [
+        TickRecord(time_msc=1700000000000 + i * 1000, bid=100.0 + i * 0.5, ask=100.1 + i * 0.5, last=100.0 + i * 0.5, tick_volume=10.0)
+        for i in range(60)
+    ]
+    for ind in INDICATOR_CATALOG:
+        vote, val = evaluate_single_indicator(ind["id"], ticks, ind["default_params"])
+        assert vote in (-1, 0, 1)
+        assert isinstance(val, float)
+
+    ind_res = evaluate_indicator_model(ticks, [{"id": "SMA", "params": {"period": 10}}, {"id": "MOMENTUM", "params": {"period": 5}}], combine_mode="ALL")
+    assert ind_res["signal"] == "BUY"
+
+    # Python evaluator: valid, syntax error, runtime error
+    ok_py = evaluate_python_model("def evaluate(prices, ticks, params):\n    return 'BUY'\n", [100.0, 101.0], ticks, {})
+    assert ok_py["ok"] is True and ok_py["signal"] == "BUY"
+
+    bad_syn = evaluate_python_model("def evaluate(:", [100.0], ticks, {})
+    assert bad_syn["ok"] is False and "sintaxe" in bad_syn["error"].lower()
+
+    bad_run = evaluate_python_model("def evaluate(prices, ticks, params):\n    return 1/0\n", [100.0], ticks, {})
+    assert bad_run["ok"] is False and "ZeroDivisionError" in bad_run["error"]
+
+    # CRUD + Teste + Execução via PradoTradingService
+    cfg_path = tmp_path / "config.json"
+    cfg = load_config(cfg_path)
+    cfg.connection_mode = "SIMULATION"
+    cfg.auto_trading_enabled = True
+    service = PradoTradingService(cfg, config_path=cfg_path)
+
+    saved = service.save_custom_template(
+        {
+            "name": "Minha Estratégia Python",
+            "custom_mode": "PYTHON",
+            "python_code": "def evaluate(prices, ticks, params):\n    print('ok')\n    return 'BUY'\n",
+        }
+    )
+    assert any(t["template_id"] == saved["template_id"] for t in service.get_all_templates())
+    test_out = service.test_custom_template(
+        {"custom_mode": "PYTHON", "python_code": saved["python_code"], "symbol": "R_100"}
+    )
+    assert test_out["ok"] is True and test_out["signal"] == "BUY"
+
+    bot = service.create_bot(
+        {"name": "PyCustomBot", "symbol": "R_100", "bot_template_id": saved["template_id"], "auto_start": True}
+    )
+    snap = service.step_once()
+    b_out = next(b for b in snap["bots"] if b["bot_id"] == bot["bot_id"])
+    assert b_out["last_signal"] == "BUY_FLOW"
+
+    assert service.delete_custom_template(saved["template_id"]) is True
+    assert all(t["template_id"] != saved["template_id"] for t in service.get_all_templates())

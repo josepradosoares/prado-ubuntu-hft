@@ -195,6 +195,18 @@ export interface ServerConfig {
   correlated_basket: string[];
 }
 
+export interface IndicatorMeta {
+  id: string;
+  name: string;
+  category: string;
+  default_params: Record<string, number>;
+}
+
+export interface CustomIndicatorItem {
+  id: string;
+  params: Record<string, number>;
+}
+
 export interface BotTemplate {
   template_id: string;
   name: string;
@@ -213,6 +225,11 @@ export interface BotTemplate {
   max_loss_usd?: number;
   news_assisted?: boolean;
   timeframe?: string;
+  is_custom?: boolean;
+  custom_mode?: 'INDICATORS' | 'PYTHON';
+  combine_mode?: 'MAJORITY' | 'ALL';
+  indicators?: CustomIndicatorItem[];
+  python_code?: string;
   realized_pnl?: number;
   floating_pnl?: number;
   total_pnl?: number;

@@ -18,11 +18,13 @@ import {
   BrokerSymbol,
   ChartPoint,
   DerivAccount,
+  IndicatorMeta,
   ServerConfig,
   Snapshot,
 } from './types'
 import { LightweightChartPanel } from './components/LightweightChartPanel'
 import { BotCardGrid } from './components/BotCardGrid'
+import { ModelBuilderPanel } from './components/ModelBuilderPanel'
 import { Sidebar, TabKey } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { MarketIndicatorsBar } from './components/MarketIndicatorsBar'
@@ -59,6 +61,10 @@ const PAGE_META: Record<TabKey, { title: string; description: string }> = {
   'create-bot': {
     title: 'Configurar robô matemático',
     description: 'Parametrização quantitativa de VWAP, Z-Score, Imbalance e multiplicadores Deriv',
+  },
+  templates: {
+    title: 'Modelos Matemáticos',
+    description: 'Crie estratégias próprias combinando os 21 principais indicadores ou código Python com teste ao vivo',
   },
   backtest: {
     title: 'Backtest tick a tick',
@@ -110,6 +116,8 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [config, setConfig] = useState<ServerConfig | null>(null)
   const [templates, setTemplates] = useState<BotTemplate[]>([])
+  const [indicatorsCatalog, setIndicatorsCatalog] = useState<IndicatorMeta[]>([])
+  const [defaultPythonCode, setDefaultPythonCode] = useState('')
   const [symbols, setSymbols] = useState<BrokerSymbol[]>([])
   const [symbolMode, setSymbolMode] = useState<'PRINCIPAIS' | 'TODOS'>('PRINCIPAIS')
   const symbolModeRef = useRef<'PRINCIPAIS' | 'TODOS'>('PRINCIPAIS')
@@ -266,6 +274,8 @@ export default function App() {
       if (tplRes.ok) {
         const tData = await tplRes.json()
         setTemplates(Array.isArray(tData.templates) ? tData.templates : [])
+        setIndicatorsCatalog(Array.isArray(tData.indicators) ? tData.indicators : [])
+        if (typeof tData.python_template === 'string') setDefaultPythonCode(tData.python_template)
       }
       if (symRes.ok) {
         const sData = await symRes.json()
@@ -2420,6 +2430,19 @@ export default function App() {
                     })}
                   </section>
                 </div>
+              )}
+
+              {/* CUSTOM MATH MODELS BUILDER */}
+              {activeTab === 'templates' && (
+                <ModelBuilderPanel
+                  templates={templates}
+                  indicators={indicatorsCatalog}
+                  defaultPythonCode={defaultPythonCode}
+                  symbols={symbols}
+                  inputClass={inputClass}
+                  onTemplatesUpdated={setTemplates}
+                  showToast={showToast}
+                />
               )}
 
               {/* NEWS & MARKET RESEARCH BOT */}

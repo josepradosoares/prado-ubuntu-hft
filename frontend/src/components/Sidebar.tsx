@@ -15,6 +15,7 @@ import {
   X,
   ShieldCheck,
   Newspaper,
+  Code2,
 } from 'lucide-react'
 
 export type TabKey =
@@ -22,6 +23,7 @@ export type TabKey =
   | 'running-bots'
   | 'my-bots'
   | 'create-bot'
+  | 'templates'
   | 'backtest'
   | 'monitor'
   | 'news'
@@ -73,6 +75,7 @@ export function Sidebar({
       title: 'Quant & Estratégia',
       items: [
         { key: 'create-bot', label: 'Configurar robô matemático', icon: <Sliders className="h-4 w-4 shrink-0" /> },
+        { key: 'templates', label: 'Modelos Matemáticos', icon: <Code2 className="h-4 w-4 shrink-0" /> },
         { key: 'backtest', label: 'Backtest tick a tick', icon: <FlaskConical className="h-4 w-4 shrink-0" /> },
         { key: 'monitor', label: 'Matriz VWAP e Z-Score', icon: <BarChart3 className="h-4 w-4 shrink-0" /> },
         { key: 'news', label: 'Pesquisa & Notícias', icon: <Newspaper className="h-4 w-4 shrink-0" /> },
