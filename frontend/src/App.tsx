@@ -191,7 +191,7 @@ export default function App() {
   const [feedEditingId, setFeedEditingId] = useState('')
   const [feedSource, setFeedSource] = useState('')
   const [feedUrl, setFeedUrl] = useState('')
-  const [feedSymbol, setFeedSymbol] = useState('cryBTCUSD')
+  const [feedSymbol, setFeedSymbol] = useState('ALL')
 
   // Settings password state
   const [newAdminPassword, setNewAdminPassword] = useState('')
@@ -2459,12 +2459,35 @@ export default function App() {
                             />
                           </div>
                           <div className="md:col-span-2">
-                            <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">Ativo padrão</label>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="block text-[11px] text-slate-500 dark:text-slate-400">Ativo padrão</label>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  symbolModeRef.current = 'TODOS'
+                                  setSymbolMode('TODOS')
+                                  try {
+                                    const r = await fetch('/api/symbols?mode=TODOS')
+                                    if (r.ok) {
+                                      const d = await r.json()
+                                      setSymbols(Array.isArray(d.symbols) ? d.symbols : [])
+                                      showToast(`Carregados ${(d.symbols || []).length} ativos da Deriv!`)
+                                    }
+                                  } catch {
+                                    showToast('Erro ao carregar todos os ativos.', true)
+                                  }
+                                }}
+                                className="text-[10px] font-semibold text-blue-500 hover:text-blue-400"
+                              >
+                                Carregar todos ({symbols.length})
+                              </button>
+                            </div>
                             <select
                               value={feedSymbol}
                               onChange={(e) => setFeedSymbol(e.target.value)}
                               className={inputClass}
                             >
+                              <option value="ALL">TODOS (Monitorar todos os ativos)</option>
                               {symbols.map((s) => (
                                 <option key={s.name} value={s.name}>
                                   {s.name}
@@ -2505,7 +2528,7 @@ export default function App() {
                                 <div className="flex items-center gap-2">
                                   <span className="text-xs font-semibold text-slate-900 dark:text-white">{f.source}</span>
                                   <span className="rounded bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-700 dark:text-slate-300">
-                                    {f.default_symbol}
+                                    {f.default_symbol === 'ALL' ? 'TODOS OS ATIVOS' : f.default_symbol}
                                   </span>
                                 </div>
                                 <div className="truncate text-[11px] text-slate-500 dark:text-slate-400 font-mono">{f.url}</div>

@@ -1743,7 +1743,12 @@ class PradoTradingService:
 
                     # Per-bot News + Technical hybrid decision (only when enabled on THIS bot)
                     if bot.get("news_assisted"):
-                        news_info = self.news_scout.summary_by_symbol().get(bsym) or {}
+                        news_summary = self.news_scout.summary_by_symbol()
+                        news_info = news_summary.get(bsym) or {}
+                        if not news_info or news_info.get("bias") == "NEUTRAL":
+                            all_info = news_summary.get("ALL") or {}
+                            if all_info.get("bias") in ("BULLISH", "BEARISH"):
+                                news_info = all_info
                         news_bias = str(news_info.get("bias", "NEUTRAL"))
                         bot_pos = [
                             p for p in positions

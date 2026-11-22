@@ -669,11 +669,12 @@ def test_news_feeds_crud_and_per_bot_hybrid_news_decision(tmp_path):
     cfg.news_bot_enabled = True
     service = PradoTradingService(cfg, config_path=cfg_path)
 
-    # 1. CRUD de URLs de notícias
+    # 1. CRUD de URLs de notícias (incluindo ALL para monitorar todos os ativos)
     feeds = service.save_news_feed(
-        {"source": "Minha Fonte RSS", "url": "https://example.com/btc.xml", "default_symbol": "cryBTCUSD"}
+        {"source": "Minha Fonte RSS", "url": "https://example.com/btc.xml", "default_symbol": "ALL"}
     )
     saved = next(f for f in feeds if f["url"] == "https://example.com/btc.xml")
+    assert saved["default_symbol"] == "ALL"
     assert any(f["feed_id"] == saved["feed_id"] for f in service.cfg.news_feeds)
     updated_feeds = service.save_news_feed(
         {
