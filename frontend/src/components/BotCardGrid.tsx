@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   Play,
   Pause,
+  Square,
   Pencil,
   Trash2,
   TrendingUp,
@@ -287,12 +288,22 @@ export function BotCardGrid({
                       </button>
                       <span
                         className={`rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide border ${
-                          b.active
-                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                          b.status === 'ERROR'
+                            ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                            : b.status === 'PAUSED'
+                              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                              : b.active || b.status === 'RUNNING'
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                         }`}
                       >
-                        {b.active ? 'Ativo' : 'Pausado'}
+                        {b.status === 'ERROR'
+                          ? 'Erro'
+                          : b.status === 'PAUSED'
+                            ? 'Pausado'
+                            : b.active || b.status === 'RUNNING'
+                              ? 'Ativo'
+                              : 'Parado'}
                       </span>
                     </div>
                   </div>
@@ -364,6 +375,11 @@ export function BotCardGrid({
                       {signal}
                     </span>
                   </div>
+                  {b.last_error ? (
+                    <div className="mt-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[10px] font-mono text-rose-700 dark:text-rose-300 break-words">
+                      Erro isolado: {b.last_error}
+                    </div>
+                  ) : null}
                   {lastUpdated && (
                     <div className="mt-2 text-[10px] font-mono text-slate-400 dark:text-slate-500">
                       Atualização: {lastUpdated}
@@ -372,7 +388,7 @@ export function BotCardGrid({
                 </div>
 
                 {/* Action Controls */}
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-5 gap-1.5">
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-6 gap-1.5">
                   <button
                     type="button"
                     onClick={() => requestOrder(b, 'FIRE_BUY')}
@@ -393,11 +409,38 @@ export function BotCardGrid({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onAction(b.bot_id, b.active ? 'STOP' : 'START')}
-                    title={b.active ? 'Pausar robô' : 'Iniciar robô'}
+                    onClick={() =>
+                      onAction(
+                        b.bot_id,
+                        b.active || b.status === 'RUNNING'
+                          ? 'PAUSE'
+                          : b.status === 'PAUSED'
+                            ? 'RESUME'
+                            : 'START',
+                      )
+                    }
+                    title={
+                      b.active || b.status === 'RUNNING'
+                        ? 'Pausar robô'
+                        : b.status === 'PAUSED'
+                          ? 'Retomar robô'
+                          : 'Iniciar robô'
+                    }
                     className="inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-700 py-2 text-slate-700 dark:text-slate-200 transition"
                   >
-                    {b.active ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />}
+                    {b.active || b.status === 'RUNNING' ? (
+                      <Pause className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    ) : (
+                      <Play className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onAction(b.bot_id, 'STOP')}
+                    title="Parar robô com segurança"
+                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-700 py-2 text-slate-700 dark:text-slate-200 transition"
+                  >
+                    <Square className="h-3.5 w-3.5" />
                   </button>
                   <button
                     type="button"

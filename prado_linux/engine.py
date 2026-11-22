@@ -83,6 +83,7 @@ class DerivUniversalConnector:
         self._sim_ticks: dict[str, list[TickRecord]] = {}
         self._sim_positions: list[dict[str, Any]] = []
         self._sim_deals_history: list[dict[str, Any]] = []
+        self._deriv_deals_history: list[dict[str, Any]] = []
         self._sim_daily_pnl: float = 0.0
         self._sim_balance: float = 10_000.0
         self._tick_cache: dict[str, tuple[float, list[TickRecord]]] = {}
@@ -90,6 +91,7 @@ class DerivUniversalConnector:
         self._balance_cache: tuple[float, float] | None = None
         self._positions_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._last_order_ts: dict[str, float] = {}
+        self._last_ping_at: float = 0.0
 
     def connect(self, token: str | None = None, app_id: str | None = None) -> tuple[bool, str]:
         target_token = (token if token is not None else self.cfg.deriv_token).strip()
@@ -497,14 +499,17 @@ class DerivUniversalConnector:
                         {
                             "ticket": pos["ticket"],
                             "time": datetime.now().strftime("%H:%M:%S"),
+                            "time_str": datetime.now().strftime("%H:%M:%S"),
                             "symbol": sym,
                             "type": pos["type"],
+                            "side": pos["type"],
                             "volume": pos["volume"],
                             "price_open": pos["price_open"],
                             "price_close": round(curr, 6),
                             "profit": pos["profit"],
                             "reason": "TAKE_PROFIT" if hit_tp else "STOP_LOSS",
                             "comment": pos.get("comment", ""),
+                            "bot_name": pos.get("comment", ""),
                         },
                     )
                     self._sim_positions.remove(pos)
@@ -522,8 +527,13 @@ class DerivUniversalConnector:
         bot_name: str = "PradoBot",
     ) -> tuple[bool, str]:
         now = time.time()
+        max_stake = float(getattr(self.cfg, "max_stake_per_trade", 100.0) or 100.0)
+        if float(stake) > max_stake:
+            return False, f"Stake ${stake:.2f} excede o limite máximo por operação (${max_stake:.2f})."
+
+        min_interval = float(getattr(self.cfg, "min_order_interval_sec", 3.0) or 3.0)
         last_ts = self._last_order_ts.get(symbol, 0.0)
-        if (now - last_ts) < 3.0:
+        if (now - last_ts) < min_interval:
             return False, f"Intervalo mínimo entre operações ativo para {symbol}"
 
         if self.cfg.connection_mode.upper() != "SIMULATION":
@@ -535,6 +545,21 @@ class DerivUniversalConnector:
             rl = self.rate_limiter.status(now)
             if rl.get("state") == "BLOCKED":
                 return False, f"Negociação bloqueada por RateLimit ({rl.get('cooldown_seconds')}s)"
+            if self.last_tick_at > 0 and self._compute_data_state(now) == "STALE":
+                return False, f"Negociação bloqueada: preço desatualizado (STALE) para {symbol}."
+
+        open_positions = self.get_open_positions()
+        max_concurrent = int(getattr(self.cfg, "max_concurrent_trades", 5) or 5)
+        if len(open_positions) >= max_concurrent:
+            return False, f"Limite de operações simultâneas atingido ({len(open_positions)}/{max_concurrent})."
+
+        max_exposure = float(getattr(self.cfg, "max_total_exposure_usd", 500.0) or 500.0)
+        current_exposure = sum(float(p.get("volume", 0.0)) for p in open_positions)
+        if (current_exposure + float(stake)) > max_exposure:
+            return False, f"Exposição total (${current_exposure + float(stake):.2f}) excede o limite (${max_exposure:.2f})."
+
+        if any(p.get("symbol") == symbol for p in open_positions):
+            return False, f"Posição já aberta em {symbol} (bloqueio de ordem duplicada)."
 
         self._last_order_ts[symbol] = now
         is_buy = action.startswith("BUY")
@@ -552,16 +577,16 @@ class DerivUniversalConnector:
             self._positions_cache = None
             return ok, msg
 
-        if any(p["symbol"] == symbol for p in self._sim_positions):
-            return False, f"Posição já aberta em {symbol}"
         sl = round(price - sl_points, 6) if is_buy else round(price + sl_points, 6)
         tp = round(price + tp_points, 6) if is_buy else round(price - tp_points, 6)
         ticket = int(time.time() * 1000) % 100_000_000
+        side_str = "BUY" if is_buy else "SELL"
         self._sim_positions.append(
             {
                 "ticket": ticket,
                 "symbol": symbol,
-                "type": "BUY" if is_buy else "SELL",
+                "type": side_str,
+                "side": side_str,
                 "volume": float(stake),
                 "multiplier": int(multiplier),
                 "price_open": round(price, 6),
@@ -584,25 +609,49 @@ class DerivUniversalConnector:
                 ok, _ = self._deriv.close_contract(str(p["ticket"]))
                 if ok:
                     closed += 1
+                    ts_str = datetime.now().strftime("%H:%M:%S")
+                    self._deriv_deals_history.insert(
+                        0,
+                        {
+                            "ticket": p["ticket"],
+                            "time": ts_str,
+                            "time_str": ts_str,
+                            "symbol": p["symbol"],
+                            "type": p.get("type", p.get("side", "BUY")),
+                            "side": p.get("side", p.get("type", "BUY")),
+                            "volume": p.get("volume", 0.0),
+                            "price_open": p.get("price_open", 0.0),
+                            "price_close": p.get("price_current", 0.0),
+                            "profit": float(p.get("profit", 0.0)),
+                            "reason": reason,
+                            "comment": p.get("comment", ""),
+                            "bot_name": p.get("comment", "Deriv"),
+                        },
+                    )
+            self._positions_cache = None
             return closed, f"[Deriv] {closed} contrato(s) encerrado(s) ({reason})."
 
         count = len(self._sim_positions)
         for p in self._sim_positions:
             pnl = float(p.get("profit", 0.0))
             self._sim_daily_pnl += pnl
+            ts_str = datetime.now().strftime("%H:%M:%S")
             self._sim_deals_history.insert(
                 0,
                 {
                     "ticket": p["ticket"],
-                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "time": ts_str,
+                    "time_str": ts_str,
                     "symbol": p["symbol"],
                     "type": p["type"],
+                    "side": p["type"],
                     "volume": p["volume"],
                     "price_open": p["price_open"],
                     "price_close": p["price_current"],
                     "profit": pnl,
                     "reason": reason,
                     "comment": p.get("comment", ""),
+                    "bot_name": p.get("comment", ""),
                 },
             )
         self._sim_positions.clear()
@@ -612,25 +661,53 @@ class DerivUniversalConnector:
         if self.cfg.connection_mode.upper() != "SIMULATION":
             if self._deriv is None:
                 return False, "Deriv desconectada: não é possível encerrar contrato."
-            return self._deriv.close_contract(str(ticket))
+            positions = self.get_open_positions()
+            matched = next((p for p in positions if str(p.get("ticket")) == str(ticket)), None)
+            ok, msg = self._deriv.close_contract(str(ticket))
+            if ok:
+                self._positions_cache = None
+                ts_str = datetime.now().strftime("%H:%M:%S")
+                self._deriv_deals_history.insert(
+                    0,
+                    {
+                        "ticket": str(ticket),
+                        "time": ts_str,
+                        "time_str": ts_str,
+                        "symbol": matched["symbol"] if matched else "--",
+                        "type": matched.get("type", "BUY") if matched else "BUY",
+                        "side": matched.get("side", "BUY") if matched else "BUY",
+                        "volume": matched.get("volume", 0.0) if matched else 0.0,
+                        "price_open": matched.get("price_open", 0.0) if matched else 0.0,
+                        "price_close": matched.get("price_current", 0.0) if matched else 0.0,
+                        "profit": float(matched.get("profit", 0.0)) if matched else 0.0,
+                        "reason": "FECHAMENTO_MANUAL",
+                        "comment": matched.get("comment", "") if matched else "Deriv",
+                        "bot_name": matched.get("comment", "Deriv") if matched else "Deriv",
+                    },
+                )
+            return ok, msg
 
         for p in list(self._sim_positions):
             if str(p["ticket"]) == str(ticket):
                 pnl = float(p.get("profit", 0.0))
                 self._sim_daily_pnl += pnl
+                ts_str = datetime.now().strftime("%H:%M:%S")
                 self._sim_deals_history.insert(
                     0,
                     {
                         "ticket": p["ticket"],
-                        "time": datetime.now().strftime("%H:%M:%S"),
+                        "time": ts_str,
+                        "time_str": ts_str,
                         "symbol": p["symbol"],
                         "type": p["type"],
+                        "side": p["type"],
                         "volume": p["volume"],
                         "price_open": p["price_open"],
                         "price_close": p["price_current"],
                         "profit": pnl,
                         "reason": "FECHAMENTO_MANUAL",
                         "comment": p.get("comment", ""),
+                        "bot_name": p.get("comment", ""),
                     },
                 )
                 self._sim_positions.remove(p)
@@ -808,11 +885,18 @@ class PradoTradingService:
             tpl = next((t for t in MATH_BOT_TEMPLATES if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
             auto_start = bool(payload.get("auto_start", True))
 
+            bot_status = (
+                existing_bot.get("status", "RUNNING")
+                if existing_bot and "auto_start" not in payload
+                else ("RUNNING" if auto_start else "STOPPED")
+            )
             bot_record: dict[str, Any] = {
                 "bot_id": bot_id,
                 "name": str(payload.get("name") or (existing_bot.get("name") if existing_bot else f"{tpl['name'].split('—')[0].strip()} ({symbol})")).strip(),
                 "bot_template_id": template_id,
                 "bot_template_name": tpl["name"],
+                "template_id": template_id,
+                "template_name": tpl["name"],
                 "formula": tpl["formula"],
                 "account_id": account_id,
                 "account_type": account_type,
@@ -829,7 +913,9 @@ class PradoTradingService:
                 "sl_sigma_mult": float(payload.get("sl_sigma_mult") or tpl["sl_sigma_mult"]),
                 "tp_sigma_mult": float(payload.get("tp_sigma_mult") or tpl["tp_sigma_mult"]),
                 "correlated_basket": list(payload.get("correlated_basket") or self.cfg.correlated_basket),
-                "status": existing_bot.get("status", "RUNNING") if existing_bot and "auto_start" not in payload else ("RUNNING" if auto_start else "STOPPED"),
+                "status": bot_status,
+                "active": bot_status == "RUNNING",
+                "last_error": "",
                 "last_signal": existing_bot.get("last_signal", "WAIT") if existing_bot else "WAIT",
                 "last_regime": existing_bot.get("last_regime", "NEUTRAL") if existing_bot else "NEUTRAL",
                 "last_price": existing_bot.get("last_price", 0.0) if existing_bot else 0.0,
@@ -857,10 +943,22 @@ class PradoTradingService:
                 if b.get("bot_id") == bot_id:
                     if act == "START":
                         b["status"] = "RUNNING"
+                        b["active"] = True
+                        b["last_error"] = ""
                         self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) iniciado.")
+                    elif act == "PAUSE":
+                        b["status"] = "PAUSED"
+                        b["active"] = False
+                        self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) pausado (contratos existentes mantidos).")
+                    elif act == "RESUME":
+                        b["status"] = "RUNNING"
+                        b["active"] = True
+                        b["last_error"] = ""
+                        self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) retomado.")
                     elif act == "STOP":
                         b["status"] = "STOPPED"
-                        self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) pausado.")
+                        b["active"] = False
+                        self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) parado com segurança.")
                     elif act in ("FIRE_BUY", "FIRE_SELL"):
                         sym = str(b.get("symbol", "R_100"))
                         ticks = self.connector.fetch_ticks(sym, count=120)
@@ -1053,23 +1151,27 @@ class PradoTradingService:
                 "symbol": symbol,
                 "bot_template_id": template_id,
                 "bot_template_name": tpl["name"],
+                "template_name": tpl["name"],
                 "formula": tpl["formula"],
                 "operation_mode": op_mode,
                 "ticks_processed": len(ticks),
                 "initial_capital": round(initial_capital, 2),
                 "final_equity": round(balance, 2),
+                "final_capital": round(balance, 2),
                 "net_profit": net_profit,
                 "return_pct": round((net_profit / initial_capital) * 100.0, 2) if initial_capital > 0 else 0.0,
                 "total_trades": len(trades),
                 "winning_trades": len(wins),
                 "losing_trades": len(losses),
                 "win_rate_pct": win_rate,
+                "win_rate": win_rate,
                 "gross_profit": gross_profit,
                 "gross_loss": gross_loss,
                 "profit_factor": profit_factor,
                 "max_drawdown": round(max_drawdown, 2),
                 "trades": trades[-30:],
                 "executed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
             self.cfg.backtest_history.insert(0, {k: v for k, v in report.items() if k != "trades"})
             self.cfg.backtest_history = self.cfg.backtest_history[:15]
@@ -1104,6 +1206,28 @@ class PradoTradingService:
 
     def step_once(self) -> dict[str, Any]:
         with self._lock:
+            now_step = time.time()
+            # Controlled heartbeat ping & reconnection for live Deriv WebSocket
+            if (
+                self.cfg.connection_mode.upper() != "SIMULATION"
+                and self.connector._deriv is not None
+                and self.connector._deriv._ws is not None
+                and (now_step - self.connector._last_ping_at) >= 30.0
+            ):
+                self.connector._last_ping_at = now_step
+                if not self.connector._deriv.ping():
+                    self.connector.connection_state = "RECONNECTING"
+                    self.connector.connected = False
+                    self._log_event("DERIV_WS", "Conexão WebSocket interrompida. Iniciando reconexão controlada...")
+                    if self.connector._deriv.reconnect():
+                        self.connector.connection_state = "CONNECTED"
+                        self.connector.connected = True
+                        self._log_event("DERIV_WS", "Reconexão WebSocket Deriv concluída.")
+                    else:
+                        self.connector.connection_state = "DISCONNECTED"
+                        self.connector.backend_name = "DERIV_DISCONNECTED"
+                        self._log_event("DERIV_WS", f"Falha na reconexão Deriv: {self.connector._deriv.last_error}")
+
             corr_scores: list[float] = []
             for corr_sym in self.cfg.correlated_basket:
                 c_ticks = self.connector.fetch_ticks(corr_sym, count=150)
@@ -1169,6 +1293,7 @@ class PradoTradingService:
                 symbols_data[sym] = {
                     "symbol": sym,
                     "last_price": round(last_price, 6),
+                    "price": round(last_price, 6),
                     "vwap": round(vwap_bands.vwap, 6),
                     "std_dev": round(vwap_bands.std_dev, 6),
                     "upper_1": round(vwap_bands.upper_1, 6),
@@ -1176,61 +1301,81 @@ class PradoTradingService:
                     "upper_2": round(vwap_bands.upper_2, 6),
                     "lower_2": round(vwap_bands.lower_2, 6),
                     "distance_sigma": distance_sigma,
+                    "sigma_distance": distance_sigma,
                     "imbalance_ratio": round(flow.imbalance_ratio, 4),
+                    "imbalance": round(flow.imbalance_ratio, 4),
                     "aggression_zscore": round(flow.aggression_zscore, 4),
+                    "zscore": round(flow.aggression_zscore, 4),
                     "correlation_bias": corr_bias,
                     "regime": flow.regime,
                     "action": action,
+                    "signal": action,
                 }
 
             for bot in self.cfg.bots:
-                bsym = bot.get("symbol", "")
-                ticks = self.connector.fetch_ticks(bsym, count=200)
-                vwap_bands = compute_intraday_vwap(ticks)
-                bot_flow = compute_flow_metrics(
-                    ticks,
-                    vwap_bands,
-                    window_size=int(bot.get("window_ticks", self.cfg.window_ticks)),
-                    z_threshold=float(bot.get("zscore_threshold", self.cfg.zscore_threshold)),
-                    imbalance_threshold=float(bot.get("imbalance_threshold", self.cfg.imbalance_threshold)),
-                    revert_sigma=float(bot.get("revert_sigma", self.cfg.revert_sigma)),
-                    sl_sigma_mult=float(bot.get("sl_sigma_mult", self.cfg.sl_sigma_mult)),
-                    tp_sigma_mult=float(bot.get("tp_sigma_mult", self.cfg.tp_sigma_mult)),
-                    operation_mode=str(bot.get("operation_mode", "BOTH")),
-                )
-                last_price = ticks[-1].effective_price() if ticks else 0.0
-                bot_action = bot_flow.recommended_action
+                try:
+                    bsym = bot.get("symbol", "")
+                    if not bsym:
+                        raise ValueError("Robô sem símbolo configurado")
+                    ticks = self.connector.fetch_ticks(bsym, count=200)
+                    vwap_bands = compute_intraday_vwap(ticks)
+                    bot_flow = compute_flow_metrics(
+                        ticks,
+                        vwap_bands,
+                        window_size=int(bot.get("window_ticks", self.cfg.window_ticks)),
+                        z_threshold=float(bot.get("zscore_threshold", self.cfg.zscore_threshold)),
+                        imbalance_threshold=float(bot.get("imbalance_threshold", self.cfg.imbalance_threshold)),
+                        revert_sigma=float(bot.get("revert_sigma", self.cfg.revert_sigma)),
+                        sl_sigma_mult=float(bot.get("sl_sigma_mult", self.cfg.sl_sigma_mult)),
+                        tp_sigma_mult=float(bot.get("tp_sigma_mult", self.cfg.tp_sigma_mult)),
+                        operation_mode=str(bot.get("operation_mode", "BOTH")),
+                    )
+                    last_price = ticks[-1].effective_price() if ticks else 0.0
+                    bot_action = bot_flow.recommended_action
 
-                bot["last_price"] = round(last_price, 6)
-                bot["vwap"] = round(vwap_bands.vwap, 6)
-                bot["aggression_zscore"] = round(bot_flow.aggression_zscore, 4)
-                bot["imbalance_ratio"] = round(bot_flow.imbalance_ratio, 4)
-                bot["last_regime"] = bot_flow.regime
-                bot["last_signal"] = bot_action
+                    bot["last_price"] = round(last_price, 6)
+                    bot["vwap"] = round(vwap_bands.vwap, 6)
+                    bot["aggression_zscore"] = round(bot_flow.aggression_zscore, 4)
+                    bot["imbalance_ratio"] = round(bot_flow.imbalance_ratio, 4)
+                    bot["last_regime"] = bot_flow.regime
+                    bot["last_signal"] = bot_action
+                    bot["active"] = bot.get("status") == "RUNNING"
+                    bot["template_id"] = bot.get("template_id") or bot.get("bot_template_id", "")
+                    bot["template_name"] = bot.get("template_name") or bot.get("bot_template_name", "")
 
-                if (
-                    bot.get("status") == "RUNNING"
-                    and self.cfg.auto_trading_enabled
-                    and not risk_locked
-                    and bot_action in ("BUY_FLOW", "SELL_FLOW", "BUY_REVERT_VWAP", "SELL_REVERT_VWAP")
-                ):
-                    has_pos = any(p["symbol"] == bsym for p in positions)
-                    if not has_pos:
-                        ok, msg = self.connector.place_order(
-                            symbol=bsym,
-                            action=bot_action,
-                            stake=float(bot.get("lot_size", self.cfg.default_stake_usd)),
-                            price=last_price,
-                            sl_points=bot_flow.sl_points,
-                            tp_points=bot_flow.tp_points,
-                            multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
-                            bot_name=str(bot.get("name", "PradoBot")),
-                        )
-                        if ok:
-                            bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
-                            self._log_event("BOT_EXEC", msg)
-                            positions = self.connector.get_open_positions()
+                    if (
+                        bot.get("status") == "RUNNING"
+                        and self.cfg.auto_trading_enabled
+                        and not risk_locked
+                        and bot_action in ("BUY_FLOW", "SELL_FLOW", "BUY_REVERT_VWAP", "SELL_REVERT_VWAP")
+                    ):
+                        has_pos = any(p["symbol"] == bsym for p in positions)
+                        if not has_pos:
+                            ok, msg = self.connector.place_order(
+                                symbol=bsym,
+                                action=bot_action,
+                                stake=float(bot.get("lot_size", self.cfg.default_stake_usd)),
+                                price=last_price,
+                                sl_points=bot_flow.sl_points,
+                                tp_points=bot_flow.tp_points,
+                                multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
+                                bot_name=str(bot.get("name", "PradoBot")),
+                            )
+                            if ok:
+                                bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
+                                self._log_event("BOT_EXEC", msg)
+                                positions = self.connector.get_open_positions()
+                except Exception as bot_exc:
+                    bot["status"] = "ERROR"
+                    bot["active"] = False
+                    bot["last_error"] = str(bot_exc)
+                    self._log_event("BOT_ERROR", f"Erro isolado no robô '{bot.get('name', bot.get('bot_id', '?'))}': {bot_exc}")
 
+            active_deals = (
+                self.connector._sim_deals_history
+                if self.cfg.connection_mode.upper() == "SIMULATION"
+                else self.connector._deriv_deals_history
+            )
             self._latest_snapshot = {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "account": acc,
@@ -1243,12 +1388,17 @@ class PradoTradingService:
                 "risk_status": risk_status,
                 "risk_locked": risk_locked,
                 "correlation_bias": corr_bias,
+                "basket_bias": corr_bias,
                 "auto_trading_enabled": self.cfg.auto_trading_enabled,
                 "operation_mode": self.cfg.operation_mode,
                 "positions": positions,
-                "deals_history": list(self.connector._sim_deals_history[:40]),
+                "deals_history": list(active_deals[:40]),
                 "symbols": symbols_data,
                 "events": list(self._event_log[:30]),
+                "logs": [
+                    {"time": e["time"], "module": e["category"], "message": e["message"]}
+                    for e in self._event_log[:40]
+                ],
             }
             return self._latest_snapshot
 

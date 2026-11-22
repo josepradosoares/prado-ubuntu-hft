@@ -186,6 +186,7 @@ class DerivClient:
         self.connection_state: str = "DISCONNECTED"
         self.auth_state: str = "UNAUTHENTICATED"
         self.last_error: str = ""
+        self.last_order_lifecycle: dict[str, Any] = {}
 
     @property
     def is_pat_token(self) -> bool:
@@ -260,14 +261,51 @@ class DerivClient:
             raise RuntimeError(f"Deriv REST ({exc.code}): {body[:240]}")
 
     def _open_ws_url(self, url: str) -> Any:
-        import websocket  # type: ignore
+        try:
+            import websocket  # type: ignore
 
-        return websocket.create_connection(
-            url,
-            origin="https://app.deriv.com",
-            header=["User-Agent: Mozilla/5.0"],
-            timeout=10,
-        )
+            return websocket.create_connection(
+                url,
+                origin="https://app.deriv.com",
+                header=["User-Agent: Mozilla/5.0"],
+                timeout=10,
+            )
+        except ModuleNotFoundError:
+            from websockets.sync.client import connect as ws_sync_connect  # type: ignore
+
+            cm = ws_sync_connect(
+                url,
+                origin="https://app.deriv.com",
+                additional_headers={"User-Agent": "Mozilla/5.0"},
+                open_timeout=10,
+                close_timeout=5,
+            )
+            conn = cm.__enter__()
+
+            class _WebsocketsSyncAdapter:
+                def __init__(self, inner: Any, ctx: Any) -> None:
+                    self._inner = inner
+                    self._ctx = ctx
+                    self.connected = True
+
+                def send(self, data: str) -> None:
+                    self._inner.send(data)
+
+                def recv(self) -> str:
+                    res = self._inner.recv(timeout=10)
+                    return res.decode("utf-8") if isinstance(res, bytes) else str(res)
+
+                def close(self) -> None:
+                    self.connected = False
+                    try:
+                        self._ctx.__exit__(None, None, None)
+                    except Exception:
+                        try:
+                            self._inner.close()
+                        except Exception:
+                            pass
+
+            return _WebsocketsSyncAdapter(conn, cm)
 
     def _open_connection(self) -> Any:
         self.connection_state = "CONNECTING"
@@ -404,6 +442,24 @@ class DerivClient:
                     pass
                 self._ws = None
             self.connection_state = "DISCONNECTED"
+
+    def reconnect(self) -> bool:
+        """Controlled reconnection: closes stale WS and requests fresh OTP if needed."""
+        with self._lock:
+            self.connection_state = "RECONNECTING"
+            if self._ws is not None:
+                try:
+                    self._ws.close()
+                except Exception:
+                    pass
+                self._ws = None
+            try:
+                self._ws = self._open_connection()
+                return True
+            except Exception as exc:
+                self.last_error = str(exc)
+                self.connection_state = "ERROR"
+                return False
 
     def _pick_account(self, accounts: list[dict[str, Any]]) -> dict[str, Any]:
         want_demo = self.preferred_account_type != "REAL"
@@ -547,23 +603,38 @@ class DerivClient:
         if limit_order:
             proposal_req["limit_order"] = limit_order
 
+        self.last_order_lifecycle = {
+            "stage": "ORDER_REQUESTED",
+            "symbol": symbol,
+            "contract_type": contract_type,
+            "stake": round(max(1.0, float(stake)), 2),
+            "multiplier": int(multiplier),
+            "timestamp": time.time(),
+        }
         prop_resp = self._send_rpc(proposal_req)
         prop = prop_resp.get("proposal", {})
         prop_id = prop.get("id")
         if not prop_id:
+            self.last_order_lifecycle["stage"] = "ORDER_ERROR"
             return False, f"[Deriv] Proposta recusada para {symbol}: {prop_resp}"
 
+        self.last_order_lifecycle["stage"] = "PROPOSAL_VALIDATED"
+        self.last_order_lifecycle["proposal_id"] = prop_id
         ask_price = float(prop.get("ask_price", stake))
         try:
             buy_resp = self._send_rpc({"buy": prop_id, "price": round(ask_price * 1.05, 2)})
         except Exception as exc:
             # Never auto-retry buy on timeout/disconnect without reconciling portfolio first
+            self.last_order_lifecycle["stage"] = "RECONCILIATION_REQUIRED"
             return False, f"[Deriv] Compra em {symbol} requer reconciliação (sem reenvio automático): {exc}"
 
         buy_data = buy_resp.get("buy", {})
         cid = buy_data.get("contract_id")
         if cid:
+            self.last_order_lifecycle["stage"] = "CONTRACT_OPEN"
+            self.last_order_lifecycle["contract_id"] = cid
             return True, f"[Deriv] Multiplier {contract_type} ({multiplier}x) aberto em {symbol} | Contrato #{cid}"
+        self.last_order_lifecycle["stage"] = "ORDER_ERROR"
         return False, f"[Deriv] Falha na compra em {symbol}: {buy_resp}"
 
     def get_open_contracts(self) -> list[dict[str, Any]]:
@@ -589,6 +660,7 @@ class DerivClient:
                     "ticket": cid,
                     "symbol": str(poc.get("underlying_symbol") or poc.get("underlying") or c.get("symbol") or ""),
                     "type": "BUY" if is_buy else "SELL",
+                    "side": "BUY" if is_buy else "SELL",
                     "volume": float(poc.get("buy_price", c.get("buy_price", 0.0))),
                     "price_open": round(float(poc.get("entry_spot", 0.0)), 6),
                     "price_current": round(float(poc.get("current_spot", 0.0)), 6),

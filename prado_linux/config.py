@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
+import os
 from pathlib import Path
 import secrets
 from typing import Any
@@ -151,6 +152,10 @@ class PradoServerConfig:
     tp_sigma_mult: float = 1.8
     max_daily_loss_money: float = 500.0
     daily_target_money: float = 1000.0
+    max_stake_per_trade: float = 100.0
+    max_concurrent_trades: int = 5
+    max_total_exposure_usd: float = 500.0
+    min_order_interval_sec: float = 3.0
 
 
 def load_config(config_path: Path) -> PradoServerConfig:
@@ -159,6 +164,16 @@ def load_config(config_path: Path) -> PradoServerConfig:
         cfg = PradoServerConfig(**{k: v for k, v in raw.items() if k in PradoServerConfig.__dataclass_fields__})
     else:
         cfg = PradoServerConfig()
+
+    env_token = os.environ.get("DERIV_TOKEN", "").strip()
+    if env_token and not cfg.deriv_token:
+        cfg.deriv_token = env_token
+    env_app_id = os.environ.get("DERIV_APP_ID", "").strip()
+    if env_app_id and cfg.deriv_app_id == "1089":
+        cfg.deriv_app_id = env_app_id
+    env_allow_real = os.environ.get("ALLOW_REAL_TRADING", "").strip().lower()
+    if env_allow_real in ("1", "true", "yes"):
+        cfg.allow_real_trading = True
 
     changed = False
     if not cfg.admin_password_hash:

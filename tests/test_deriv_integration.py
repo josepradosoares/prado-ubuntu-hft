@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import time
 
 import pytest
 
@@ -275,3 +276,100 @@ def test_deriv_cloud_disconnected_data_state_not_live() -> None:
     assert summary["data_state"] == "NO_DATA"
     assert summary["connection_state"] == "DISCONNECTED"
     assert summary["trading_state"] == "BLOCKED"
+
+
+def test_bot_lifecycle_states_isolation_and_frontend_snapshot_contract(tmp_path: Path) -> None:
+    from prado_linux.engine import PradoTradingService
+
+    cfg = PradoServerConfig(connection_mode="SIMULATION", active_symbols=["R_100"])
+    svc = PradoTradingService(cfg, config_path=tmp_path / "cfg.json")
+
+    good_bot = svc.create_bot({"name": "Bot Saudavel", "symbol": "R_100", "auto_start": True})
+    bad_bot = svc.create_bot({"name": "Bot Defeituoso", "symbol": "", "auto_start": True})
+
+    # Verify full lifecycle transitions: RUNNING -> PAUSED -> RUNNING -> STOPPED
+    assert good_bot["status"] == "RUNNING" and good_bot["active"] is True
+    paused = svc.control_bot(good_bot["bot_id"], "PAUSE")
+    assert paused is not None and paused["status"] == "PAUSED" and paused["active"] is False
+    resumed = svc.control_bot(good_bot["bot_id"], "RESUME")
+    assert resumed is not None and resumed["status"] == "RUNNING" and resumed["active"] is True
+    stopped = svc.control_bot(good_bot["bot_id"], "STOP")
+    assert stopped is not None and stopped["status"] == "STOPPED" and stopped["active"] is False
+    restarted = svc.control_bot(good_bot["bot_id"], "START")
+    assert restarted is not None and restarted["status"] == "RUNNING" and restarted["active"] is True
+
+    # step_once must isolate bad_bot failure without interrupting good_bot
+    snap = svc.step_once()
+    bots_by_id = {b["bot_id"]: b for b in snap["bots"]}
+    assert bots_by_id[bad_bot["bot_id"]]["status"] == "ERROR"
+    assert bots_by_id[bad_bot["bot_id"]]["active"] is False
+    assert bots_by_id[good_bot["bot_id"]]["status"] == "RUNNING"
+    assert bots_by_id[good_bot["bot_id"]]["active"] is True
+
+    # Verify frontend/backend snapshot schema contract
+    assert "logs" in snap and isinstance(snap["logs"], list) and len(snap["logs"]) > 0
+    assert "module" in snap["logs"][0]
+    assert "basket_bias" in snap
+    r100 = snap["symbols"]["R_100"]
+    for key in ("price", "vwap", "zscore", "imbalance", "sigma_distance", "signal"):
+        assert key in r100
+
+    # Verify backtest report includes frontend-expected keys
+    report = svc.run_mathematical_backtest({"symbol": "R_100", "tick_count": 150})
+    for key in ("win_rate", "final_capital", "template_name", "timestamp"):
+        assert key in report
+
+
+def test_risk_guards_stake_concurrent_exposure_and_stale_price() -> None:
+    cfg = PradoServerConfig(
+        connection_mode="DERIV_CLOUD",
+        max_stake_per_trade=50.0,
+        max_concurrent_trades=1,
+        max_total_exposure_usd=60.0,
+        min_order_interval_sec=0.0,
+    )
+    conn = DerivUniversalConnector(cfg)
+    conn.connected = True
+    conn.connection_state = "CONNECTED"
+    conn.auth_state = "AUTHENTICATED"
+    conn._deriv_auth = {"is_virtual": 1, "currency": "USD"}
+
+    def demo_rpc(payload: dict) -> dict:
+        if "portfolio" in payload:
+            return {"portfolio": {"contracts": []}}
+        if "proposal" in payload:
+            return {"proposal": {"id": "p1", "ask_price": 10.0}}
+        if "buy" in payload:
+            return {"buy": {"contract_id": 7771}}
+        if "sell" in payload:
+            return {"sell": {"sold_for": 11.0}}
+        return {}
+
+    conn._deriv = DerivClient(token="legacy_demo", app_id="1089", rpc_transport=demo_rpc)
+
+    # 1. Stake exceeding max_stake_per_trade is blocked
+    ok, msg = conn.place_order("R_100", "BUY_FLOW", 75.0, 100.0, 1.0, 2.0)
+    assert not ok and "limite máximo por operação" in msg.lower()
+
+    # 2. Stale price blocks order
+    conn.last_tick_at = time.time() - 60.0
+    ok_stale, msg_stale = conn.place_order("R_100", "BUY_FLOW", 10.0, 100.0, 1.0, 2.0)
+    assert not ok_stale and "stale" in msg_stale.lower()
+
+    # 3. Fresh price allows order and tracks lifecycle
+    conn.last_tick_at = time.time()
+    ok_live, msg_live = conn.place_order("R_100", "BUY_FLOW", 10.0, 100.0, 1.0, 2.0)
+    assert ok_live and "7771" in msg_live
+    assert conn._deriv.last_order_lifecycle["stage"] == "CONTRACT_OPEN"
+
+    # 4. Concurrent trade limit blocks second order when 1 position is open
+    conn._positions_cache = (time.time(), [{"ticket": "7771", "symbol": "R_100", "type": "BUY", "side": "BUY", "volume": 10.0, "price_open": 100.0, "price_current": 101.0, "profit": 1.0}])
+    ok_conc, msg_conc = conn.place_order("R_75", "BUY_FLOW", 10.0, 100.0, 1.0, 2.0)
+    assert not ok_conc and "simultâneas" in msg_conc.lower()
+
+    # 5. Closing Deriv contract records in _deriv_deals_history
+    ok_close, _ = conn.close_single_position("7771")
+    assert ok_close
+    assert len(conn._deriv_deals_history) == 1
+    assert conn._deriv_deals_history[0]["side"] == "BUY"
+    assert "time_str" in conn._deriv_deals_history[0]

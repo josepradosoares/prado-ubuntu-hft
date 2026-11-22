@@ -66,6 +66,8 @@ export interface BotItem {
   sl_sigma_mult: number;
   tp_sigma_mult: number;
   active: boolean;
+  status?: 'STOPPED' | 'STARTING' | 'RUNNING' | 'PAUSED' | 'ERROR' | 'STOPPING';
+  last_error?: string;
   trades_executed: number;
   last_signal?: string;
 }
