@@ -38,6 +38,7 @@ import {
   formatPrice,
   formatSignedNumber,
   formatSignedPercent,
+  formatSymbolDisplay,
   isFiniteNumber,
   sanitizeChartPoints,
 } from './utils/formatters'
@@ -1102,6 +1103,7 @@ export default function App() {
           pageTitle={pageInfo.title}
           chartSymbol={chartSymbol}
           availableSymbols={monitoredSymbols}
+          symbolCatalog={symbols}
           onSelectSymbol={setChartSymbol}
           account={acc}
           accounts={config?.accounts || []}
@@ -1248,6 +1250,7 @@ export default function App() {
                   <LightweightChartPanel
                     symbol={chartSymbol}
                     availableSymbols={monitoredSymbols}
+                    symbolCatalog={symbols}
                     onSelectSymbol={setChartSymbol}
                     points={chartPoints}
                     symbolState={snapshot?.symbols?.[chartSymbol]}
@@ -1259,6 +1262,7 @@ export default function App() {
                   <BotCardGrid
                     bots={snapshot?.bots || []}
                     symbols={snapshot?.symbols || {}}
+                    symbolCatalog={symbols}
                     lastUpdated={snapshot?.timestamp}
                     onAction={handleBotAction}
                     onEdit={startEditBot}
@@ -1375,6 +1379,7 @@ export default function App() {
                 <BotCardGrid
                   bots={snapshot?.bots || []}
                   symbols={snapshot?.symbols || {}}
+                  symbolCatalog={symbols}
                   lastUpdated={snapshot?.timestamp}
                   onAction={handleBotAction}
                   onEdit={startEditBot}
@@ -1719,7 +1724,7 @@ export default function App() {
                           >
                             {symbols.map((s) => (
                               <option key={s.name} value={s.name}>
-                                {s.name}
+                                {formatSymbolDisplay(s.name, symbols)}
                               </option>
                             ))}
                           </select>
@@ -2490,7 +2495,7 @@ export default function App() {
                               <option value="ALL">TODOS (Monitorar todos os ativos)</option>
                               {symbols.map((s) => (
                                 <option key={s.name} value={s.name}>
-                                  {s.name}
+                                  {formatSymbolDisplay(s.name, symbols)}
                                 </option>
                               ))}
                             </select>
@@ -2528,7 +2533,7 @@ export default function App() {
                                 <div className="flex items-center gap-2">
                                   <span className="text-xs font-semibold text-slate-900 dark:text-white">{f.source}</span>
                                   <span className="rounded bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-700 dark:text-slate-300">
-                                    {f.default_symbol === 'ALL' ? 'TODOS OS ATIVOS' : f.default_symbol}
+                                    {formatSymbolDisplay(f.default_symbol, symbols)}
                                   </span>
                                 </div>
                                 <div className="truncate text-[11px] text-slate-500 dark:text-slate-400 font-mono">{f.url}</div>
@@ -2566,7 +2571,7 @@ export default function App() {
                             className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-3"
                           >
                             <div className="flex items-center justify-between">
-                              <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">{s.symbol}</span>
+                              <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">{formatSymbolDisplay(s.symbol, symbols)}</span>
                               <span
                                 className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
                                   s.bias === 'BULLISH'

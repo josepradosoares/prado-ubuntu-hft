@@ -9,13 +9,15 @@ import {
   LogOut,
   Settings,
 } from 'lucide-react'
-import { AccountSummary, DerivAccount, LogEvent } from '../types'
+import { AccountSummary, BrokerSymbol, DerivAccount, LogEvent } from '../types'
 import { ThemeMode } from '../hooks/useTheme'
+import { formatSymbolDisplay } from '../utils/formatters'
 
 interface TopbarProps {
   pageTitle: string
   chartSymbol: string
   availableSymbols: string[]
+  symbolCatalog?: BrokerSymbol[]
   onSelectSymbol: (sym: string) => void
   account?: AccountSummary
   accounts: DerivAccount[]
@@ -36,6 +38,7 @@ export function Topbar({
   pageTitle,
   chartSymbol,
   availableSymbols,
+  symbolCatalog,
   onSelectSymbol,
   account,
   accounts,
@@ -119,7 +122,7 @@ export function Topbar({
           >
             {availableSymbols.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {formatSymbolDisplay(s, symbolCatalog)}
               </option>
             ))}
           </select>

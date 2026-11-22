@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, Time } from 'lightweight-charts'
 import { Activity, AlertCircle } from 'lucide-react'
-import { ChartPoint, SymbolState } from '../types'
+import { BrokerSymbol, ChartPoint, SymbolState } from '../types'
 import { ThemeMode } from '../hooks/useTheme'
-import { formatNumber, formatPrice, isFiniteNumber, sanitizeChartPoints } from '../utils/formatters'
+import { formatNumber, formatPrice, formatSymbolDisplay, isFiniteNumber, sanitizeChartPoints } from '../utils/formatters'
 
 interface Props {
   symbol: string
   availableSymbols: string[]
+  symbolCatalog?: BrokerSymbol[]
   onSelectSymbol: (sym: string) => void
   points: ChartPoint[]
   symbolState?: SymbolState
@@ -71,6 +72,7 @@ function getChartThemeOptions(theme: ThemeMode) {
 export function LightweightChartPanel({
   symbol,
   availableSymbols,
+  symbolCatalog,
   onSelectSymbol,
   points,
   symbolState,
@@ -218,7 +220,7 @@ export function LightweightChartPanel({
           >
             {availableSymbols.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {formatSymbolDisplay(s, symbolCatalog)}
               </option>
             ))}
           </select>

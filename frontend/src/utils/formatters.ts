@@ -114,3 +114,17 @@ export function hasValidSymbolMetrics(state?: Partial<SymbolState> | null): bool
   if (!state) return false
   return isFiniteNumber(state.price) || isFiniteNumber(state.vwap)
 }
+
+export function formatSymbolDisplay(
+  symbol: string,
+  catalog?: Array<{ name: string; description?: string }>,
+): string {
+  if (!symbol) return '--'
+  if (symbol === 'ALL') return 'TODOS OS ATIVOS'
+  const found = catalog?.find((item) => item.name === symbol)
+  const desc = found?.description?.trim()
+  if (desc && desc.toLowerCase() !== symbol.toLowerCase()) {
+    return `${desc} (${symbol})`
+  }
+  return symbol
+}

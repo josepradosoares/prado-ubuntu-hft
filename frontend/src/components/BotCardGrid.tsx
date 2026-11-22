@@ -14,13 +14,14 @@ import {
   Eye,
   X,
 } from 'lucide-react'
-import { BotItem, SymbolState } from '../types'
-import { formatNumber, formatPercent, formatPrice, isFiniteNumber } from '../utils/formatters'
+import { BotItem, BrokerSymbol, SymbolState } from '../types'
+import { formatNumber, formatPercent, formatPrice, formatSymbolDisplay, isFiniteNumber } from '../utils/formatters'
 import { ConfirmModal } from './ui/ConfirmModal'
 
 interface Props {
   bots: BotItem[]
   symbols: Record<string, SymbolState>
+  symbolCatalog?: BrokerSymbol[]
   lastUpdated?: string
   onAction: (botId: string, action: string) => void
   onEdit: (bot: BotItem) => void
@@ -32,6 +33,7 @@ interface Props {
 export function BotCardGrid({
   bots,
   symbols,
+  symbolCatalog,
   lastUpdated,
   onAction,
   onEdit,
@@ -186,7 +188,7 @@ export function BotCardGrid({
             <option value="ALL">Todos os ativos</option>
             {uniqueAssets.map((sym) => (
               <option key={sym} value={sym}>
-                {sym}
+                {formatSymbolDisplay(sym, symbolCatalog)}
               </option>
             ))}
           </select>
@@ -320,7 +322,7 @@ export function BotCardGrid({
                       {isReal ? 'Real' : 'Demo'} • {b.account_label || 'Deriv'}
                     </span>
                     <span className="rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 font-mono text-slate-800 dark:text-white">
-                      {b.symbol}
+                      {formatSymbolDisplay(b.symbol, symbolCatalog)}
                     </span>
                     <span className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 px-2 py-0.5 font-mono text-slate-600 dark:text-slate-300">
                       ${formatNumber(b.lot_size, 2)} • {b.multiplier ?? '--'}x
