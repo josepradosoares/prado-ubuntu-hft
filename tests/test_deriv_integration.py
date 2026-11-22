@@ -463,7 +463,14 @@ def test_grid_linear_hft_buy_only_and_sell_only_execution(tmp_path) -> None:
     service = PradoTradingService(cfg, config_path=cfg_path)
     base_p = service.connector.fetch_ticks("R_100")[-1].effective_price()
     sim_price = {"R_100": base_p, "R_75": 500.0}
-    service.connector.fetch_ticks = lambda sym, count=200: [type("T", (), {"effective_price": lambda s: sim_price.get(sym, base_p)})()]
+
+    def set_price(sym: str, p: float) -> None:
+        from prado_linux.flow_math import TickRecord
+        sim_price[sym] = p
+        service.connector._sim_ticks[sym] = [TickRecord(1000, p, p, p, 0.0, 10.0, 1)]
+
+    set_price("R_100", base_p)
+    set_price("R_75", 500.0)
 
     # 1. Create BUY_ONLY Grid bot
     buy_bot = service.create_bot(
@@ -490,12 +497,12 @@ def test_grid_linear_hft_buy_only_and_sell_only_execution(tmp_path) -> None:
     assert positions[0]["type"] == "BUY"
 
     # Price drops by grid_step (2.0) -> opens second BUY level
-    sim_price["R_100"] = base_p - 2.5
+    set_price("R_100", base_p - 2.5)
     positions = service._evaluate_grid_bot(buy_bot, sim_price["R_100"], positions, risk_locked=False)
     assert len(positions) == 2
 
     # Price rebounds to base_p - 0.4 -> second level ((base_p - 2.5) + 2.0 = base_p - 0.5) takes profit individually!
-    sim_price["R_100"] = base_p - 0.4
+    set_price("R_100", base_p - 0.4)
     positions = service._evaluate_grid_bot(buy_bot, sim_price["R_100"], positions, risk_locked=False)
     assert len(positions) == 1
 
