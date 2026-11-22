@@ -571,20 +571,39 @@ class DerivClient:
             )
         return out
 
-    def get_ticks_history(self, symbol: str, count: int = 200) -> list[TickRecord]:
-        resp = self._send_rpc(
-            {
-                "ticks_history": symbol,
-                "adjust_start_time": 1,
-                "count": int(count),
-                "end": "latest",
-                "style": "ticks",
-            }
-        )
+    def get_ticks_history(self, symbol: str, count: int = 200, granularity: int = 0) -> list[TickRecord]:
+        gran = int(granularity or 0)
+        req: dict[str, Any] = {
+            "ticks_history": symbol,
+            "adjust_start_time": 1,
+            "count": int(count),
+            "end": "latest",
+            "style": "candles" if gran > 0 else "ticks",
+        }
+        if gran > 0:
+            req["granularity"] = gran
+        resp = self._send_rpc(req)
+        records: list[TickRecord] = []
+        if gran > 0:
+            candles = resp.get("candles", [])
+            for c in candles:
+                p = float(c.get("close", 0.0))
+                t_msc = int(c.get("epoch", 0)) * 1000
+                records.append(
+                    TickRecord(
+                        time_msc=t_msc,
+                        bid=p,
+                        ask=p,
+                        last=p,
+                        volume_real=0.0,
+                        tick_volume=1.0,
+                        flags=0,
+                    )
+                )
+            return records
         hist = resp.get("history", {})
         prices = hist.get("prices", [])
         times = hist.get("times", [])
-        records: list[TickRecord] = []
         for p_raw, t_raw in zip(prices, times):
             p = float(p_raw)
             t_msc = int(t_raw) * 1000

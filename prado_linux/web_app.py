@@ -165,8 +165,9 @@ class PradoWebApp:
 
         if method == "GET" and clean_path == "/api/chart":
             sym = str(query_params.get("symbol", ["R_100"])[0] or "R_100").strip()
-            points = self.service.get_chart_series(sym)
-            return 200, json.dumps({"ok": True, "symbol": sym, "points": points}, ensure_ascii=False), {"Content-Type": "application/json"}
+            tf = str(query_params.get("timeframe", ["TICKS"])[0] or "TICKS").strip().upper()
+            points = self.service.get_chart_series(sym, timeframe=tf)
+            return 200, json.dumps({"ok": True, "symbol": sym, "timeframe": tf, "points": points}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "GET" and clean_path == "/api/config":
             return (

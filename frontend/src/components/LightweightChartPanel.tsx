@@ -9,6 +9,8 @@ interface Props {
   symbol: string
   availableSymbols: string[]
   symbolCatalog?: BrokerSymbol[]
+  timeframe?: string
+  onSelectTimeframe?: (tf: string) => void
   onSelectSymbol: (sym: string) => void
   points: ChartPoint[]
   symbolState?: SymbolState
@@ -73,6 +75,8 @@ export function LightweightChartPanel({
   symbol,
   availableSymbols,
   symbolCatalog,
+  timeframe = 'TICKS',
+  onSelectTimeframe,
   onSelectSymbol,
   points,
   symbolState,
@@ -224,6 +228,25 @@ export function LightweightChartPanel({
               </option>
             ))}
           </select>
+
+          {onSelectTimeframe && (
+            <div className="flex items-center gap-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5">
+              {(['TICKS', 'M1', 'M5', 'M15', 'H1'] as const).map((tf) => (
+                <button
+                  key={tf}
+                  type="button"
+                  onClick={() => onSelectTimeframe(tf)}
+                  className={`rounded-lg px-2 py-1 text-[11px] font-mono font-semibold transition ${
+                    timeframe === tf
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  {tf === 'TICKS' ? 'Tick' : tf}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

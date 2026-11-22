@@ -373,15 +373,25 @@ class DerivUniversalConnector:
             "status_note": self.last_error,
         }
 
-    def fetch_ticks(self, symbol: str, count: int = 200) -> list[TickRecord]:
+    TIMEFRAME_GRANULARITIES: dict[str, int] = {
+        "TICKS": 0,
+        "M1": 60,
+        "M5": 300,
+        "M15": 900,
+        "H1": 3600,
+    }
+
+    def fetch_ticks(self, symbol: str, count: int = 200, granularity: int = 0) -> list[TickRecord]:
         now = time.time()
+        gran = int(granularity or 0)
         if self.cfg.connection_mode.upper() == "SIMULATION":
             ticks_sim = self._generate_sim_ticks(symbol)
             if ticks_sim:
                 self.last_tick_at = now
             return ticks_sim
 
-        cached = self._tick_cache.get(symbol)
+        cache_key = symbol if gran <= 0 else f"{symbol}:{gran}"
+        cached = self._tick_cache.get(cache_key)
         if cached and (now - cached[0]) < 8.0 and len(cached[1]) >= min(count, 40):
             return cached[1]
         client = self._deriv
@@ -389,9 +399,9 @@ class DerivUniversalConnector:
             client = self._get_public_deriv()
         if client is not None:
             try:
-                ticks = client.get_ticks_history(symbol, count=min(500, count))
+                ticks = client.get_ticks_history(symbol, count=min(500, count), granularity=gran)
                 if ticks:
-                    self._tick_cache[symbol] = (now, ticks)
+                    self._tick_cache[cache_key] = (now, ticks)
                     self.last_tick_at = now
                     return ticks
             except Exception as exc:
@@ -950,6 +960,11 @@ class PradoTradingService:
                 "loss_guard_enabled": bool(payload["loss_guard_enabled"]) if "loss_guard_enabled" in payload else bool(existing_bot.get("loss_guard_enabled", False) if existing_bot else False),
                 "max_loss_usd": max(0.5, float(payload.get("max_loss_usd") or (existing_bot.get("max_loss_usd") if existing_bot else 20.0))),
                 "news_assisted": bool(payload["news_assisted"]) if "news_assisted" in payload else bool(existing_bot.get("news_assisted", False) if existing_bot else False),
+                "timeframe": (
+                    str(payload["timeframe"]).strip().upper()
+                    if str(payload.get("timeframe") or "").strip().upper() in self.connector.TIMEFRAME_GRANULARITIES
+                    else str(existing_bot.get("timeframe", "TICKS") if existing_bot else "TICKS").upper()
+                ),
                 "realized_pnl": float(existing_bot.get("realized_pnl", 0.0)) if existing_bot else 0.0,
                 "floating_pnl": float(existing_bot.get("floating_pnl", 0.0)) if existing_bot else 0.0,
                 "total_pnl": float(existing_bot.get("total_pnl", 0.0)) if existing_bot else 0.0,
@@ -1144,8 +1159,9 @@ class PradoTradingService:
             self._log_event("RISK_GUARD", "Limite diário destravado.")
             return {"ok": True, "max_daily_loss_money": self.cfg.max_daily_loss_money}
 
-    def get_chart_series(self, symbol: str) -> list[dict[str, Any]]:
-        ticks = self.connector.fetch_ticks(symbol, count=180)
+    def get_chart_series(self, symbol: str, timeframe: str = "TICKS") -> list[dict[str, Any]]:
+        gran = self.connector.TIMEFRAME_GRANULARITIES.get(str(timeframe or "TICKS").strip().upper(), 0)
+        ticks = self.connector.fetch_ticks(symbol, count=180, granularity=gran)
         if not ticks:
             return []
         points: list[dict[str, Any]] = []
@@ -1710,7 +1726,9 @@ class PradoTradingService:
                         )
                         continue
 
-                    ticks = self.connector.fetch_ticks(bsym, count=200)
+                    bot_tf = str(bot.get("timeframe", "TICKS")).strip().upper()
+                    bot_gran = self.connector.TIMEFRAME_GRANULARITIES.get(bot_tf, 0)
+                    ticks = self.connector.fetch_ticks(bsym, count=200, granularity=bot_gran)
                     vwap_bands = compute_intraday_vwap(ticks)
                     bot_flow = compute_flow_metrics(
                         ticks,

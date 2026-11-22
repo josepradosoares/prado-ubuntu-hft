@@ -747,3 +747,44 @@ def test_news_feeds_crud_and_per_bot_hybrid_news_decision(tmp_path):
     bots_by_name2 = {b["name"]: b for b in snap2["bots"]}
     assert bots_by_name2["NewsHybridBot"]["last_signal"] == "NEWS_TECH_EXIT"
     assert not any(p["bot_name"] == "NewsHybridBot" for p in snap2["positions"])
+
+
+def test_bot_timeframe_ticks_and_candles_mode(tmp_path):
+    from prado_linux.config import load_config
+    from prado_linux.deriv_client import DerivClient
+    from prado_linux.engine import PradoTradingService
+
+    cfg_path = tmp_path / "config.json"
+    cfg = load_config(cfg_path)
+    cfg.connection_mode = "SIMULATION"
+    service = PradoTradingService(cfg, config_path=cfg_path)
+
+    tick_bot = service.create_bot(
+        {"name": "TickBot", "symbol": "R_100", "bot_template_id": "WALL_STREET_HYBRID_BOTH", "timeframe": "TICKS"}
+    )
+    m5_bot = service.create_bot(
+        {"name": "CandleM5Bot", "symbol": "R_100", "bot_template_id": "WALL_STREET_HYBRID_BOTH", "timeframe": "M5"}
+    )
+    assert tick_bot["timeframe"] == "TICKS"
+    assert m5_bot["timeframe"] == "M5"
+
+    # Verifica que DerivClient envia style="candles" + granularity=300 quando granularity > 0
+    sent_payloads = []
+    client = DerivClient(app_id="1089", token="DEMO")
+    def fake_rpc(payload):
+        sent_payloads.append(payload)
+        if payload.get("style") == "candles":
+            return {"candles": [{"epoch": 1700000000, "close": 1850.5}, {"epoch": 1700000300, "close": 1852.0}]}
+        return {"history": {"prices": [1850.0, 1851.0], "times": [1700000000, 1700000001]}}
+    client._send_rpc = fake_rpc
+
+    candles = client.get_ticks_history("R_100", count=2, granularity=300)
+    assert len(candles) == 2
+    assert candles[-1].effective_price() == 1852.0
+    assert sent_payloads[-1]["style"] == "candles"
+    assert sent_payloads[-1]["granularity"] == 300
+
+    ticks = client.get_ticks_history("R_100", count=2, granularity=0)
+    assert len(ticks) == 2
+    assert sent_payloads[-1]["style"] == "ticks"
+    assert "granularity" not in sent_payloads[-1]

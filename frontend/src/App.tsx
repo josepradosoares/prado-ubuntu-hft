@@ -114,6 +114,7 @@ export default function App() {
   const [symbolMode, setSymbolMode] = useState<'PRINCIPAIS' | 'TODOS'>('PRINCIPAIS')
   const symbolModeRef = useRef<'PRINCIPAIS' | 'TODOS'>('PRINCIPAIS')
   const [chartSymbol, setChartSymbol] = useState('R_100')
+  const [chartTimeframe, setChartTimeframe] = useState('TICKS')
   const [chartPoints, setChartPoints] = useState<ChartPoint[]>([])
   const [chartLoading, setChartLoading] = useState(false)
   const [chartError, setChartError] = useState<string | null>(null)
@@ -156,6 +157,7 @@ export default function App() {
   const [botLossGuardEnabled, setBotLossGuardEnabled] = useState(true)
   const [botMaxLossUsd, setBotMaxLossUsd] = useState(20)
   const [botNewsAssisted, setBotNewsAssisted] = useState(false)
+  const [botTimeframe, setBotTimeframe] = useState('TICKS')
   const [botFormDirty, setBotFormDirty] = useState(false)
 
   // Backtest form state
@@ -202,10 +204,10 @@ export default function App() {
     setTimeout(() => setToast(null), 4500)
   }, [])
 
-  const fetchChart = useCallback(async (sym: string) => {
+  const fetchChart = useCallback(async (sym: string, tf: string = 'TICKS') => {
     setChartLoading(true)
     try {
-      const res = await fetch(`/api/chart?symbol=${encodeURIComponent(sym)}`)
+      const res = await fetch(`/api/chart?symbol=${encodeURIComponent(sym)}&timeframe=${encodeURIComponent(tf)}`)
       if (!res.ok) {
         setChartError(`Falha ao carregar gráfico (${res.status})`)
         return
@@ -283,7 +285,7 @@ export default function App() {
 
   useEffect(() => {
     if (!authenticated) return
-    fetchChart(chartSymbol)
+    fetchChart(chartSymbol, chartTimeframe)
     const id = setInterval(async () => {
       try {
         const res = await fetch('/api/status')
@@ -298,13 +300,13 @@ export default function App() {
         } else {
           setConnectionError(`Erro ao atualizar dados (${res.status})`)
         }
-        fetchChart(chartSymbol)
+        fetchChart(chartSymbol, chartTimeframe)
       } catch {
         setConnectionError('Sem comunicação com o backend. Tentando reconectar...')
       }
     }, 2000)
     return () => clearInterval(id)
-  }, [authenticated, chartSymbol, fetchChart])
+  }, [authenticated, chartSymbol, chartTimeframe, fetchChart])
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault()
@@ -408,6 +410,7 @@ export default function App() {
     setBotLossGuardEnabled(true)
     setBotMaxLossUsd(20)
     setBotNewsAssisted(false)
+    setBotTimeframe('TICKS')
     setBotFormDirty(false)
   }
 
@@ -430,6 +433,7 @@ export default function App() {
     setBotLossGuardEnabled(Boolean(b.loss_guard_enabled))
     setBotMaxLossUsd(b.max_loss_usd ?? 20)
     setBotNewsAssisted(Boolean(b.news_assisted))
+    setBotTimeframe((b.timeframe || 'TICKS').toUpperCase())
     setBotFormDirty(false)
     setActiveTab('create-bot')
   }
@@ -497,6 +501,7 @@ export default function App() {
       loss_guard_enabled: Boolean(botLossGuardEnabled),
       max_loss_usd: Number(botMaxLossUsd),
       news_assisted: Boolean(botNewsAssisted),
+      timeframe: botTimeframe,
       auto_start: true,
     }
     if (editingBotId) payload.bot_id = editingBotId
@@ -1251,6 +1256,8 @@ export default function App() {
                     symbol={chartSymbol}
                     availableSymbols={monitoredSymbols}
                     symbolCatalog={symbols}
+                    timeframe={chartTimeframe}
+                    onSelectTimeframe={setChartTimeframe}
                     onSelectSymbol={setChartSymbol}
                     points={chartPoints}
                     symbolState={snapshot?.symbols?.[chartSymbol]}
@@ -1486,6 +1493,39 @@ export default function App() {
                               </code>
                             </p>
                           )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-3 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                            Modo de Leitura / Tempo Gráfico
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Em <strong>Tick a Tick</strong> mantém o comportamento HFT padrão; em <strong>M1–H1</strong> aplica o modelo matemático escolhido sobre velas desse período.
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {[
+                            { id: 'TICKS', label: 'Tick a Tick (Padrão)' },
+                            { id: 'M1', label: 'M1' },
+                            { id: 'M5', label: 'M5' },
+                            { id: 'M15', label: 'M15' },
+                            { id: 'H1', label: 'H1' },
+                          ].map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setBotTimeframe(opt.id)}
+                              className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                                botTimeframe === opt.id
+                                  ? 'border-blue-500 bg-blue-600 text-white'
+                                  : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
                         </div>
                       </div>
 

@@ -324,6 +324,9 @@ export function BotCardGrid({
                     <span className="rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 font-mono text-slate-800 dark:text-white">
                       {formatSymbolDisplay(b.symbol, symbolCatalog)}
                     </span>
+                    <span className="rounded-md bg-indigo-500/10 border border-indigo-500/30 px-2 py-0.5 font-mono text-indigo-700 dark:text-indigo-300">
+                      {b.timeframe && b.timeframe !== 'TICKS' ? b.timeframe : 'Tick a Tick'}
+                    </span>
                     <span className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 px-2 py-0.5 font-mono text-slate-600 dark:text-slate-300">
                       ${formatNumber(b.lot_size, 2)} • {b.multiplier ?? '--'}x
                     </span>

@@ -78,6 +78,7 @@ export interface BotItem {
   loss_guard_enabled?: boolean;
   max_loss_usd?: number;
   news_assisted?: boolean;
+  timeframe?: string;
   realized_pnl?: number;
   floating_pnl?: number;
   total_pnl?: number;
@@ -211,6 +212,7 @@ export interface BotTemplate {
   loss_guard_enabled?: boolean;
   max_loss_usd?: number;
   news_assisted?: boolean;
+  timeframe?: string;
   realized_pnl?: number;
   floating_pnl?: number;
   total_pnl?: number;
