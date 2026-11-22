@@ -225,7 +225,7 @@ class PradoWebApp:
                     self._user_tokens[uid] = res["access_token"]
                     self._user_emails[uid] = str(res.get("email") or username)
                     svc = self._active_service(uid)
-                    if not svc._bg_thread or not svc._bg_thread.is_alive():
+                    if not svc._thread or not svc._thread.is_alive():
                         svc.start_background_loop()
                     token = create_session_token(uid, self.cfg.secret_key)
                     cookie_val = f"prado_session={token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax"

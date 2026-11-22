@@ -952,6 +952,8 @@ def test_supabase_multiuser_isolation_and_auth_routes(tmp_path):
     assert c_bots_b == 200
     assert json.loads(body_bots_b)["bots"] == []
     assert ("uid-a@test.com", 1) in fake_sb.synced
+    for usvc in app._user_services.values():
+        usvc.stop_background_loop()
 
 
 def test_admin_auto_migrates_local_json_into_supabase_on_first_login(tmp_path):
