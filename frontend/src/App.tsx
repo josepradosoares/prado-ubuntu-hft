@@ -67,6 +67,10 @@ const PAGE_META: Record<TabKey, { title: string; description: string }> = {
     title: 'Matriz VWAP e Z-Score',
     description: 'Leitura contínua de desvios ±2σ, Imbalance, regime de mercado e sinal quantitativo',
   },
+  news: {
+    title: 'Pesquisa & Notícias',
+    description: 'Robô pesquisador de notícias financeiras na internet com proteção de Grid e entrada a favor da notícia',
+  },
   categories: {
     title: 'Categorias de ativos',
     description: 'Catálogo de símbolos Deriv e agrupamentos personalizados para monitoramento',
@@ -180,6 +184,7 @@ export default function App() {
   const [accConnMode, setAccConnMode] = useState('DERIV_CLOUD')
   const [useCustomCreds, setUseCustomCreds] = useState(false)
   const [syncingAccounts, setSyncingAccounts] = useState(false)
+  const [newsScanning, setNewsScanning] = useState(false)
 
   // Settings password state
   const [newAdminPassword, setNewAdminPassword] = useState('')
@@ -603,6 +608,46 @@ export default function App() {
       }
     } catch {
       showToast('Erro de rede ao salvar configuração Deriv.', true)
+    }
+  }
+
+  async function scanNewsNow() {
+    setNewsScanning(true)
+    try {
+      const res = await fetch('/api/news/scan', { method: 'POST' })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        showToast(`Pesquisa concluída: ${(d.news?.items || []).length} notícia(s) analisada(s).`)
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao pesquisar notícias.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao pesquisar notícias.', true)
+    } finally {
+      setNewsScanning(false)
+    }
+  }
+
+  async function updateNewsConfig(updates: Record<string, unknown>) {
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        setConfig(d.config)
+        showToast('Configuração do Robô de Notícias atualizada!')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao atualizar Robô de Notícias.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao atualizar Robô de Notícias.', true)
     }
   }
 
@@ -2189,6 +2234,178 @@ export default function App() {
                       )
                     })}
                   </section>
+                </div>
+              )}
+
+              {/* NEWS & MARKET RESEARCH BOT */}
+              {activeTab === 'news' && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <CardTitle>Robô de Pesquisa &amp; Notícias na Internet</CardTitle>
+                        <CardDescription>
+                          Monitora manchetes financeiras em tempo real, pausa robôs Grid em alto impacto e abre ordens a favor da notícia
+                        </CardDescription>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={scanNewsNow}
+                        disabled={newsScanning}
+                        className="rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        {newsScanning ? 'Pesquisando...' : 'Pesquisar Notícias Agora'}
+                      </button>
+                    </CardHeader>
+                    <CardBody className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => updateNewsConfig({ news_bot_enabled: !(snapshot?.news?.enabled ?? false) })}
+                          className={`rounded-xl border px-4 py-3 text-left transition ${
+                            snapshot?.news?.enabled
+                              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                              : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          <div className="text-xs font-bold">
+                            Robô de Notícias: {snapshot?.news?.enabled ? 'ATIVO' : 'PAUSADO'}
+                          </div>
+                          <div className="text-[11px] opacity-80 mt-0.5">
+                            Pesquisa automática a cada 90s em segundo plano
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateNewsConfig({
+                              news_pause_grid_on_high_impact: !(snapshot?.news?.pause_grid_on_high_impact ?? true),
+                            })
+                          }
+                          className={`rounded-xl border px-4 py-3 text-left transition ${
+                            snapshot?.news?.pause_grid_on_high_impact ?? true
+                              ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                              : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          <div className="text-xs font-bold">
+                            Pausar Grid em Alto Impacto: {(snapshot?.news?.pause_grid_on_high_impact ?? true) ? 'SIM' : 'NÃO'}
+                          </div>
+                          <div className="text-[11px] opacity-80 mt-0.5">
+                            Protege robôs Gradiente Linear de rompimentos por notícia
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateNewsConfig({
+                              news_auto_trade_enabled: !(snapshot?.news?.auto_trade_enabled ?? false),
+                            })
+                          }
+                          className={`rounded-xl border px-4 py-3 text-left transition ${
+                            snapshot?.news?.auto_trade_enabled
+                              ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300'
+                              : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          <div className="text-xs font-bold">
+                            Abrir Ordem na Notícia: {snapshot?.news?.auto_trade_enabled ? 'ATIVO' : 'DESLIGADO'}
+                          </div>
+                          <div className="text-[11px] opacity-80 mt-0.5">
+                            Entra a favor de notícias fortes (Alta / Baixa)
+                          </div>
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                        {Object.values(snapshot?.news?.summary_by_symbol || {}).map((s) => (
+                          <div
+                            key={s.symbol}
+                            className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-3"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">{s.symbol}</span>
+                              <span
+                                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                  s.bias === 'BULLISH'
+                                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
+                                    : s.bias === 'BEARISH'
+                                    ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300'
+                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                }`}
+                              >
+                                {s.bias === 'BULLISH' ? 'ALTA' : s.bias === 'BEARISH' ? 'BAIXA' : 'NEUTRO'}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                              {s.count} notícia(s) • {s.high_impact} alto impacto
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardBody>
+                  </Card>
+
+                  <Card className="overflow-hidden">
+                    <CardHeader>
+                      <CardTitle>Manchetes Financeiras Monitoradas ({snapshot?.news?.items?.length || 0})</CardTitle>
+                    </CardHeader>
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                      {!snapshot?.news?.items?.length ? (
+                        <div className="px-5 py-8 text-center text-xs text-slate-500">
+                          Nenhuma notícia carregada ainda. Clique em <strong>Pesquisar Notícias Agora</strong> acima.
+                        </div>
+                      ) : (
+                        snapshot.news.items.map((it) => (
+                          <div key={it.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-xs">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <span className="rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 font-mono text-[10px] font-bold text-slate-800 dark:text-white">
+                                  {it.symbol}
+                                </span>
+                                <span
+                                  className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
+                                    it.impact === 'HIGH'
+                                      ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                                  }`}
+                                >
+                                  {it.impact === 'HIGH' ? 'ALTO IMPACTO' : it.impact}
+                                </span>
+                                <span
+                                  className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
+                                    it.bias === 'BULLISH'
+                                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                      : it.bias === 'BEARISH'
+                                      ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                                  }`}
+                                >
+                                  {it.bias === 'BULLISH' ? 'ALTA' : it.bias === 'BEARISH' ? 'BAIXA' : 'NEUTRO'}
+                                </span>
+                                <span className="text-[11px] text-slate-400">
+                                  {it.source} • {it.published_at}
+                                </span>
+                              </div>
+                              <div className="font-medium text-slate-900 dark:text-slate-100">{it.title}</div>
+                            </div>
+                            {it.link && (
+                              <a
+                                href={it.link}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+                              >
+                                Abrir
+                              </a>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </Card>
                 </div>
               )}
 

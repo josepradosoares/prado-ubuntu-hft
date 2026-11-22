@@ -30,6 +30,7 @@ from prado_linux.flow_math import (
     compute_flow_metrics,
     compute_intraday_vwap,
 )
+from prado_linux.news_scout import NewsScout
 
 MAIN_DERIV_SYMBOLS: list[dict[str, str]] = [
     {"name": "R_100", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 100 Index (24/7)"},
@@ -748,6 +749,7 @@ class PradoTradingService:
         self.config_path = config_path
         self.connector = DerivUniversalConnector(cfg)
         self.connector.connect()
+        self.news_scout = NewsScout()
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -1416,6 +1418,97 @@ class PradoTradingService:
         bot["last_signal"] = signal
         return positions
 
+    def _news_snapshot_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": bool(getattr(self.cfg, "news_bot_enabled", False)),
+            "pause_grid_on_high_impact": bool(getattr(self.cfg, "news_pause_grid_on_high_impact", True)),
+            "auto_trade_enabled": bool(getattr(self.cfg, "news_auto_trade_enabled", False)),
+            "stake_usd": float(getattr(self.cfg, "news_stake_usd", 5.0)),
+            "multiplier": int(getattr(self.cfg, "news_multiplier", 100)),
+            "last_scan_at": self.news_scout.last_scan_at,
+            "last_error": self.news_scout.last_error,
+            "items": list(self.news_scout.items),
+            "summary_by_symbol": self.news_scout.summary_by_symbol(),
+        }
+
+    def _process_news_items(
+        self,
+        new_items: list[dict[str, Any]],
+        positions: list[dict[str, Any]],
+        risk_locked: bool,
+    ) -> list[dict[str, Any]]:
+        if not new_items:
+            return positions
+        pause_grid = bool(getattr(self.cfg, "news_pause_grid_on_high_impact", True))
+        auto_trade = bool(getattr(self.cfg, "news_auto_trade_enabled", False))
+        stake = float(getattr(self.cfg, "news_stake_usd", 5.0) or 5.0)
+        mult = int(getattr(self.cfg, "news_multiplier", 100) or 100)
+        config_dirty = False
+
+        for item in new_items:
+            if item.get("impact") != "HIGH":
+                continue
+            sym = str(item.get("symbol", "cryBTCUSD"))
+            is_macro = bool(item.get("is_macro_usd", False))
+            title = str(item.get("title", ""))
+
+            # 1. Pause active Grid Linear bots on high-impact news to avoid range breakout losses
+            if pause_grid:
+                for b in self.cfg.bots:
+                    is_grid = b.get("template_id") == "GRID_LINEAR_HFT" or str(b.get("operation_mode", "")).upper() == "GRID_LINEAR"
+                    if not is_grid or b.get("status") != "RUNNING":
+                        continue
+                    if is_macro or b.get("symbol") == sym:
+                        b["status"] = "PAUSED"
+                        b["active"] = False
+                        b["last_signal"] = "PAUSED_NEWS"
+                        config_dirty = True
+                        self._log_event(
+                            "NEWS_GUARD",
+                            f"Robô Grid '{b.get('name')}' pausado por notícia de alto impacto ({sym}): {title[:90]}",
+                        )
+
+            # 2. Open directional order in favor of high-impact bullish/bearish news
+            bias = str(item.get("bias", "NEUTRAL"))
+            if (
+                auto_trade
+                and self.cfg.auto_trading_enabled
+                and not risk_locked
+                and bias in ("BULLISH", "BEARISH")
+            ):
+                if not any(p.get("symbol") == sym for p in positions):
+                    ticks = self.connector.fetch_ticks(sym, count=20)
+                    last_p = ticks[-1].effective_price() if ticks else 100.0
+                    action = "BUY_NEWS" if bias == "BULLISH" else "SELL_NEWS"
+                    ok, msg = self.connector.place_order(
+                        symbol=sym,
+                        action=action,
+                        stake=stake,
+                        price=last_p,
+                        sl_points=max(last_p * 0.002, 0.5),
+                        tp_points=max(last_p * 0.004, 1.0),
+                        multiplier=mult,
+                        bot_name="NewsScout",
+                    )
+                    self._log_event("NEWS_EXEC", f"[{sym} | {bias}] {msg}")
+                    if ok:
+                        positions = self.connector.get_open_positions()
+        if config_dirty:
+            save_config(self.cfg, self.config_path)
+        return positions
+
+    def scan_news(self, force: bool = False) -> dict[str, Any]:
+        with self._lock:
+            now = time.time()
+            poll_sec = max(30, int(getattr(self.cfg, "news_poll_interval_sec", 90) or 90))
+            if force or (now - self.news_scout.last_scan_at) >= poll_sec:
+                _, new_items = self.news_scout.scan()
+                if getattr(self.cfg, "news_bot_enabled", False) and new_items:
+                    positions = self.connector.get_open_positions()
+                    self._process_news_items(new_items, positions, risk_locked=False)
+                self._log_event("NEWS_SCOUT", f"Pesquisa de notícias concluída ({len(self.news_scout.items)} manchete(s)).")
+            return self._news_snapshot_dict()
+
     def step_once(self) -> dict[str, Any]:
         with self._lock:
             now_step = time.time()
@@ -1589,6 +1682,13 @@ class PradoTradingService:
                     bot["last_error"] = str(bot_exc)
                     self._log_event("BOT_ERROR", f"Erro isolado no robô '{bot.get('name', bot.get('bot_id', '?'))}': {bot_exc}")
 
+            if getattr(self.cfg, "news_bot_enabled", False):
+                poll_sec = max(30, int(getattr(self.cfg, "news_poll_interval_sec", 90) or 90))
+                if (time.time() - self.news_scout.last_scan_at) >= poll_sec:
+                    _, new_items = self.news_scout.scan()
+                    if new_items:
+                        positions = self._process_news_items(new_items, positions, risk_locked)
+
             active_deals = (
                 self.connector._sim_deals_history
                 if self.cfg.connection_mode.upper() == "SIMULATION"
@@ -1612,6 +1712,7 @@ class PradoTradingService:
                 "positions": positions,
                 "deals_history": list(active_deals[:40]),
                 "symbols": symbols_data,
+                "news": self._news_snapshot_dict(),
                 "events": list(self._event_log[:30]),
                 "logs": [
                     {"time": e["time"], "module": e["category"], "message": e["message"]}

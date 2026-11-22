@@ -174,6 +174,14 @@ class PradoServerConfig:
     max_total_exposure_usd: float = 500.0
     min_order_interval_sec: float = 3.0
 
+    # News & Market Research Scout
+    news_bot_enabled: bool = False
+    news_pause_grid_on_high_impact: bool = True
+    news_auto_trade_enabled: bool = False
+    news_stake_usd: float = 5.0
+    news_multiplier: int = 100
+    news_poll_interval_sec: int = 90
+
 
 def load_config(config_path: Path) -> PradoServerConfig:
     if config_path.exists():

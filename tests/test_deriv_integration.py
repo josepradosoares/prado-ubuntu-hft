@@ -550,3 +550,60 @@ def test_place_multiplier_order_auto_adjusts_accepted_multiplier_for_stprng() ->
     assert "750x" in msg
     assert "990011" in msg
     assert calls[1]["multiplier"] == 750
+
+
+def test_news_scout_pauses_grid_and_opens_order_in_favor(tmp_path) -> None:
+    from prado_linux.config import load_config
+    from prado_linux.engine import PradoTradingService
+    from prado_linux.news_scout import NewsScout
+
+    cfg_path = tmp_path / "config.json"
+    cfg = load_config(cfg_path)
+    cfg.connection_mode = "SIMULATION"
+    cfg.news_bot_enabled = True
+    cfg.news_pause_grid_on_high_impact = True
+    cfg.news_auto_trade_enabled = True
+    cfg.news_stake_usd = 5.0
+    cfg.news_multiplier = 100
+    service = PradoTradingService(cfg, config_path=cfg_path)
+
+    grid_bot = service.create_bot(
+        {
+            "name": "GridBTC",
+            "symbol": "cryBTCUSD",
+            "bot_template_id": "GRID_LINEAR_HFT",
+            "grid_direction": "BUY_ONLY",
+            "auto_start": True,
+        }
+    )
+    assert grid_bot["status"] == "RUNNING"
+
+    fake_rss = """<?xml version="1.0" encoding="UTF-8" ?>
+    <rss version="2.0"><channel>
+      <item>
+        <title>Bitcoin surges to record high after SEC ETF approval</title>
+        <link>https://example.com/btc-etf</link>
+        <description>Major rally in BTC market</description>
+      </item>
+    </channel></rss>"""
+    service.news_scout = NewsScout(fetcher=lambda url: fake_rss if "BTC" in url else "<rss><channel></channel></rss>")
+
+    news_snap = service.scan_news(force=True)
+    assert len(news_snap["items"]) == 1
+    assert news_snap["items"][0]["symbol"] == "cryBTCUSD"
+    assert news_snap["items"][0]["impact"] == "HIGH"
+    assert news_snap["items"][0]["bias"] == "BULLISH"
+
+    # Grid bot on cryBTCUSD was automatically paused by high-impact news
+    assert service.cfg.bots[0]["status"] == "PAUSED"
+    assert service.cfg.bots[0]["last_signal"] == "PAUSED_NEWS"
+
+    # A BUY_NEWS order was opened in favor of the bullish news
+    positions = service.connector.get_open_positions()
+    assert len(positions) == 1
+    assert positions[0]["symbol"] == "cryBTCUSD"
+    assert positions[0]["type"] == "BUY"
+
+    # Scanning the exact same headline again does NOT open duplicate orders
+    service.scan_news(force=True)
+    assert len(service.connector.get_open_positions()) == 1

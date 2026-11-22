@@ -109,6 +109,31 @@ export interface LogEvent {
   message: string;
 }
 
+export interface NewsItem {
+  id: string;
+  title: string;
+  source: string;
+  link: string;
+  published_at: string;
+  symbol: string;
+  impact: 'HIGH' | 'MEDIUM' | 'LOW';
+  bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  score: number;
+  is_macro_usd?: boolean;
+}
+
+export interface NewsSnapshot {
+  enabled: boolean;
+  pause_grid_on_high_impact: boolean;
+  auto_trade_enabled: boolean;
+  stake_usd: number;
+  multiplier: number;
+  last_scan_at: number;
+  last_error?: string;
+  items: NewsItem[];
+  summary_by_symbol: Record<string, { symbol: string; count: number; high_impact: number; avg_score: number; bias: string }>;
+}
+
 export interface Snapshot {
   timestamp: string;
   auto_trading_enabled: boolean;
@@ -119,6 +144,7 @@ export interface Snapshot {
   positions: PositionItem[];
   deals_history: DealItem[];
   logs: LogEvent[];
+  news?: NewsSnapshot;
 }
 
 export interface DerivAccount {

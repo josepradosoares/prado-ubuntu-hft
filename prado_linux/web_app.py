@@ -305,6 +305,11 @@ class PradoWebApp:
                 cats = self.service.save_custom_category(cat_name, list(raw_syms))
             return 200, json.dumps({"ok": True, "categories": cats}, ensure_ascii=False), {"Content-Type": "application/json"}
 
+        if method == "POST" and clean_path == "/api/news/scan":
+            news_data = self.service.scan_news(force=True)
+            self.service.step_once()
+            return 200, json.dumps({"ok": True, "news": news_data}, ensure_ascii=False), {"Content-Type": "application/json"}
+
         if method == "GET" and clean_path == "/api/bot-templates":
             return 200, json.dumps({"ok": True, "templates": MATH_BOT_TEMPLATES}, ensure_ascii=False), {"Content-Type": "application/json"}
 

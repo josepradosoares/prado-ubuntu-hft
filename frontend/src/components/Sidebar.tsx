@@ -14,6 +14,7 @@ import {
   PanelLeftOpen,
   X,
   ShieldCheck,
+  Newspaper,
 } from 'lucide-react'
 
 export type TabKey =
@@ -23,6 +24,7 @@ export type TabKey =
   | 'create-bot'
   | 'backtest'
   | 'monitor'
+  | 'news'
   | 'categories'
   | 'deriv-config'
   | 'deriv-tokens'
@@ -73,6 +75,7 @@ export function Sidebar({
         { key: 'create-bot', label: 'Configurar robô matemático', icon: <Sliders className="h-4 w-4 shrink-0" /> },
         { key: 'backtest', label: 'Backtest tick a tick', icon: <FlaskConical className="h-4 w-4 shrink-0" /> },
         { key: 'monitor', label: 'Matriz VWAP e Z-Score', icon: <BarChart3 className="h-4 w-4 shrink-0" /> },
+        { key: 'news', label: 'Pesquisa & Notícias', icon: <Newspaper className="h-4 w-4 shrink-0" /> },
       ],
     },
     {
