@@ -82,7 +82,11 @@ class PradoWebApp:
         morsel = cookie.get("prado_session")
         if morsel is None:
             return None
-        return verify_session_token(morsel.value, self.cfg.secret_key)
+        uid = verify_session_token(morsel.value, self.cfg.secret_key)
+        if uid and self.supabase.is_enabled and uid != self.cfg.admin_username:
+            if uid not in self._user_tokens and not self.supabase.cfg.service_role_key:
+                return None
+        return uid
 
     def _safe_config_dict(self, cfg_obj: PradoServerConfig | None = None) -> dict[str, Any]:
         d = asdict(cfg_obj or self.cfg)
@@ -224,6 +228,9 @@ class PradoWebApp:
                     uid = res["user_id"]
                     self._user_tokens[uid] = res["access_token"]
                     self._user_emails[uid] = str(res.get("email") or username)
+                    old_svc = self._user_services.pop(uid, None)
+                    if old_svc is not None:
+                        old_svc.stop_background_loop()
                     svc = self._active_service(uid)
                     if not svc._thread or not svc._thread.is_alive():
                         svc.start_background_loop()
