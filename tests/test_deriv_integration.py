@@ -96,6 +96,8 @@ def test_rate_limiter_enforces_ws_and_rest_budgets_and_backoff() -> None:
         rl.acquire_ws("portfolio", now=now)
     with pytest.raises(DerivRateLimitError):
         rl.acquire_ws("portfolio", now=now)
+    # Local WS budget exhaustion must NOT block REST auth/OTP calls
+    rl.acquire_rest(now=now)
 
     # Cooldown recovery
     delay = rl.record_remote_rate_limit("RateLimit", now=now + 100.0)

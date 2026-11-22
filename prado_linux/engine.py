@@ -380,7 +380,7 @@ class DerivUniversalConnector:
             return ticks_sim
 
         cached = self._tick_cache.get(symbol)
-        if cached and (now - cached[0]) < 3.0 and len(cached[1]) >= min(count, 40):
+        if cached and (now - cached[0]) < 8.0 and len(cached[1]) >= min(count, 40):
             return cached[1]
         client = self._deriv
         if client is None:

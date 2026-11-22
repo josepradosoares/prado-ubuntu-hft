@@ -77,7 +77,9 @@ class DerivRateLimiter:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._ws_windows: dict[str, deque[float]] = {k: deque() for k in WS_BUDGETS}
+        self._ws_blocked_until: dict[str, float] = {}
         self._rest_window: deque[float] = deque()
+        self._rest_blocked_until: float = 0.0
         self._blocked_until: float = 0.0
         self._consecutive_429: int = 0
         self._last_error: str = ""
@@ -92,8 +94,9 @@ class DerivRateLimiter:
             return
         t = time.time() if now is None else now
         with self._lock:
-            if t < self._blocked_until:
-                wait = round(self._blocked_until - t, 2)
+            grp_blocked = max(self._blocked_until, self._ws_blocked_until.get(group, 0.0))
+            if t < grp_blocked:
+                wait = round(grp_blocked - t, 2)
                 raise DerivRateLimitError(
                     f"RateLimit ativo (cooldown {wait}s): {self._last_error or 'aguardando janela'}"
                 )
@@ -102,7 +105,7 @@ class DerivRateLimiter:
             per_min, per_hour = WS_BUDGETS.get(group, WS_BUDGETS["other"])
             recent_min = sum(1 for ts in dq if ts >= t - 60.0)
             if recent_min >= per_min or len(dq) >= per_hour:
-                self._blocked_until = t + 2.0
+                self._ws_blocked_until[group] = t + 2.0
                 self._last_error = f"Orçamento local WS '{group}' atingido ({recent_min}/{per_min} min)"
                 raise DerivRateLimitError(self._last_error)
             dq.append(t)
@@ -110,14 +113,15 @@ class DerivRateLimiter:
     def acquire_rest(self, now: float | None = None) -> None:
         t = time.time() if now is None else now
         with self._lock:
-            if t < self._blocked_until:
-                wait = round(self._blocked_until - t, 2)
+            rest_blocked = max(self._blocked_until, self._rest_blocked_until)
+            if t < rest_blocked:
+                wait = round(rest_blocked - t, 2)
                 raise DerivRateLimitError(
                     f"RateLimit REST ativo (cooldown {wait}s): {self._last_error or 'aguardando janela'}"
                 )
             self._prune(self._rest_window, t, 60.0)
             if len(self._rest_window) >= REST_USER_PER_MIN:
-                self._blocked_until = t + 2.0
+                self._rest_blocked_until = t + 2.0
                 self._last_error = f"Orçamento REST atingido ({len(self._rest_window)}/{REST_USER_PER_MIN} min)"
                 raise DerivRateLimitError(self._last_error)
             self._rest_window.append(t)
