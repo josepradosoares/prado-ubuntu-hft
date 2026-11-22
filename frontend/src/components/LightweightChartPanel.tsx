@@ -149,7 +149,6 @@ export function LightweightChartPanel({
 
   useEffect(() => {
     if (
-      !cleanPoints.length ||
       !priceSeriesRef.current ||
       !vwapSeriesRef.current ||
       !upperSeriesRef.current ||
@@ -161,7 +160,9 @@ export function LightweightChartPanel({
     vwapSeriesRef.current.setData(cleanPoints.map((p) => ({ time: p.time as Time, value: p.vwap })))
     upperSeriesRef.current.setData(cleanPoints.map((p) => ({ time: p.time as Time, value: p.upper_2 })))
     lowerSeriesRef.current.setData(cleanPoints.map((p) => ({ time: p.time as Time, value: p.lower_2 })))
-    chartRef.current?.timeScale().fitContent()
+    if (cleanPoints.length > 0) {
+      chartRef.current?.timeScale().fitContent()
+    }
   }, [cleanPoints])
 
   const zVal = symbolState?.zscore

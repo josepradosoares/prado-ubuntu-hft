@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ShieldCheck,
   AlertTriangle,
@@ -106,6 +106,7 @@ export default function App() {
   const [templates, setTemplates] = useState<BotTemplate[]>([])
   const [symbols, setSymbols] = useState<BrokerSymbol[]>([])
   const [symbolMode, setSymbolMode] = useState<'PRINCIPAIS' | 'TODOS'>('PRINCIPAIS')
+  const symbolModeRef = useRef<'PRINCIPAIS' | 'TODOS'>('PRINCIPAIS')
   const [chartSymbol, setChartSymbol] = useState('R_100')
   const [chartPoints, setChartPoints] = useState<ChartPoint[]>([])
   const [chartLoading, setChartLoading] = useState(false)
@@ -206,7 +207,7 @@ export default function App() {
         fetch('/api/status'),
         fetch('/api/config'),
         fetch('/api/bot-templates'),
-        fetch(`/api/symbols?mode=${symbolMode}`),
+        fetch(`/api/symbols?mode=${symbolModeRef.current}`),
       ])
 
       if (statusRes.status === 401) {
@@ -232,8 +233,8 @@ export default function App() {
         setCfgConnMode(c.connection_mode || 'DERIV_CLOUD')
         setAccAppId(c.deriv_app_id || '1089')
         setAccConnMode(c.connection_mode || 'DERIV_CLOUD')
-        if (c.accounts?.length && !botAccountId) {
-          setBotAccountId(c.active_account_id || c.accounts[0].account_id)
+        if (c.accounts?.length) {
+          setBotAccountId((prev) => prev || c.active_account_id || c.accounts[0].account_id)
         }
         if (c.active_symbols?.length) {
           setChartSymbol((prev) => (c.active_symbols.includes(prev) ? prev : c.active_symbols[0]))
@@ -253,7 +254,7 @@ export default function App() {
     } finally {
       setInitialLoading(false)
     }
-  }, [botAccountId, symbolMode])
+  }, [])
 
   useEffect(() => {
     loadAllInitial()
@@ -314,10 +315,17 @@ export default function App() {
 
   async function refreshSymbols(mode: 'PRINCIPAIS' | 'TODOS') {
     setSymbolMode(mode)
-    const res = await fetch(`/api/symbols?mode=${mode}`)
-    if (res.ok) {
-      const d = await res.json()
-      setSymbols(Array.isArray(d.symbols) ? d.symbols : [])
+    symbolModeRef.current = mode
+    try {
+      const res = await fetch(`/api/symbols?mode=${mode}`)
+      if (res.ok) {
+        const d = await res.json()
+        setSymbols(Array.isArray(d.symbols) ? d.symbols : [])
+      } else {
+        showToast('Falha ao carregar catálogo de símbolos.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao carregar catálogo de símbolos.', true)
     }
   }
 
@@ -342,16 +350,37 @@ export default function App() {
   }
 
   async function handleDeleteAllBots() {
-    const res = await fetch('/api/bots/action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'DELETE_ALL' }),
-    })
-    if (res.ok) {
-      showToast('Frota de robôs limpa.')
-      const stRes = await fetch('/api/status')
-      if (stRes.ok) setSnapshot(await stRes.json())
+    try {
+      const res = await fetch('/api/bots/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'DELETE_ALL' }),
+      })
+      if (res.ok) {
+        showToast('Frota de robôs limpa.')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast('Falha ao limpar frota de robôs.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao limpar frota de robôs.', true)
     }
+  }
+
+  function resetBotForm() {
+    setEditingBotId('')
+    setBotName('')
+    setBotAccountId(config?.active_account_id || config?.accounts?.[0]?.account_id || '')
+    setBotTemplateId('WALL_STREET_HYBRID_BOTH')
+    setBotSymbol('R_100')
+    setBotStake(10)
+    setBotMult(100)
+    setBotWindow(120)
+    setBotZscore(1.8)
+    setBotImb(0.35)
+    setBotRevertSigma(2.0)
+    setBotFormDirty(false)
   }
 
   function startEditBot(b: BotItem) {
@@ -384,18 +413,22 @@ export default function App() {
       revert_sigma: Number(b.revert_sigma) || 2.0,
       auto_start: false,
     }
-    const res = await fetch('/api/bots', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const d = await res.json()
-    if (d.ok) {
-      showToast(`Robô "${payload.name}" duplicado (pausado).`)
-      const stRes = await fetch('/api/status')
-      if (stRes.ok) setSnapshot(await stRes.json())
-    } else {
-      showToast(d.error || 'Falha ao duplicar robô.', true)
+    try {
+      const res = await fetch('/api/bots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        showToast(`Robô "${payload.name}" duplicado (pausado).`)
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao duplicar robô.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao duplicar robô.', true)
     }
   }
 
@@ -425,22 +458,24 @@ export default function App() {
     }
     if (editingBotId) payload.bot_id = editingBotId
 
-    const res = await fetch('/api/bots', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const d = await res.json()
-    if (d.ok) {
-      setEditingBotId('')
-      setBotName('')
-      setBotFormDirty(false)
-      showToast('Robô matemático salvo!')
-      setActiveTab('running-bots')
-      const stRes = await fetch('/api/status')
-      if (stRes.ok) setSnapshot(await stRes.json())
-    } else {
-      showToast(d.error || 'Erro ao salvar robô.', true)
+    try {
+      const res = await fetch('/api/bots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        resetBotForm()
+        showToast('Robô matemático salvo!')
+        setActiveTab('running-bots')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Erro ao salvar robô.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao salvar robô.', true)
     }
   }
 
@@ -460,13 +495,15 @@ export default function App() {
         }),
       })
       const d = await res.json()
-      if (d.ok) {
+      if (res.ok && d.ok) {
         setBtResult(d.report)
         if (config) setConfig({ ...config, backtest_history: d.history || [] })
         showToast('Backtest concluído!')
       } else {
         showToast(d.error || 'Falha no backtest.', true)
       }
+    } catch {
+      showToast('Erro de rede ao executar backtest.', true)
     } finally {
       setBtRunning(false)
     }
@@ -478,30 +515,42 @@ export default function App() {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
-    const res = await fetch('/api/categories', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category_name: catName.trim(), symbols: syms }),
-    })
-    const d = await res.json()
-    if (d.ok && config) {
-      setConfig({ ...config, custom_categories: d.categories })
-      setCatName('')
-      setCatSymbols('')
-      showToast('Categoria salva!')
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category_name: catName.trim(), symbols: syms }),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok && config) {
+        setConfig({ ...config, custom_categories: d.categories })
+        setCatName('')
+        setCatSymbols('')
+        showToast('Categoria salva!')
+      } else {
+        showToast(d.error || 'Falha ao salvar categoria.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao salvar categoria.', true)
     }
   }
 
   async function deleteCategory(categoryName: string) {
-    const res = await fetch('/api/categories', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'DELETE', category_name: categoryName }),
-    })
-    const d = await res.json()
-    if (d.ok && config) {
-      setConfig({ ...config, custom_categories: d.categories })
-      showToast(`Categoria "${categoryName}" removida.`)
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'DELETE', category_name: categoryName }),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok && config) {
+        setConfig({ ...config, custom_categories: d.categories })
+        showToast(`Categoria "${categoryName}" removida.`)
+      } else {
+        showToast(d.error || 'Falha ao remover categoria.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao remover categoria.', true)
     }
   }
 
@@ -513,20 +562,26 @@ export default function App() {
     }
     if (cfgToken.trim()) payload.deriv_token = cfgToken.trim()
 
-    const res = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const d = await res.json()
-    if (d.ok) {
-      setConfig(d.config)
-      setCfgToken('')
-      setAccAppId(d.config.deriv_app_id || '1089')
-      setAccConnMode(d.config.connection_mode || 'DERIV_CLOUD')
-      showToast('Configuração Deriv salva!')
-      const stRes = await fetch('/api/status')
-      if (stRes.ok) setSnapshot(await stRes.json())
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        setConfig(d.config)
+        setCfgToken('')
+        setAccAppId(d.config.deriv_app_id || '1089')
+        setAccConnMode(d.config.connection_mode || 'DERIV_CLOUD')
+        showToast('Configuração Deriv salva!')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao salvar configuração Deriv.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao salvar configuração Deriv.', true)
     }
   }
 
@@ -543,37 +598,49 @@ export default function App() {
     }
     if (editingAccId) payload.account_id = editingAccId
 
-    const res = await fetch('/api/accounts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const d = await res.json()
-    if (d.ok) {
-      setEditingAccId('')
-      setAccLabel('')
-      setAccToken('')
-      if (config) {
-        setConfig({ ...config, accounts: d.accounts, active_account_id: d.account.account_id })
+    try {
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        setEditingAccId('')
+        setAccLabel('')
+        setAccToken('')
+        if (config) {
+          setConfig({ ...config, accounts: d.accounts, active_account_id: d.account.account_id })
+        }
+        showToast(d.message || 'Conta Deriv salva!')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao salvar conta Deriv.', true)
       }
-      showToast(d.message || 'Conta Deriv salva!')
-      const stRes = await fetch('/api/status')
-      if (stRes.ok) setSnapshot(await stRes.json())
+    } catch {
+      showToast('Erro de rede ao salvar conta Deriv.', true)
     }
   }
 
   async function selectAccount(accountId: string) {
-    const res = await fetch('/api/accounts/select', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account_id: accountId }),
-    })
-    const d = await res.json()
-    if (d.ok) {
-      if (config) setConfig({ ...config, active_account_id: accountId })
-      showToast(d.message || 'Conta ativada.')
-      const stRes = await fetch('/api/status')
-      if (stRes.ok) setSnapshot(await stRes.json())
+    try {
+      const res = await fetch('/api/accounts/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId }),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        if (config) setConfig({ ...config, active_account_id: accountId })
+        showToast(d.message || 'Conta ativada.')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao ativar conta.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao ativar conta.', true)
     }
   }
 
@@ -602,15 +669,21 @@ export default function App() {
 
   async function toggleAutoTrading() {
     const next = !(snapshot?.auto_trading_enabled ?? true)
-    const res = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ auto_trading_enabled: next }),
-    })
-    if (res.ok) {
-      showToast(next ? 'Execução automática ativada.' : 'Execução automática pausada.')
-      const stRes = await fetch('/api/status')
-      if (stRes.ok) setSnapshot(await stRes.json())
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_trading_enabled: next }),
+      })
+      if (res.ok) {
+        showToast(next ? 'Execução automática ativada.' : 'Execução automática pausada.')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast('Falha ao alternar execução automática.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao alternar execução automática.', true)
     }
   }
 
@@ -644,12 +717,18 @@ export default function App() {
   }
 
   async function resetDailyRisk() {
-    const res = await fetch('/api/risk/reset', { method: 'POST' })
-    const d = await res.json()
-    if (d.ok) {
-      showToast('Trava diária de risco redefinida.')
-      const stRes = await fetch('/api/status')
-      if (stRes.ok) setSnapshot(await stRes.json())
+    try {
+      const res = await fetch('/api/risk/reset', { method: 'POST' })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        showToast('Trava diária de risco redefinida.')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao redefinir trava diária.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao redefinir trava diária.', true)
     }
   }
 
@@ -659,23 +738,33 @@ export default function App() {
       showToast('A nova senha deve ter no mínimo 6 caracteres.', true)
       return
     }
-    const res = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ new_admin_password: newAdminPassword.trim() }),
-    })
-    if (res.ok) {
-      setNewAdminPassword('')
-      showToast('Senha administrativa atualizada!')
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_admin_password: newAdminPassword.trim() }),
+      })
+      if (res.ok) {
+        setNewAdminPassword('')
+        showToast('Senha administrativa atualizada!')
+      } else {
+        showToast('Falha ao atualizar senha administrativa.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao atualizar senha administrativa.', true)
     }
   }
 
   const monitoredSymbols = useMemo(() => {
     const set = new Set<string>(['R_100', 'cryBTCUSD', 'frxEURUSD'])
     if (snapshot?.symbols) {
-      Object.keys(snapshot.symbols).forEach((s) => set.add(s))
+      Object.keys(snapshot.symbols).forEach((s) => {
+        if (s) set.add(s)
+      })
     }
-    snapshot?.bots?.forEach((b) => set.add(b.symbol))
+    snapshot?.bots?.forEach((b) => {
+      if (b?.symbol) set.add(b.symbol)
+    })
     return Array.from(set)
   }, [snapshot])
 
@@ -963,8 +1052,7 @@ export default function App() {
                     onEdit={startEditBot}
                     onDuplicate={duplicateBot}
                     onNewBot={() => {
-                      setEditingBotId('')
-                      setBotFormDirty(false)
+                      resetBotForm()
                       setActiveTab('create-bot')
                     }}
                     onDeleteAll={handleDeleteAllBots}
@@ -1004,6 +1092,7 @@ export default function App() {
                             </tr>
                           ) : (
                             snapshot.positions.map((p) => {
+                              if (!p || p.ticket === undefined) return null
                               const profitPositive = isFiniteNumber(p.profit) && p.profit >= 0
                               return (
                                 <tr
@@ -1426,24 +1515,27 @@ export default function App() {
                               </td>
                             </tr>
                           ) : (
-                            config.backtest_history.map((h, i) => (
-                              <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
-                                <td className="px-4 py-2.5 font-semibold">{h.symbol}</td>
-                                <td className="px-4 py-2.5 font-sans text-slate-600 dark:text-slate-300">
-                                  {h.template_name || '--'}
-                                </td>
-                                <td className="px-4 py-2.5 text-right">{h.total_trades ?? '--'}</td>
-                                <td className="px-4 py-2.5 text-right">
-                                  {formatPercent(h.win_rate, 1, false)}
-                                </td>
-                                <td className="px-4 py-2.5 text-right">
-                                  ${formatNumber(h.net_profit, 2)}
-                                </td>
-                                <td className="px-4 py-2.5 text-right text-rose-600 dark:text-rose-400">
-                                  ${formatNumber(h.max_drawdown, 2)}
-                                </td>
-                              </tr>
-                            ))
+                            config.backtest_history.map((h, i) => {
+                              if (!h) return null
+                              return (
+                                <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
+                                  <td className="px-4 py-2.5 font-semibold">{h.symbol || '--'}</td>
+                                  <td className="px-4 py-2.5 font-sans text-slate-600 dark:text-slate-300">
+                                    {h.template_name || '--'}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-right">{h.total_trades ?? '--'}</td>
+                                  <td className="px-4 py-2.5 text-right">
+                                    {formatPercent(h.win_rate, 1, false)}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-right">
+                                    ${formatNumber(h.net_profit, 2)}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-right text-rose-600 dark:text-rose-400">
+                                    ${formatNumber(h.max_drawdown, 2)}
+                                  </td>
+                                </tr>
+                              )
+                            })
                           )}
                         </tbody>
                       </table>
@@ -1533,7 +1625,7 @@ export default function App() {
                             </button>
                           </div>
                           <div className="mt-2 flex flex-wrap gap-1.5">
-                            {list.map((sym) => (
+                            {(Array.isArray(list) ? list : []).map((sym) => (
                               <span
                                 key={sym}
                                 className="rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 text-[11px] font-mono text-slate-700 dark:text-slate-300"
@@ -1970,25 +2062,28 @@ export default function App() {
                               </td>
                             </tr>
                           ) : (
-                            snapshot.deals_history.map((d, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
-                                <td className="px-4 py-2.5 text-slate-500">{d.time_str || '--'}</td>
-                                <td className="px-4 py-2.5 font-semibold">{d.symbol}</td>
-                                <td className="px-4 py-2.5">{d.side}</td>
-                                <td className="px-4 py-2.5 text-right">${formatNumber(d.volume, 2)}</td>
-                                <td className="px-4 py-2.5 text-right">{formatPrice(d.price_open, 4)}</td>
-                                <td className="px-4 py-2.5 text-right">{formatPrice(d.price_close, 4)}</td>
-                                <td
-                                  className={`px-4 py-2.5 text-right font-semibold ${
-                                    (d.profit ?? 0) >= 0
-                                      ? 'text-emerald-600 dark:text-emerald-400'
-                                      : 'text-rose-600 dark:text-rose-400'
-                                  }`}
-                                >
-                                  {formatSignedNumber(d.profit, 2)}
-                                </td>
-                              </tr>
-                            ))
+                            snapshot.deals_history.map((d, idx) => {
+                              if (!d) return null
+                              return (
+                                <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
+                                  <td className="px-4 py-2.5 text-slate-500">{d.time_str || '--'}</td>
+                                  <td className="px-4 py-2.5 font-semibold">{d.symbol || '--'}</td>
+                                  <td className="px-4 py-2.5">{d.side || '--'}</td>
+                                  <td className="px-4 py-2.5 text-right">${formatNumber(d.volume, 2)}</td>
+                                  <td className="px-4 py-2.5 text-right">{formatPrice(d.price_open, 4)}</td>
+                                  <td className="px-4 py-2.5 text-right">{formatPrice(d.price_close, 4)}</td>
+                                  <td
+                                    className={`px-4 py-2.5 text-right font-semibold ${
+                                      isFiniteNumber(d.profit) && d.profit >= 0
+                                        ? 'text-emerald-600 dark:text-emerald-400'
+                                        : 'text-rose-600 dark:text-rose-400'
+                                    }`}
+                                  >
+                                    {formatSignedNumber(d.profit, 2)}
+                                  </td>
+                                </tr>
+                              )
+                            })
                           )}
                         </tbody>
                       </table>
@@ -2005,15 +2100,18 @@ export default function App() {
                           Sem registros no log.
                         </div>
                       ) : (
-                        snapshot.logs.slice(0, 40).map((l, idx) => (
-                          <div key={idx} className="flex items-start gap-3 px-5 py-2.5">
-                            <span className="shrink-0 text-slate-400">{l.time}</span>
-                            <span className="shrink-0 rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] text-blue-600 dark:text-blue-300">
-                              {l.module}
-                            </span>
-                            <span className="text-slate-700 dark:text-slate-300">{l.message}</span>
-                          </div>
-                        ))
+                        snapshot.logs.slice(0, 40).map((l, idx) => {
+                          if (!l) return null
+                          return (
+                            <div key={idx} className="flex items-start gap-3 px-5 py-2.5">
+                              <span className="shrink-0 text-slate-400">{l.time || '--'}</span>
+                              <span className="shrink-0 rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] text-blue-600 dark:text-blue-300">
+                                {l.module || '--'}
+                              </span>
+                              <span className="text-slate-700 dark:text-slate-300">{l.message || ''}</span>
+                            </div>
+                          )
+                        })
                       )}
                     </div>
                   </Card>

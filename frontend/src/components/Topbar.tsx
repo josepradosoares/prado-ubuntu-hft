@@ -183,17 +183,20 @@ export function Topbar({
                   {logs.length === 0 ? (
                     <div className="p-4 text-center text-slate-400">Sem eventos registrados.</div>
                   ) : (
-                    logs.slice(0, 8).map((l, i) => (
-                      <div key={i} className="px-4 py-2.5">
-                        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                          <span>{l.module}</span>
-                          <span>{l.time}</span>
+                    logs.slice(0, 8).map((l, i) => {
+                      if (!l) return null
+                      return (
+                        <div key={i} className="px-4 py-2.5">
+                          <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                            <span>{l.module || '--'}</span>
+                            <span>{l.time || '--'}</span>
+                          </div>
+                          <p className="mt-0.5 text-slate-700 dark:text-slate-300 line-clamp-2">
+                            {l.message || ''}
+                          </p>
                         </div>
-                        <p className="mt-0.5 text-slate-700 dark:text-slate-300 line-clamp-2">
-                          {l.message}
-                        </p>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </div>
               </div>
