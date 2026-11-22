@@ -108,6 +108,9 @@ export default function App() {
   const [loginUser, setLoginUser] = useState('admin')
   const [loginPass, setLoginPass] = useState('')
   const [loginError, setLoginError] = useState('')
+  const [supabaseEnabled, setSupabaseEnabled] = useState(false)
+  const [authMode, setAuthMode] = useState<'LOGIN' | 'SIGNUP'>('LOGIN')
+  const [loginInfo, setLoginInfo] = useState('')
 
   const [activeTab, setActiveTab] = useState<TabKey>('running-bots')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -234,6 +237,15 @@ export default function App() {
 
   const loadAllInitial = useCallback(async () => {
     try {
+      const modeRes = await fetch('/api/auth/mode')
+      if (modeRes.ok) {
+        const mData = await modeRes.json()
+        const sb = Boolean(mData.supabase_enabled)
+        setSupabaseEnabled(sb)
+        if (sb) {
+          setLoginUser((prev) => (prev === 'admin' ? '' : prev))
+        }
+      }
       const [statusRes, cfgRes, tplRes, symRes] = await Promise.all([
         fetch('/api/status'),
         fetch('/api/config'),
@@ -321,14 +333,21 @@ export default function App() {
   async function handleLogin(e: FormEvent) {
     e.preventDefault()
     setLoginError('')
+    setLoginInfo('')
+    const endpoint = supabaseEnabled && authMode === 'SIGNUP' ? '/api/signup' : '/api/login'
     try {
-      const res = await fetch('/api/login', {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: loginUser, password: loginPass }),
+        body: JSON.stringify({ username: loginUser, email: loginUser, password: loginPass }),
       })
       const data = await res.json()
       if (res.ok && data.ok) {
+        if (data.confirmation_required) {
+          setLoginInfo(data.message || 'Conta criada! Confirme seu e-mail e faça login.')
+          setAuthMode('LOGIN')
+          return
+        }
         setAuthenticated(true)
         setInitialLoading(true)
         await loadAllInitial()
@@ -1031,12 +1050,47 @@ export default function App() {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
+            {supabaseEnabled && (
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 dark:bg-slate-900 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('LOGIN')
+                    setLoginError('')
+                    setLoginInfo('')
+                  }}
+                  className={`rounded-lg py-1.5 text-xs font-semibold transition ${
+                    authMode === 'LOGIN'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                >
+                  Entrar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('SIGNUP')
+                    setLoginError('')
+                    setLoginInfo('')
+                  }}
+                  className={`rounded-lg py-1.5 text-xs font-semibold transition ${
+                    authMode === 'SIGNUP'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                >
+                  Criar Conta
+                </button>
+              </div>
+            )}
             <div>
               <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                Usuário
+                {supabaseEnabled ? 'E-mail (Supabase)' : 'Usuário'}
               </label>
               <input
-                type="text"
+                type={supabaseEnabled ? 'email' : 'text'}
+                placeholder={supabaseEnabled ? 'seu@email.com' : 'admin'}
                 value={loginUser}
                 onChange={(e) => setLoginUser(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
@@ -1055,6 +1109,11 @@ export default function App() {
                 required
               />
             </div>
+            {loginInfo && (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+                {loginInfo}
+              </div>
+            )}
             {loginError && (
               <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
                 {loginError}
@@ -1064,7 +1123,7 @@ export default function App() {
               type="submit"
               className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 py-2.5 text-sm font-semibold text-white transition shadow-lg shadow-blue-600/20"
             >
-              Entrar no Terminal
+              {supabaseEnabled && authMode === 'SIGNUP' ? 'Criar Conta no Supabase' : 'Entrar no Terminal'}
             </button>
           </form>
         </div>

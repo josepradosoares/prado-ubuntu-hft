@@ -11,9 +11,10 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from prado_linux.auth import create_session_token, hash_password, verify_password, verify_session_token
-from prado_linux.config import MATH_BOT_TEMPLATES, load_config
+from prado_linux.config import MATH_BOT_TEMPLATES, PradoServerConfig, load_config
 from prado_linux.engine import PradoTradingService
 from prado_linux.indicators import DEFAULT_PYTHON_STRATEGY_TEMPLATE, INDICATOR_CATALOG
+from prado_linux.supabase_store import SupabaseStore
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -21,10 +22,30 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 class PradoWebApp:
     """Testable HTTP router for Login, Deriv Token Vault, Symbols, Categories, Robot Fleet, and Backtest."""
 
-    def __init__(self, config_path: Path) -> None:
+    def __init__(self, config_path: Path, supabase_store: SupabaseStore | None = None) -> None:
         self.config_path = config_path
         self.cfg = load_config(config_path)
         self.service = PradoTradingService(self.cfg, config_path=config_path)
+        self.supabase = supabase_store or SupabaseStore.from_env()
+        self._user_services: dict[str, PradoTradingService] = {}
+        self._user_tokens: dict[str, str] = {}
+
+    def _active_service(self, user: str) -> PradoTradingService:
+        if not self.supabase.is_enabled or not user or user == self.cfg.admin_username:
+            return self.service
+        svc = self._user_services.get(user)
+        if svc is None:
+            user_cfg_path = self.config_path.parent / f"prado_user_{user}.json"
+            token = self._user_tokens.get(user, "")
+            u_cfg = self.supabase.load_user_config(user, token, user_cfg_path)
+            svc = PradoTradingService(u_cfg, config_path=user_cfg_path)
+            self._user_services[user] = svc
+        return svc
+
+    def _sync_user(self, user: str, svc: PradoTradingService) -> None:
+        if self.supabase.is_enabled and user and user != self.cfg.admin_username:
+            token = self._user_tokens.get(user, "")
+            self.supabase.sync_user_config(user, token, svc.cfg)
 
     def _extract_session_user(self, headers: dict[str, str]) -> str | None:
         cookie_raw = headers.get("Cookie") or headers.get("cookie") or ""
@@ -40,8 +61,8 @@ class PradoWebApp:
             return None
         return verify_session_token(morsel.value, self.cfg.secret_key)
 
-    def _safe_config_dict(self) -> dict[str, Any]:
-        d = asdict(self.cfg)
+    def _safe_config_dict(self, cfg_obj: PradoServerConfig | None = None) -> dict[str, Any]:
+        d = asdict(cfg_obj or self.cfg)
         d.pop("admin_password_hash", None)
         d.pop("secret_key", None)
         if d.get("deriv_token"):
@@ -128,13 +149,65 @@ class PradoWebApp:
         if method == "GET" and clean_path == "/login":
             return self._serve_index()
 
+        if method == "GET" and clean_path == "/api/auth/mode":
+            return (
+                200,
+                json.dumps({"ok": True, "supabase_enabled": self.supabase.is_enabled}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/signup":
+            if not self.supabase.is_enabled:
+                return 400, json.dumps({"ok": False, "error": "Supabase nao configurado."}), {"Content-Type": "application/json"}
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                payload = {}
+            email = str(payload.get("email") or payload.get("username") or "").strip()
+            password = str(payload.get("password") or "")
+            ok, res = self.supabase.sign_up(email, password)
+            if not ok:
+                return 400, json.dumps({"ok": False, "error": res.get("error", "Erro ao cadastrar.")}, ensure_ascii=False), {"Content-Type": "application/json"}
+            uid = res.get("user_id") or email
+            access_token = res.get("access_token") or ""
+            if access_token:
+                self._user_tokens[uid] = access_token
+                svc = self._active_service(uid)
+                self._sync_user(uid, svc)
+                token = create_session_token(uid, self.cfg.secret_key)
+                cookie_val = f"prado_session={token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax"
+                return (
+                    200,
+                    json.dumps({"ok": True, "username": res.get("email", email), "user_id": uid}),
+                    {"Content-Type": "application/json", "Set-Cookie": cookie_val},
+                )
+            return (
+                200,
+                json.dumps({"ok": True, "confirmation_required": True, "message": "Conta criada! Verifique seu e-mail para confirmar e depois faça login."}),
+                {"Content-Type": "application/json"},
+            )
+
         if method == "POST" and clean_path == "/api/login":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 payload = {}
-            username = str(payload.get("username", "")).strip()
+            username = str(payload.get("username") or payload.get("email") or "").strip()
             password = str(payload.get("password", ""))
+            if self.supabase.is_enabled:
+                ok, res = self.supabase.sign_in(username, password)
+                if ok and res.get("user_id"):
+                    uid = res["user_id"]
+                    self._user_tokens[uid] = res["access_token"]
+                    self._active_service(uid)
+                    token = create_session_token(uid, self.cfg.secret_key)
+                    cookie_val = f"prado_session={token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax"
+                    return (
+                        200,
+                        json.dumps({"ok": True, "username": res.get("email", username), "user_id": uid}),
+                        {"Content-Type": "application/json", "Set-Cookie": cookie_val},
+                    )
+                return 401, json.dumps({"ok": False, "error": res.get("error", "Credenciais invalidas.")}, ensure_ascii=False), {"Content-Type": "application/json"}
             if username == self.cfg.admin_username and verify_password(password, self.cfg.admin_password_hash):
                 token = create_session_token(username, self.cfg.secret_key)
                 cookie_val = f"prado_session={token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax"
@@ -158,22 +231,25 @@ class PradoWebApp:
                 return 401, json.dumps({"ok": False, "error": "Nao autenticado."}), {"Content-Type": "application/json"}
             return 302, "", {"Location": "/login"}
 
+        svc = self._active_service(user)
+        cfg = svc.cfg
+
         if method == "GET" and clean_path == "/":
             return self._serve_index()
 
         if method == "GET" and clean_path == "/api/status":
-            return 200, json.dumps(self.service.get_snapshot(), ensure_ascii=False), {"Content-Type": "application/json"}
+            return 200, json.dumps(svc.get_snapshot(), ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "GET" and clean_path == "/api/chart":
             sym = str(query_params.get("symbol", ["R_100"])[0] or "R_100").strip()
             tf = str(query_params.get("timeframe", ["TICKS"])[0] or "TICKS").strip().upper()
-            points = self.service.get_chart_series(sym, timeframe=tf)
+            points = svc.get_chart_series(sym, timeframe=tf)
             return 200, json.dumps({"ok": True, "symbol": sym, "timeframe": tf, "points": points}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "GET" and clean_path == "/api/config":
             return (
                 200,
-                json.dumps({"ok": True, "config": self._safe_config_dict()}, ensure_ascii=False),
+                json.dumps({"ok": True, "config": self._safe_config_dict(cfg)}, ensure_ascii=False),
                 {"Content-Type": "application/json"},
             )
 
@@ -187,11 +263,12 @@ class PradoWebApp:
                 updates["admin_password_hash"] = hash_password(str(new_admin_pwd).strip())
             if updates.get("deriv_token") == "********":
                 updates.pop("deriv_token", None)
-            self.service.update_config(updates)
-            self.service.step_once()
+            svc.update_config(updates)
+            svc.step_once()
+            self._sync_user(user, svc)
             return (
                 200,
-                json.dumps({"ok": True, "message": "Configuracao salva.", "config": self._safe_config_dict()}, ensure_ascii=False),
+                json.dumps({"ok": True, "message": "Configuracao salva.", "config": self._safe_config_dict(cfg)}, ensure_ascii=False),
                 {"Content-Type": "application/json"},
             )
 
@@ -199,7 +276,7 @@ class PradoWebApp:
         if method == "GET" and clean_path == "/api/accounts":
             return (
                 200,
-                json.dumps({"ok": True, "accounts": self._safe_config_dict()["accounts"]}, ensure_ascii=False),
+                json.dumps({"ok": True, "accounts": self._safe_config_dict(cfg)["accounts"]}, ensure_ascii=False),
                 {"Content-Type": "application/json"},
             )
 
@@ -210,15 +287,18 @@ class PradoWebApp:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
             act_acc = str(payload.get("action", "")).upper()
             if act_acc == "DELETE":
-                self.service.delete_account(str(payload.get("account_id", "")).strip())
-                return 200, json.dumps({"ok": True, "accounts": self._safe_config_dict()["accounts"]}, ensure_ascii=False), {"Content-Type": "application/json"}
+                svc.delete_account(str(payload.get("account_id", "")).strip())
+                self._sync_user(user, svc)
+                return 200, json.dumps({"ok": True, "accounts": self._safe_config_dict(cfg)["accounts"]}, ensure_ascii=False), {"Content-Type": "application/json"}
             if act_acc == "DELETE_ALL":
-                self.service.clear_all_accounts()
+                svc.clear_all_accounts()
+                self._sync_user(user, svc)
                 return 200, json.dumps({"ok": True, "accounts": []}, ensure_ascii=False), {"Content-Type": "application/json"}
 
-            acc, conn_msg = self.service.save_deriv_account(payload)
+            acc, conn_msg = svc.save_deriv_account(payload)
             safe_acc = {k: ("********" if k == "deriv_token" and v else v) for k, v in acc.items()}
-            self.service.step_once()
+            svc.step_once()
+            self._sync_user(user, svc)
             return (
                 200,
                 json.dumps(
@@ -226,7 +306,7 @@ class PradoWebApp:
                         "ok": True,
                         "message": conn_msg,
                         "account": safe_acc,
-                        "accounts": self._safe_config_dict()["accounts"],
+                        "accounts": self._safe_config_dict(cfg)["accounts"],
                     },
                     ensure_ascii=False,
                 ),
@@ -234,9 +314,10 @@ class PradoWebApp:
             )
 
         if method == "POST" and clean_path == "/api/accounts/sync":
-            ok, msg, _ = self.service.sync_deriv_accounts()
-            self.service.step_once()
-            safe_cfg = self._safe_config_dict()
+            ok, msg, _ = svc.sync_deriv_accounts()
+            svc.step_once()
+            self._sync_user(user, svc)
+            safe_cfg = self._safe_config_dict(cfg)
             return (
                 200 if ok else 400,
                 json.dumps(
@@ -256,40 +337,41 @@ class PradoWebApp:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
-            selected = self.service.select_active_account(str(payload.get("account_id", "")).strip())
+            selected = svc.select_active_account(str(payload.get("account_id", "")).strip())
             if selected is None:
                 return 404, json.dumps({"ok": False, "error": "Token/conta nao encontrado"}), {"Content-Type": "application/json"}
-            self.service.step_once()
+            svc.step_once()
+            self._sync_user(user, svc)
             return (
                 200,
-                json.dumps({"ok": True, "active_account": selected, "accounts": self._safe_config_dict()["accounts"]}, ensure_ascii=False),
+                json.dumps({"ok": True, "active_account": selected, "accounts": self._safe_config_dict(cfg)["accounts"]}, ensure_ascii=False),
                 {"Content-Type": "application/json"},
             )
 
         if method == "POST" and clean_path == "/api/risk/reset":
-            res = self.service.reset_daily_risk_lock()
-            self.service.step_once()
+            res = svc.reset_daily_risk_lock()
+            svc.step_once()
             return 200, json.dumps(res, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "GET" and clean_path == "/api/symbols":
             mode = (query_params.get("mode", ["PRINCIPAIS"])[0] or "PRINCIPAIS").upper()
             category_filter = (query_params.get("category", [""])[0] or "").strip()
-            symbols = self.service.connector.discover_broker_symbols(mode=mode)
-            if category_filter and category_filter in self.cfg.custom_categories:
-                allowed = set(self.cfg.custom_categories[category_filter])
+            symbols = svc.connector.discover_broker_symbols(mode=mode)
+            if category_filter and category_filter in cfg.custom_categories:
+                allowed = set(cfg.custom_categories[category_filter])
                 symbols = [s for s in symbols if s["name"] in allowed] + [
                     {"name": sym, "category": category_filter, "description": sym, "visible": True}
-                    for sym in self.cfg.custom_categories[category_filter]
+                    for sym in cfg.custom_categories[category_filter]
                     if sym not in {x["name"] for x in symbols}
                 ]
             return (
                 200,
-                json.dumps({"ok": True, "mode": mode, "symbols": symbols, "categories": self.cfg.custom_categories}, ensure_ascii=False),
+                json.dumps({"ok": True, "mode": mode, "symbols": symbols, "categories": cfg.custom_categories}, ensure_ascii=False),
                 {"Content-Type": "application/json"},
             )
 
         if method == "GET" and clean_path == "/api/categories":
-            return 200, json.dumps({"ok": True, "categories": self.cfg.custom_categories}, ensure_ascii=False), {"Content-Type": "application/json"}
+            return 200, json.dumps({"ok": True, "categories": cfg.custom_categories}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/categories":
             try:
@@ -299,17 +381,18 @@ class PradoWebApp:
             action = str(payload.get("action", "SAVE")).upper()
             cat_name = str(payload.get("category_name", "")).strip()
             if action == "DELETE":
-                cats = self.service.delete_custom_category(cat_name)
+                cats = svc.delete_custom_category(cat_name)
             else:
                 raw_syms = payload.get("symbols", [])
                 if isinstance(raw_syms, str):
                     raw_syms = [s.strip() for s in raw_syms.split(",") if s.strip()]
-                cats = self.service.save_custom_category(cat_name, list(raw_syms))
+                cats = svc.save_custom_category(cat_name, list(raw_syms))
+            self._sync_user(user, svc)
             return 200, json.dumps({"ok": True, "categories": cats}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/news/scan":
-            news_data = self.service.scan_news(force=True)
-            self.service.step_once()
+            news_data = svc.scan_news(force=True)
+            svc.step_once()
             return 200, json.dumps({"ok": True, "news": news_data}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/news/feeds":
@@ -319,11 +402,12 @@ class PradoWebApp:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
             act = str(payload.get("action", "SAVE")).upper()
             if act == "DELETE":
-                feeds = self.service.delete_news_feed(str(payload.get("feed_id", "")).strip())
+                feeds = svc.delete_news_feed(str(payload.get("feed_id", "")).strip())
             elif act == "RESET_DEFAULT":
-                feeds = self.service.reset_news_feeds()
+                feeds = svc.reset_news_feeds()
             else:
-                feeds = self.service.save_news_feed(payload)
+                feeds = svc.save_news_feed(payload)
+            self._sync_user(user, svc)
             return 200, json.dumps({"ok": True, "news_feeds": feeds}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "GET" and clean_path == "/api/bot-templates":
@@ -332,7 +416,7 @@ class PradoWebApp:
                 json.dumps(
                     {
                         "ok": True,
-                        "templates": self.service.get_all_templates(),
+                        "templates": svc.get_all_templates(),
                         "indicators": INDICATOR_CATALOG,
                         "python_template": DEFAULT_PYTHON_STRATEGY_TEMPLATE,
                     },
@@ -349,14 +433,15 @@ class PradoWebApp:
             act = str(payload.get("action") or "SAVE").strip().upper()
             try:
                 if act == "DELETE":
-                    self.service.delete_custom_template(str(payload.get("template_id") or "").strip())
+                    svc.delete_custom_template(str(payload.get("template_id") or "").strip())
                 else:
-                    self.service.save_custom_template(payload)
+                    svc.save_custom_template(payload)
             except ValueError as exc:
                 return 400, json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), {"Content-Type": "application/json"}
+            self._sync_user(user, svc)
             return (
                 200,
-                json.dumps({"ok": True, "templates": self.service.get_all_templates()}, ensure_ascii=False),
+                json.dumps({"ok": True, "templates": svc.get_all_templates()}, ensure_ascii=False),
                 {"Content-Type": "application/json"},
             )
 
@@ -365,20 +450,21 @@ class PradoWebApp:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
-            res = self.service.test_custom_template(payload)
+            res = svc.test_custom_template(payload)
             return 200, json.dumps(res, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "GET" and clean_path == "/api/bots":
-            return 200, json.dumps({"ok": True, "bots": self.cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
+            return 200, json.dumps({"ok": True, "bots": cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/bots":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
-            bot = self.service.create_bot(payload)
-            self.service.step_once()
-            return 200, json.dumps({"ok": True, "bot": bot, "bots": self.cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
+            bot = svc.create_bot(payload)
+            svc.step_once()
+            self._sync_user(user, svc)
+            return 200, json.dumps({"ok": True, "bot": bot, "bots": cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/bots/action":
             try:
@@ -388,22 +474,24 @@ class PradoWebApp:
             bot_id = str(payload.get("bot_id", "")).strip()
             action = str(payload.get("action", "START")).strip().upper()
             if action == "DELETE_ALL":
-                self.service.delete_all_bots()
-                self.service.step_once()
+                svc.delete_all_bots()
+                svc.step_once()
+                self._sync_user(user, svc)
                 return 200, json.dumps({"ok": True, "bots": []}, ensure_ascii=False), {"Content-Type": "application/json"}
-            updated = self.service.control_bot(bot_id, action)
+            updated = svc.control_bot(bot_id, action)
             if updated is None:
                 return 404, json.dumps({"ok": False, "error": "Robô não encontrado"}), {"Content-Type": "application/json"}
-            self.service.step_once()
-            return 200, json.dumps({"ok": True, "bot": updated, "bots": self.cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
+            svc.step_once()
+            self._sync_user(user, svc)
+            return 200, json.dumps({"ok": True, "bot": updated, "bots": cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/backtest":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
-            report = self.service.run_mathematical_backtest(payload)
-            return 200, json.dumps({"ok": True, "report": report, "history": self.cfg.backtest_history}, ensure_ascii=False), {"Content-Type": "application/json"}
+            report = svc.run_mathematical_backtest(payload)
+            return 200, json.dumps({"ok": True, "report": report, "history": cfg.backtest_history}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/flatten":
             try:
@@ -412,11 +500,11 @@ class PradoWebApp:
                 payload = {}
             ticket = payload.get("ticket")
             if ticket is not None:
-                ok, msg = self.service.connector.close_single_position(ticket)
-                self.service.step_once()
+                ok, msg = svc.connector.close_single_position(ticket)
+                svc.step_once()
                 return 200, json.dumps({"ok": ok, "message": msg}, ensure_ascii=False), {"Content-Type": "application/json"}
-            cnt, msg = self.service.flatten_all("ZERAR_TUDO_PAINEL_WEB")
-            self.service.step_once()
+            cnt, msg = svc.flatten_all("ZERAR_TUDO_PAINEL_WEB")
+            svc.step_once()
             return 200, json.dumps({"ok": True, "closed": cnt, "message": msg}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         return 404, json.dumps({"error": "Not found"}), {"Content-Type": "application/json"}

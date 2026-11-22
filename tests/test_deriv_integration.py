@@ -899,3 +899,56 @@ def test_news_paused_bot_auto_resumes_when_news_changes(tmp_path):
     service.scan_news(force=True)
     assert service.cfg.bots[0]["status"] == "RUNNING"
     assert service.cfg.bots[0]["last_signal"] == "RESUMED_NEWS"
+
+
+def test_supabase_multiuser_isolation_and_auth_routes(tmp_path):
+    from prado_linux.config import load_config
+    from prado_linux.supabase_store import SupabaseConfig, SupabaseStore
+    from prado_linux.web_app import PradoWebApp
+
+    class FakeSupabaseStore(SupabaseStore):
+        def __init__(self) -> None:
+            super().__init__(SupabaseConfig(url="https://fake.supabase.co", anon_key="anon"))
+            self.synced: list[tuple[str, int]] = []
+
+        def sign_up(self, email: str, password: str):
+            return True, {"user_id": f"uid-{email}", "email": email, "access_token": f"jwt-{email}"}
+
+        def sign_in(self, email: str, password: str):
+            return True, {"user_id": f"uid-{email}", "email": email, "access_token": f"jwt-{email}"}
+
+        def load_user_config(self, user_id: str, access_token: str, fallback_path):
+            cfg = load_config(fallback_path)
+            cfg.connection_mode = "SIMULATION"
+            return cfg
+
+        def sync_user_config(self, user_id: str, access_token: str, cfg) -> None:
+            self.synced.append((user_id, len(cfg.bots)))
+
+    fake_sb = FakeSupabaseStore()
+    app = PradoWebApp(config_path=tmp_path / "config.json", supabase_store=fake_sb)
+
+    c_mode, b_mode, _ = app.handle_request("GET", "/api/auth/mode", {})
+    assert c_mode == 200
+    assert json.loads(b_mode)["supabase_enabled"] is True
+
+    # Usuário A faz login e cria 1 robô
+    c_a, _, h_a = app.handle_request("POST", "/api/login", {}, json.dumps({"email": "a@test.com", "password": "123"}).encode())
+    assert c_a == 200
+    cookie_a = h_a["Set-Cookie"].split(";")[0]
+    c_bot_a, _, _ = app.handle_request(
+        "POST",
+        "/api/bots",
+        {"Cookie": cookie_a},
+        json.dumps({"name": "BotUserA", "symbol": "R_100", "bot_template_id": "WALL_STREET_HYBRID_BOTH"}).encode(),
+    )
+    assert c_bot_a == 200
+
+    # Usuário B faz login e vê 0 robôs (isolamento completo)
+    c_b, _, h_b = app.handle_request("POST", "/api/signup", {}, json.dumps({"email": "b@test.com", "password": "123"}).encode())
+    assert c_b == 200
+    cookie_b = h_b["Set-Cookie"].split(";")[0]
+    c_bots_b, body_bots_b, _ = app.handle_request("GET", "/api/bots", {"Cookie": cookie_b})
+    assert c_bots_b == 200
+    assert json.loads(body_bots_b)["bots"] == []
+    assert ("uid-a@test.com", 1) in fake_sb.synced
