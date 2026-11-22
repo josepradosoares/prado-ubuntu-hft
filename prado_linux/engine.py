@@ -530,13 +530,16 @@ class DerivUniversalConnector:
         tp_points: float,
         multiplier: int = 100,
         bot_name: str = "PradoBot",
+        allow_multi_same_symbol: bool = False,
+        max_levels_override: int = 0,
     ) -> tuple[bool, str]:
         now = time.time()
         max_stake = float(getattr(self.cfg, "max_stake_per_trade", 100.0) or 100.0)
         if float(stake) > max_stake:
             return False, f"Stake ${stake:.2f} excede o limite máximo por operação (${max_stake:.2f})."
 
-        min_interval = float(getattr(self.cfg, "min_order_interval_sec", 3.0) or 3.0)
+        raw_interval = getattr(self.cfg, "min_order_interval_sec", 3.0)
+        min_interval = 3.0 if raw_interval is None else float(raw_interval)
         last_ts = self._last_order_ts.get(symbol, 0.0)
         if (now - last_ts) < min_interval:
             return False, f"Intervalo mínimo entre operações ativo para {symbol}"
@@ -556,6 +559,8 @@ class DerivUniversalConnector:
 
         open_positions = self.get_open_positions()
         max_concurrent = int(getattr(self.cfg, "max_concurrent_trades", 5) or 5)
+        if allow_multi_same_symbol and max_levels_override > 0:
+            max_concurrent = max(max_concurrent, max_levels_override)
         if len(open_positions) >= max_concurrent:
             return False, f"Limite de operações simultâneas atingido ({len(open_positions)}/{max_concurrent})."
 
@@ -564,7 +569,7 @@ class DerivUniversalConnector:
         if (current_exposure + float(stake)) > max_exposure:
             return False, f"Exposição total (${current_exposure + float(stake):.2f}) excede o limite (${max_exposure:.2f})."
 
-        if any(p.get("symbol") == symbol for p in open_positions):
+        if not allow_multi_same_symbol and any(p.get("symbol") == symbol for p in open_positions):
             return False, f"Posição já aberta em {symbol} (bloqueio de ordem duplicada)."
 
         self._last_order_ts[symbol] = now
@@ -920,6 +925,11 @@ class PradoTradingService:
                 "revert_sigma": float(payload.get("revert_sigma") if payload.get("revert_sigma") is not None else tpl["revert_sigma"]),
                 "sl_sigma_mult": float(payload.get("sl_sigma_mult") or tpl["sl_sigma_mult"]),
                 "tp_sigma_mult": float(payload.get("tp_sigma_mult") or tpl["tp_sigma_mult"]),
+                "grid_direction": str(payload.get("grid_direction") or (existing_bot.get("grid_direction") if existing_bot else tpl.get("grid_direction", "BUY_ONLY"))).upper(),
+                "grid_step_points": max(0.0001, float(payload.get("grid_step_points") or (existing_bot.get("grid_step_points") if existing_bot else tpl.get("grid_step_points", 1.5)))),
+                "grid_tp_points": max(0.0001, float(payload.get("grid_tp_points") or (existing_bot.get("grid_tp_points") if existing_bot else tpl.get("grid_tp_points", 1.5)))),
+                "max_grid_levels": max(1, min(20, int(payload.get("max_grid_levels") or (existing_bot.get("max_grid_levels") if existing_bot else tpl.get("max_grid_levels", 5))))),
+                "grid_anchor_price": float(existing_bot.get("grid_anchor_price", 0.0)) if existing_bot else 0.0,
                 "correlated_basket": list(payload.get("correlated_basket") or self.cfg.correlated_basket),
                 "status": bot_status,
                 "active": bot_status == "RUNNING",
@@ -1290,6 +1300,108 @@ class PradoTradingService:
             out.append(TickRecord(now_msc - (count - i) * 1000, p, p, p, 0.0, float(vol), flag))
         return out
 
+    def _evaluate_grid_bot(
+        self,
+        bot: dict[str, Any],
+        last_price: float,
+        positions: list[dict[str, Any]],
+        risk_locked: bool,
+    ) -> list[dict[str, Any]]:
+        bsym = str(bot.get("symbol", "R_100"))
+        grid_dir = str(bot.get("grid_direction", "BUY_ONLY")).upper()
+        if grid_dir not in ("BUY_ONLY", "SELL_ONLY", "BOTH"):
+            grid_dir = "BUY_ONLY"
+        grid_step = max(0.0001, float(bot.get("grid_step_points", 1.5) or 1.5))
+        grid_tp = max(0.0001, float(bot.get("grid_tp_points", 1.5) or 1.5))
+        max_levels = max(1, min(20, int(bot.get("max_grid_levels", 5) or 5)))
+        bot_name = str(bot.get("name", "PradoBot"))
+
+        bot_positions = [
+            p for p in positions
+            if p.get("symbol") == bsym
+            and (not p.get("comment") or str(p.get("comment", "")).startswith(bot_name[:14]))
+        ]
+
+        # 1. Close individual grid levels that reached take-profit distance
+        closed_any = False
+        for p in list(bot_positions):
+            entry = float(p.get("price_open", 0.0) or 0.0)
+            if entry <= 0:
+                continue
+            ptype = str(p.get("type", "")).upper()
+            hit_tp = (ptype == "BUY" and last_price >= entry + grid_tp) or (
+                ptype == "SELL" and last_price <= entry - grid_tp
+            )
+            if hit_tp:
+                ok_c, msg_c = self.connector.close_single_position(p["ticket"])
+                if ok_c:
+                    closed_any = True
+                    self._log_event("GRID_TP", f"[{bot_name}] {msg_c}")
+        if closed_any:
+            positions = self.connector.get_open_positions()
+            bot_positions = [
+                p for p in positions
+                if p.get("symbol") == bsym
+                and (not p.get("comment") or str(p.get("comment", "")).startswith(bot_name[:14]))
+            ]
+
+        bot["last_regime"] = f"GRID_{grid_dir} ({len(bot_positions)}/{max_levels})"
+        signal = "GRID_WAIT"
+
+        # 2. Open new grid level if bot is active and below max_levels
+        if (
+            bot.get("status") == "RUNNING"
+            and self.cfg.auto_trading_enabled
+            and not risk_locked
+            and len(bot_positions) < max_levels
+            and last_price > 0
+        ):
+            anchor = float(bot.get("grid_anchor_price", 0.0) or 0.0)
+            if anchor <= 0.0:
+                bot["grid_anchor_price"] = last_price
+                anchor = last_price
+
+            buy_entries = [float(p["price_open"]) for p in bot_positions if str(p.get("type", "")).upper() == "BUY"]
+            sell_entries = [float(p["price_open"]) for p in bot_positions if str(p.get("type", "")).upper() == "SELL"]
+
+            want_buy = False
+            want_sell = False
+            if grid_dir in ("BUY_ONLY", "BOTH"):
+                if not buy_entries:
+                    want_buy = (grid_dir == "BUY_ONLY" and len(bot_positions) == 0) or (last_price <= anchor - grid_step)
+                elif last_price <= min(buy_entries) - grid_step:
+                    want_buy = True
+
+            if not want_buy and grid_dir in ("SELL_ONLY", "BOTH"):
+                if not sell_entries:
+                    want_sell = (grid_dir == "SELL_ONLY" and len(bot_positions) == 0) or (last_price >= anchor + grid_step)
+                elif last_price >= max(sell_entries) + grid_step:
+                    want_sell = True
+
+            if want_buy or want_sell:
+                action = "BUY_GRID" if want_buy else "SELL_GRID"
+                signal = action
+                ok, msg = self.connector.place_order(
+                    symbol=bsym,
+                    action=action,
+                    stake=float(bot.get("lot_size", self.cfg.default_stake_usd)),
+                    price=last_price,
+                    sl_points=grid_step * max_levels,
+                    tp_points=grid_tp,
+                    multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
+                    bot_name=bot_name,
+                    allow_multi_same_symbol=True,
+                    max_levels_override=max_levels,
+                )
+                if ok:
+                    bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
+                    bot["grid_anchor_price"] = last_price
+                    self._log_event("BOT_EXEC", msg)
+                    positions = self.connector.get_open_positions()
+
+        bot["last_signal"] = signal
+        return positions
+
     def step_once(self) -> dict[str, Any]:
         with self._lock:
             now_step = time.time()
@@ -1424,11 +1536,16 @@ class PradoTradingService:
                     bot["vwap"] = round(vwap_bands.vwap, 6)
                     bot["aggression_zscore"] = round(bot_flow.aggression_zscore, 4)
                     bot["imbalance_ratio"] = round(bot_flow.imbalance_ratio, 4)
-                    bot["last_regime"] = bot_flow.regime
-                    bot["last_signal"] = bot_action
                     bot["active"] = bot.get("status") == "RUNNING"
                     bot["template_id"] = bot.get("template_id") or bot.get("bot_template_id", "")
                     bot["template_name"] = bot.get("template_name") or bot.get("bot_template_name", "")
+
+                    if bot["template_id"] == "GRID_LINEAR_HFT" or str(bot.get("operation_mode", "")).upper() == "GRID_LINEAR":
+                        positions = self._evaluate_grid_bot(bot, last_price, positions, risk_locked)
+                        continue
+
+                    bot["last_regime"] = bot_flow.regime
+                    bot["last_signal"] = bot_action
 
                     if (
                         bot.get("status") == "RUNNING"

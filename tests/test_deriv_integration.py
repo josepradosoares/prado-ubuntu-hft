@@ -450,3 +450,70 @@ def test_sync_deriv_accounts_and_vale3_cleanup(tmp_path) -> None:
     loginids = {a["loginid"] for a in accs}
     assert {"VRTC9991", "CR8882"}.issubset(loginids)
     assert all(a["deriv_app_id"] == "351TestAppId" for a in accs if a["loginid"] in ("VRTC9991", "CR8882"))
+
+
+def test_grid_linear_hft_buy_only_and_sell_only_execution(tmp_path) -> None:
+    from prado_linux.config import load_config
+    from prado_linux.engine import PradoTradingService
+
+    cfg_path = tmp_path / "config.json"
+    cfg = load_config(cfg_path)
+    cfg.connection_mode = "SIMULATION"
+    cfg.min_order_interval_sec = 0.0
+    service = PradoTradingService(cfg, config_path=cfg_path)
+    base_p = service.connector.fetch_ticks("R_100")[-1].effective_price()
+    sim_price = {"R_100": base_p, "R_75": 500.0}
+    service.connector.fetch_ticks = lambda sym, count=200: [type("T", (), {"effective_price": lambda s: sim_price.get(sym, base_p)})()]
+
+    # 1. Create BUY_ONLY Grid bot
+    buy_bot = service.create_bot(
+        {
+            "name": "GridCompra",
+            "symbol": "R_100",
+            "bot_template_id": "GRID_LINEAR_HFT",
+            "grid_direction": "BUY_ONLY",
+            "grid_step_points": 2.0,
+            "grid_tp_points": 2.0,
+            "max_grid_levels": 3,
+            "lot_size": 10.0,
+            "multiplier": 100,
+            "auto_start": True,
+        }
+    )
+    assert buy_bot["grid_direction"] == "BUY_ONLY"
+    assert buy_bot["max_grid_levels"] == 3
+
+    positions = service.connector.get_open_positions()
+    # First entry at base_p
+    positions = service._evaluate_grid_bot(buy_bot, sim_price["R_100"], positions, risk_locked=False)
+    assert len(positions) == 1
+    assert positions[0]["type"] == "BUY"
+
+    # Price drops by grid_step (2.0) -> opens second BUY level
+    sim_price["R_100"] = base_p - 2.5
+    positions = service._evaluate_grid_bot(buy_bot, sim_price["R_100"], positions, risk_locked=False)
+    assert len(positions) == 2
+
+    # Price rebounds to base_p - 0.4 -> second level ((base_p - 2.5) + 2.0 = base_p - 0.5) takes profit individually!
+    sim_price["R_100"] = base_p - 0.4
+    positions = service._evaluate_grid_bot(buy_bot, sim_price["R_100"], positions, risk_locked=False)
+    assert len(positions) == 1
+
+    # 2. SELL_ONLY Grid bot only opens SELL
+    sell_bot = service.create_bot(
+        {
+            "name": "GridVenda",
+            "symbol": "R_75",
+            "bot_template_id": "GRID_LINEAR_HFT",
+            "grid_direction": "SELL_ONLY",
+            "grid_step_points": 5.0,
+            "grid_tp_points": 3.0,
+            "max_grid_levels": 2,
+            "lot_size": 10.0,
+            "auto_start": True,
+        }
+    )
+    positions = service._evaluate_grid_bot(sell_bot, 500.0, positions, risk_locked=False)
+    r75_pos = [p for p in positions if p["symbol"] == "R_75"]
+    assert len(r75_pos) == 1
+    assert r75_pos[0]["type"] == "SELL"

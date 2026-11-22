@@ -84,6 +84,23 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
         "sl_sigma_mult": 1.0,
         "tp_sigma_mult": 1.8,
     },
+    {
+        "template_id": "GRID_LINEAR_HFT",
+        "name": "6. Gradiente Linear — Grid HFT (Escalonamento Só Compra / Só Venda / Ambos)",
+        "operation_mode": "GRID_LINEAR",
+        "formula": "Entrada a cada ±grid_step pts (até max_grid_levels) | Saída individual ao recuar grid_tp_points",
+        "description": "Robô de alta frequência para mercados lateralizados: escolhe Só Compra, Só Venda ou Ambos, escalona ordens a cada passo e realiza lucro nível a nível.",
+        "window_ticks": 60,
+        "zscore_threshold": 0.0,
+        "imbalance_threshold": 0.0,
+        "revert_sigma": 1.0,
+        "sl_sigma_mult": 1.5,
+        "tp_sigma_mult": 1.0,
+        "grid_direction": "BUY_ONLY",
+        "grid_step_points": 1.5,
+        "grid_tp_points": 1.5,
+        "max_grid_levels": 5,
+    },
 ]
 
 

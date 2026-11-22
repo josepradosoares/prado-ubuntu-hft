@@ -328,6 +328,16 @@ export function BotCardGrid({
                     <span className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 px-2 py-0.5 font-mono text-slate-500 dark:text-slate-400">
                       {b.trades_executed ?? 0} ordens
                     </span>
+                    {b.template_id === 'GRID_LINEAR_HFT' && (
+                      <span className="rounded-md bg-violet-500/10 border border-violet-500/30 px-2 py-0.5 font-mono text-violet-600 dark:text-violet-300">
+                        {b.grid_direction === 'SELL_ONLY'
+                          ? 'Só Venda'
+                          : b.grid_direction === 'BOTH'
+                          ? 'Grid Duplo'
+                          : 'Só Compra'}{' '}
+                        • {b.grid_step_points ?? 1.5}pts • Max {b.max_grid_levels ?? 5}
+                      </span>
+                    )}
                   </div>
 
                   {/* Live Quant Metrics */}

@@ -70,6 +70,11 @@ export interface BotItem {
   last_error?: string;
   trades_executed: number;
   last_signal?: string;
+  last_regime?: string;
+  grid_direction?: string;
+  grid_step_points?: number;
+  grid_tp_points?: number;
+  max_grid_levels?: number;
 }
 
 export interface PositionItem {
@@ -158,6 +163,10 @@ export interface BotTemplate {
   zscore_threshold: number;
   imbalance_threshold: number;
   revert_sigma: number;
+  grid_direction?: string;
+  grid_step_points?: number;
+  grid_tp_points?: number;
+  max_grid_levels?: number;
 }
 
 export interface BrokerSymbol {

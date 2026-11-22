@@ -144,6 +144,10 @@ export default function App() {
   const [botZscore, setBotZscore] = useState(1.8)
   const [botImb, setBotImb] = useState(0.35)
   const [botRevertSigma, setBotRevertSigma] = useState(2.0)
+  const [botGridDir, setBotGridDir] = useState<'BUY_ONLY' | 'SELL_ONLY' | 'BOTH'>('BUY_ONLY')
+  const [botGridStep, setBotGridStep] = useState(1.5)
+  const [botGridTp, setBotGridTp] = useState(1.5)
+  const [botGridMaxLevels, setBotGridMaxLevels] = useState(5)
   const [botFormDirty, setBotFormDirty] = useState(false)
 
   // Backtest form state
@@ -384,6 +388,10 @@ export default function App() {
     setBotZscore(1.8)
     setBotImb(0.35)
     setBotRevertSigma(2.0)
+    setBotGridDir('BUY_ONLY')
+    setBotGridStep(1.5)
+    setBotGridTp(1.5)
+    setBotGridMaxLevels(5)
     setBotFormDirty(false)
   }
 
@@ -399,6 +407,10 @@ export default function App() {
     setBotZscore(b.zscore_threshold)
     setBotImb(b.imbalance_threshold)
     setBotRevertSigma(b.revert_sigma)
+    setBotGridDir((b.grid_direction as 'BUY_ONLY' | 'SELL_ONLY' | 'BOTH') || 'BUY_ONLY')
+    setBotGridStep(b.grid_step_points ?? 1.5)
+    setBotGridTp(b.grid_tp_points ?? 1.5)
+    setBotGridMaxLevels(b.max_grid_levels ?? 5)
     setBotFormDirty(false)
     setActiveTab('create-bot')
   }
@@ -450,6 +462,7 @@ export default function App() {
     const payload: Record<string, unknown> = {
       name: botName.trim() || `Bot ${botSymbol}`,
       account_id: botAccountId || config?.active_account_id || '',
+      bot_template_id: botTemplateId,
       template_id: botTemplateId,
       symbol: botSymbol,
       lot_size: Number(botStake),
@@ -458,6 +471,10 @@ export default function App() {
       zscore_threshold: Number(botZscore),
       imbalance_threshold: Number(botImb),
       revert_sigma: Number(botRevertSigma),
+      grid_direction: botGridDir,
+      grid_step_points: Number(botGridStep),
+      grid_tp_points: Number(botGridTp),
+      max_grid_levels: Number(botGridMaxLevels),
       auto_start: true,
     }
     if (editingBotId) payload.bot_id = editingBotId
@@ -1398,6 +1415,69 @@ export default function App() {
                           />
                         </div>
                       </div>
+
+                      {botTemplateId === 'GRID_LINEAR_HFT' && (
+                        <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-4 space-y-3">
+                          <div className="text-xs font-semibold text-violet-600 dark:text-violet-300">
+                            Parâmetros do Gradiente Linear (Grid HFT)
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div>
+                              <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                                Direção do Grid
+                              </label>
+                              <select
+                                value={botGridDir}
+                                onChange={(e) => setBotGridDir(e.target.value as 'BUY_ONLY' | 'SELL_ONLY' | 'BOTH')}
+                                className={inputClass}
+                              >
+                                <option value="BUY_ONLY">Só Compra (na queda)</option>
+                                <option value="SELL_ONLY">Só Venda (na alta)</option>
+                                <option value="BOTH">Ambos (Compra e Venda)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                                Passo do Grid (pontos)
+                              </label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0.01"
+                                value={botGridStep}
+                                onChange={(e) => setBotGridStep(Number(e.target.value))}
+                                className={`${inputClass} font-mono`}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                                Alvo por Nível (pontos)
+                              </label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0.01"
+                                value={botGridTp}
+                                onChange={(e) => setBotGridTp(Number(e.target.value))}
+                                className={`${inputClass} font-mono`}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                                Máximo de Níveis
+                              </label>
+                              <input
+                                type="number"
+                                min="1"
+                                max="20"
+                                value={botGridMaxLevels}
+                                onChange={(e) => setBotGridMaxLevels(Number(e.target.value))}
+                                className={`${inputClass} font-mono`}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="flex flex-wrap gap-2 pt-2">
                         <button
