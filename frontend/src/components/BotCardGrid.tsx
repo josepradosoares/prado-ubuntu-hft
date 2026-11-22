@@ -338,6 +338,24 @@ export function BotCardGrid({
                         • {b.grid_step_points ?? 1.5}pts • Max {b.max_grid_levels ?? 5}
                       </span>
                     )}
+                    <span
+                      className={`rounded-md px-2 py-0.5 font-mono font-semibold border ${
+                        (b.total_pnl ?? 0) >= 0
+                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                          : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                      }`}
+                    >
+                      Lucro: {(b.total_pnl ?? 0) >= 0 ? '+' : '-'}${formatNumber(Math.abs(b.total_pnl ?? 0), 2)}
+                    </span>
+                    <span
+                      className={`rounded-md px-2 py-0.5 font-mono border ${
+                        b.loss_guard_enabled
+                          ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                          : 'bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700/70'
+                      }`}
+                    >
+                      {b.loss_guard_enabled ? `Trava -$${formatNumber(b.max_loss_usd ?? 20, 2)}` : 'Sem trava'}
+                    </span>
                   </div>
 
                   {/* Live Quant Metrics */}

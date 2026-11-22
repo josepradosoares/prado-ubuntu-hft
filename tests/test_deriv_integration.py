@@ -607,3 +607,50 @@ def test_news_scout_pauses_grid_and_opens_order_in_favor(tmp_path) -> None:
     # Scanning the exact same headline again does NOT open duplicate orders
     service.scan_news(force=True)
     assert len(service.connector.get_open_positions()) == 1
+
+
+def test_bot_pnl_tracking_and_loss_guard_auto_pause(tmp_path) -> None:
+    from prado_linux.config import load_config
+    from prado_linux.engine import PradoTradingService
+
+    cfg_path = tmp_path / "config.json"
+    cfg = load_config(cfg_path)
+    cfg.connection_mode = "SIMULATION"
+    service = PradoTradingService(cfg, config_path=cfg_path)
+
+    guarded_bot = service.create_bot(
+        {
+            "name": "GuardedBot",
+            "symbol": "R_100",
+            "bot_template_id": "WALL_STREET_HYBRID_BOTH",
+            "loss_guard_enabled": True,
+            "max_loss_usd": 15.0,
+            "auto_start": True,
+        }
+    )
+    unguarded_bot = service.create_bot(
+        {
+            "name": "UnguardedBot",
+            "symbol": "R_75",
+            "bot_template_id": "WALL_STREET_HYBRID_BOTH",
+            "loss_guard_enabled": False,
+            "max_loss_usd": 15.0,
+            "auto_start": True,
+        }
+    )
+    assert guarded_bot["loss_guard_enabled"] is True
+    assert unguarded_bot["loss_guard_enabled"] is False
+
+    service.connector._sim_deals_history = [
+        {"bot_name": "GuardedBot", "symbol": "R_100", "profit": -20.0},
+        {"bot_name": "UnguardedBot", "symbol": "R_75", "profit": -25.0},
+    ]
+    snap = service.step_once()
+    bots_by_name = {b["name"]: b for b in snap["bots"]}
+
+    assert bots_by_name["GuardedBot"]["total_pnl"] == -20.0
+    assert bots_by_name["GuardedBot"]["status"] == "PAUSED"
+    assert bots_by_name["GuardedBot"]["last_signal"] == "PAUSED_MAX_LOSS"
+
+    assert bots_by_name["UnguardedBot"]["total_pnl"] == -25.0
+    assert bots_by_name["UnguardedBot"]["status"] == "RUNNING"

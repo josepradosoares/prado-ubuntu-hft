@@ -75,6 +75,11 @@ export interface BotItem {
   grid_step_points?: number;
   grid_tp_points?: number;
   max_grid_levels?: number;
+  loss_guard_enabled?: boolean;
+  max_loss_usd?: number;
+  realized_pnl?: number;
+  floating_pnl?: number;
+  total_pnl?: number;
 }
 
 export interface PositionItem {
@@ -194,6 +199,11 @@ export interface BotTemplate {
   grid_step_points?: number;
   grid_tp_points?: number;
   max_grid_levels?: number;
+  loss_guard_enabled?: boolean;
+  max_loss_usd?: number;
+  realized_pnl?: number;
+  floating_pnl?: number;
+  total_pnl?: number;
 }
 
 export interface BrokerSymbol {

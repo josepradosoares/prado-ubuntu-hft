@@ -946,6 +946,11 @@ class PradoTradingService:
                 "grid_tp_points": max(0.0001, float(payload.get("grid_tp_points") or (existing_bot.get("grid_tp_points") if existing_bot else tpl.get("grid_tp_points", 1.5)))),
                 "max_grid_levels": max(1, min(20, int(payload.get("max_grid_levels") or (existing_bot.get("max_grid_levels") if existing_bot else tpl.get("max_grid_levels", 5))))),
                 "grid_anchor_price": float(existing_bot.get("grid_anchor_price", 0.0)) if existing_bot else 0.0,
+                "loss_guard_enabled": bool(payload["loss_guard_enabled"]) if "loss_guard_enabled" in payload else bool(existing_bot.get("loss_guard_enabled", False) if existing_bot else False),
+                "max_loss_usd": max(0.5, float(payload.get("max_loss_usd") or (existing_bot.get("max_loss_usd") if existing_bot else 20.0))),
+                "realized_pnl": float(existing_bot.get("realized_pnl", 0.0)) if existing_bot else 0.0,
+                "floating_pnl": float(existing_bot.get("floating_pnl", 0.0)) if existing_bot else 0.0,
+                "total_pnl": float(existing_bot.get("total_pnl", 0.0)) if existing_bot else 0.0,
                 "correlated_basket": list(payload.get("correlated_basket") or self.cfg.correlated_basket),
                 "status": bot_status,
                 "active": bot_status == "RUNNING",
@@ -1618,11 +1623,53 @@ class PradoTradingService:
                     "signal": action,
                 }
 
+            active_deals = (
+                self.connector._sim_deals_history
+                if self.cfg.connection_mode.upper() == "SIMULATION"
+                else self.connector._deriv_deals_history
+            )
             for bot in self.cfg.bots:
                 try:
                     bsym = bot.get("symbol", "")
                     if not bsym:
                         raise ValueError("Robô sem símbolo configurado")
+                    bname = str(bot.get("name", ""))
+                    bprefix = bname[:14]
+                    realized_bot = sum(
+                        float(d.get("profit", 0.0))
+                        for d in active_deals
+                        if (bname and str(d.get("bot_name", "")) == bname)
+                        or (bprefix and str(d.get("comment", "")).startswith(bprefix))
+                        or (not d.get("bot_name") and d.get("symbol") == bsym)
+                    )
+                    floating_bot = sum(
+                        float(p.get("profit", 0.0))
+                        for p in positions
+                        if (bname and str(p.get("bot_name", "")) == bname)
+                        or (bprefix and str(p.get("comment", "")).startswith(bprefix))
+                        or (not p.get("bot_name") and p.get("symbol") == bsym)
+                    )
+                    total_bot = round(realized_bot + floating_bot, 2)
+                    bot["realized_pnl"] = round(realized_bot, 2)
+                    bot["floating_pnl"] = round(floating_bot, 2)
+                    bot["total_pnl"] = total_bot
+
+                    if (
+                        bot.get("loss_guard_enabled")
+                        and float(bot.get("max_loss_usd", 0.0) or 0.0) > 0
+                        and bot.get("status") == "RUNNING"
+                        and total_bot <= -abs(float(bot["max_loss_usd"]))
+                    ):
+                        bot["status"] = "PAUSED"
+                        bot["active"] = False
+                        bot["last_signal"] = "PAUSED_MAX_LOSS"
+                        save_config(self.cfg, self.config_path)
+                        self._log_event(
+                            "BOT_RISK_GUARD",
+                            f"Robô '{bname}' pausado automaticamente: perda (${total_bot:.2f}) atingiu a trava (-${abs(float(bot['max_loss_usd'])):.2f}).",
+                        )
+                        continue
+
                     ticks = self.connector.fetch_ticks(bsym, count=200)
                     vwap_bands = compute_intraday_vwap(ticks)
                     bot_flow = compute_flow_metrics(

@@ -152,6 +152,8 @@ export default function App() {
   const [botGridStep, setBotGridStep] = useState(1.5)
   const [botGridTp, setBotGridTp] = useState(1.5)
   const [botGridMaxLevels, setBotGridMaxLevels] = useState(5)
+  const [botLossGuardEnabled, setBotLossGuardEnabled] = useState(true)
+  const [botMaxLossUsd, setBotMaxLossUsd] = useState(20)
   const [botFormDirty, setBotFormDirty] = useState(false)
 
   // Backtest form state
@@ -397,6 +399,8 @@ export default function App() {
     setBotGridStep(1.5)
     setBotGridTp(1.5)
     setBotGridMaxLevels(5)
+    setBotLossGuardEnabled(true)
+    setBotMaxLossUsd(20)
     setBotFormDirty(false)
   }
 
@@ -416,6 +420,8 @@ export default function App() {
     setBotGridStep(b.grid_step_points ?? 1.5)
     setBotGridTp(b.grid_tp_points ?? 1.5)
     setBotGridMaxLevels(b.max_grid_levels ?? 5)
+    setBotLossGuardEnabled(Boolean(b.loss_guard_enabled))
+    setBotMaxLossUsd(b.max_loss_usd ?? 20)
     setBotFormDirty(false)
     setActiveTab('create-bot')
   }
@@ -480,6 +486,8 @@ export default function App() {
       grid_step_points: Number(botGridStep),
       grid_tp_points: Number(botGridTp),
       max_grid_levels: Number(botGridMaxLevels),
+      loss_guard_enabled: Boolean(botLossGuardEnabled),
+      max_loss_usd: Number(botMaxLossUsd),
       auto_start: true,
     }
     if (editingBotId) payload.bot_id = editingBotId
@@ -1527,6 +1535,33 @@ export default function App() {
                           </div>
                         </div>
                       )}
+
+                      <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 flex flex-wrap items-center justify-between gap-4">
+                        <label className="flex items-center gap-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={botLossGuardEnabled}
+                            onChange={(e) => setBotLossGuardEnabled(e.target.checked)}
+                            className="h-4 w-4 rounded border-slate-400 text-amber-500 focus:ring-amber-500"
+                          />
+                          <span>
+                            <strong>Trava de perda máxima:</strong> pausar este robô automaticamente se atingir perda limite
+                          </span>
+                        </label>
+                        {botLossGuardEnabled && (
+                          <div className="flex items-center gap-2">
+                            <label className="text-xs text-slate-500 dark:text-slate-400">Perda máxima (USD):</label>
+                            <input
+                              type="number"
+                              step="0.5"
+                              min="0.5"
+                              value={botMaxLossUsd}
+                              onChange={(e) => setBotMaxLossUsd(Number(e.target.value))}
+                              className={`${inputClass} w-28 font-mono`}
+                            />
+                          </div>
+                        )}
+                      </div>
 
                       <div className="flex flex-wrap gap-2 pt-2">
                         <button
