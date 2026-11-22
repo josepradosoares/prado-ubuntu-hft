@@ -218,6 +218,26 @@ class PradoWebApp:
             self.service.step_once()
             return 200, json.dumps(res, ensure_ascii=False), {"Content-Type": "application/json"}
 
+        if method == "POST" and clean_path == "/api/metaapi/provision":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            ok, msg, acc = self.service.provision_metaapi_account(payload)
+            return (
+                200 if ok else 400,
+                json.dumps(
+                    {
+                        "ok": ok,
+                        "message": msg,
+                        "account": acc,
+                        "accounts": self._safe_config_dict()["accounts"],
+                    },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+
         if method == "POST" and clean_path == "/api/accounts/select":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")

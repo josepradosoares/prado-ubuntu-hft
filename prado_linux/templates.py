@@ -1068,9 +1068,35 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 <datalist id="brokerServersDatalist"></datalist>
                 <div id="serverAutocompleteBox" class="autocomplete-menu"></div>
               </div>
+              <div class="field">
+                <label for="connection_mode">Modo de conexão na VPS (sem MT5 aberto)</label>
+                <select id="connection_mode">
+                  <option value="METAAPI_CLOUD">MetaApi Cloud (100% Python na VPS — sem MetaTrader aberto)</option>
+                  <option value="SIMULATION">Simulador Quantitativo Interno</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="metaapi_token">MetaApi Token (app.metaapi.cloud)</label>
+                <input type="password" id="metaapi_token" class="mono" placeholder="Cole seu API Token da MetaApi" />
+                <small>Permite que o Python na VPS opere sua conta 24/7 sem abrir o MetaTrader em nenhum lugar.</small>
+              </div>
+              <div class="field">
+                <label for="metaapi_account_id">MetaApi Account ID (ou clique em Provisionar)</label>
+                <input type="text" id="metaapi_account_id" class="mono" placeholder="UUID da conta na MetaApi" />
+              </div>
+              <div class="field">
+                <label for="metaapi_region">Região do servidor MetaApi</label>
+                <select id="metaapi_region">
+                  <option value="london">London (Europa / XM Global)</option>
+                  <option value="new-york">New York (EUA / B3 / Índices)</option>
+                  <option value="vint-hill">Vint Hill (EUA Leste)</option>
+                  <option value="singapore">Singapore (Ásia)</option>
+                </select>
+              </div>
             </div>
-            <div style="margin-top: 16px; display:flex; gap:8px;">
+            <div style="margin-top: 16px; display:flex; gap:8px; flex-wrap:wrap;">
               <button type="submit" id="accSubmitBtn" class="btn btn-primary">Salvar conta e conectar</button>
+              <button type="button" class="btn btn-bid" onclick="provisionMetaApi()">Conectar na MetaApi automaticamente (sem MT5 aberto)</button>
               <button type="button" id="accCancelEditBtn" class="btn btn-quiet" style="display:none;" onclick="cancelAccountEdit()">Cancelar edição</button>
             </div>
           </form>
@@ -1370,6 +1396,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('mt5_login').value = acc.mt5_login || '';
       document.getElementById('mt5_password').value = '';
       document.getElementById('mt5_server').value = acc.mt5_server || '';
+      document.getElementById('connection_mode').value = acc.connection_mode || 'METAAPI_CLOUD';
+      document.getElementById('metaapi_token').value = acc.metaapi_token || '';
+      document.getElementById('metaapi_account_id').value = acc.metaapi_account_id || '';
+      document.getElementById('metaapi_region').value = acc.metaapi_region || 'london';
       document.getElementById('accountFormTitle').textContent = `Editando conta: ${acc.label} (${acc.mt5_login})`;
       document.getElementById('accSubmitBtn').textContent = 'Salvar alterações da conta';
       document.getElementById('accCancelEditBtn').style.display = 'inline-flex';
@@ -1840,6 +1870,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         mt5_login: document.getElementById('mt5_login').value.trim(),
         mt5_password: document.getElementById('mt5_password').value,
         mt5_server: document.getElementById('mt5_server').value.trim(),
+        connection_mode: document.getElementById('connection_mode').value,
+        metaapi_token: document.getElementById('metaapi_token').value.trim(),
+        metaapi_account_id: document.getElementById('metaapi_account_id').value.trim(),
+        metaapi_region: document.getElementById('metaapi_region').value,
         connect_now: true
       };
       if (editingId) payload.account_id = editingId;
@@ -1859,6 +1893,35 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         await loadBrokerSymbols();
         showToast(`Conta "${data.account.label}" salva e conectada.`);
         refreshStatus();
+      }
+    }
+
+    async function provisionMetaApi() {
+      const payload = {
+        account_id: document.getElementById('editing_account_id').value.trim(),
+        account_type: document.getElementById('acc_type').value,
+        label: document.getElementById('acc_label').value.trim(),
+        mt5_login: document.getElementById('mt5_login').value.trim(),
+        mt5_password: document.getElementById('mt5_password').value,
+        mt5_server: document.getElementById('mt5_server').value.trim(),
+        metaapi_token: document.getElementById('metaapi_token').value.trim(),
+        metaapi_region: document.getElementById('metaapi_region').value
+      };
+      showToast('Registrando conta na MetaApi Cloud...');
+      const res = await fetch('/api/metaapi/provision', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.ok) {
+        currentConfig.accounts = data.accounts;
+        if (data.account) currentConfig.active_account_id = data.account.account_id;
+        renderCategoriesAndAccounts(currentConfig.custom_categories, data.accounts, currentConfig.active_account_id);
+        showToast(data.message);
+        refreshStatus();
+      } else {
+        showToast(data.message || 'Erro ao conectar na MetaApi.');
       }
     }
 

@@ -25,6 +25,7 @@ from prado_linux.flow_math import (
     compute_flow_metrics,
     compute_intraday_vwap,
 )
+from prado_linux.metaapi_client import MetaApiClient
 
 MAIN_BROKER_SYMBOLS: list[dict[str, str]] = [
     {"name": "WIN$N", "category": "B3 Futuros (Mini Índice & Dólar)", "description": "Mini Índice Ibovespa Contínuo"},
@@ -71,6 +72,8 @@ class MT5UniversalConnector:
     def __init__(self, cfg: PradoServerConfig) -> None:
         self.cfg = cfg
         self._mt5: Any = None
+        self._metaapi: MetaApiClient | None = None
+        self._metaapi_tick_buffers: dict[str, list[TickRecord]] = {}
         self.connected: bool = False
         self.backend_name: str = "DISCONNECTED"
         self.last_error: str = ""
@@ -92,13 +95,36 @@ class MT5UniversalConnector:
         target_server = (server if server is not None else self.cfg.mt5_server).strip()
         mode = self.cfg.mt5_connection_mode.upper()
 
+        # 0. MetaApi Cloud Mode (100% pure Python on VPS, ZERO MetaTrader terminal needed anywhere)
+        if self.cfg.metaapi_token.strip() and self.cfg.metaapi_account_id.strip():
+            try:
+                client = MetaApiClient(
+                    token=self.cfg.metaapi_token,
+                    account_id=self.cfg.metaapi_account_id,
+                    region=self.cfg.metaapi_region,
+                )
+                info = client.get_account_information()
+                self._metaapi = client
+                self._mt5 = None
+                self.connected = True
+                self.backend_name = "METAAPI_CLOUD_LIVE"
+                self.last_error = ""
+                return (
+                    True,
+                    f"Conectado via MetaApi Cloud (100% Python sem MT5 aberto) — Conta {info.get('login', target_login)} ({info.get('balance')} {info.get('currency', '')}).",
+                )
+            except Exception as exc:
+                self._metaapi = None
+                self.last_error = f"MetaApi Cloud falhou: {exc}"
+
         if mode == "SIMULATION" or not force_attempt:
             self._mt5 = None
+            self._metaapi = None
             self.connected = True
             self.backend_name = "SIMULATION_FEED"
             return (
                 True,
-                "Modo Simulação Quant Ativo (Cadastre e conecte sua conta MetaTrader 5 para operar na corretora).",
+                "Modo Simulação Quant Ativo (Configure MetaApi Cloud para operar sem MetaTrader aberto).",
             )
 
         # 1. Try Official MetaTrader5 Python Library directly (Windows or Wine Python)
@@ -164,8 +190,38 @@ class MT5UniversalConnector:
         return True, f"Conta registrada! Operando com Feed Quantitativo ({self.last_error})"
 
     def discover_broker_symbols(self, mode: str = "PRINCIPAIS") -> list[dict[str, Any]]:
-        """Return symbols from connected MT5 broker in either 'PRINCIPAIS' or 'TODOS' mode."""
+        """Return symbols from connected MT5 / MetaApi broker in either 'PRINCIPAIS' or 'TODOS' mode."""
         mode_upper = mode.upper()
+        if self._metaapi is not None:
+            try:
+                syms = self._metaapi.get_symbols()
+                if syms:
+                    if mode_upper == "PRINCIPAIS":
+                        main_set = {m["name"] for m in MAIN_BROKER_SYMBOLS}
+                        filtered = [s for s in syms if s in main_set]
+                        syms = filtered if filtered else syms[:40]
+                    return [
+                        {
+                            "name": s,
+                            "category": "Corretora MT5 (MetaApi)",
+                            "description": s,
+                            "visible": True,
+                        }
+                        for s in syms[:500]
+                    ]
+            except Exception as exc:
+                self.last_error = f"Erro listando ativos MetaApi: {exc}"
+
+        if self._metaapi is not None:
+            return self._metaapi.place_order(
+                symbol=symbol,
+                is_buy=is_buy,
+                volume=volume,
+                sl=sl,
+                tp=tp,
+                comment=f"{bot_name[:12]}_{action}",
+            )
+
         if self._mt5 is not None:
             try:
                 all_syms = self._mt5.symbols_get()
@@ -208,6 +264,38 @@ class MT5UniversalConnector:
         return result
 
     def get_account_summary(self) -> dict[str, Any]:
+        if self._metaapi is not None:
+            try:
+                info = self._metaapi.get_account_information()
+                bal = float(info.get("balance", 0.0))
+                eq = float(info.get("equity", bal))
+                return {
+                    "backend": self.backend_name,
+                    "connected": True,
+                    "account_type": self.cfg.active_account_type,
+                    "active_account_id": self.cfg.active_account_id,
+                    "login": str(info.get("login", self.cfg.mt5_login)),
+                    "server": str(info.get("server", self.cfg.mt5_server)),
+                    "name": str(info.get("name", "MetaApi Cloud Account")),
+                    "currency": str(info.get("currency", "USD")),
+                    "balance": round(bal, 2),
+                    "equity": round(eq, 2),
+                    "profit": round(eq - bal, 2),
+                    "margin_free": round(float(info.get("freeMargin", eq)), 2),
+                }
+            except Exception as exc:
+                self.last_error = str(exc)
+
+        if self._metaapi is not None:
+            return self._metaapi.place_order(
+                symbol=symbol,
+                is_buy=is_buy,
+                volume=volume,
+                sl=sl,
+                tp=tp,
+                comment=f"{bot_name[:12]}_{action}",
+            )
+
         if self._mt5 is not None:
             try:
                 acc = self._mt5.account_info()
@@ -246,6 +334,42 @@ class MT5UniversalConnector:
         }
 
     def fetch_ticks(self, symbol: str, count: int = 1500) -> list[TickRecord]:
+        if self._metaapi is not None:
+            try:
+                tick = self._metaapi.get_current_tick(symbol)
+                if tick:
+                    bid = float(tick.get("bid", 0.0))
+                    ask = float(tick.get("ask", 0.0))
+                    last = float(tick.get("last") or (0.5 * (bid + ask) if bid and ask else 0.0))
+                    vol = float(tick.get("volume") or 1.0)
+                    buf = self._metaapi_tick_buffers.setdefault(symbol, [])
+                    buf.append(
+                        TickRecord(
+                            time_msc=int(time.time() * 1000),
+                            bid=bid,
+                            ask=ask,
+                            last=last,
+                            volume_real=vol,
+                            tick_volume=max(vol, 1.0),
+                            flags=0,
+                        )
+                    )
+                    if len(buf) > 600:
+                        self._metaapi_tick_buffers[symbol] = buf[-600:]
+                    return list(buf)
+            except Exception as exc:
+                self.last_error = f"Erro tick MetaApi {symbol}: {exc}"
+
+        if self._metaapi is not None:
+            return self._metaapi.place_order(
+                symbol=symbol,
+                is_buy=is_buy,
+                volume=volume,
+                sl=sl,
+                tp=tp,
+                comment=f"{bot_name[:12]}_{action}",
+            )
+
         if self._mt5 is not None:
             try:
                 now = datetime.now()
@@ -355,6 +479,40 @@ class MT5UniversalConnector:
         return self._sim_ticks[symbol]
 
     def get_open_positions(self) -> list[dict[str, Any]]:
+        if self._metaapi is not None:
+            try:
+                raw_pos = self._metaapi.get_positions()
+                out: list[dict[str, Any]] = []
+                for p in raw_pos:
+                    ptype = "BUY" if "BUY" in str(p.get("type", "")).upper() else "SELL"
+                    out.append(
+                        {
+                            "ticket": str(p.get("id", "")),
+                            "symbol": str(p.get("symbol", "")),
+                            "type": ptype,
+                            "volume": float(p.get("volume", 0.0)),
+                            "price_open": round(float(p.get("openPrice", 0.0)), 6),
+                            "price_current": round(float(p.get("currentPrice", 0.0)), 6),
+                            "sl": round(float(p.get("stopLoss", 0.0)), 6),
+                            "tp": round(float(p.get("takeProfit", 0.0)), 6),
+                            "profit": round(float(p.get("profit", 0.0)), 2),
+                            "comment": str(p.get("comment", "")),
+                        }
+                    )
+                return out
+            except Exception:
+                return []
+
+        if self._metaapi is not None:
+            return self._metaapi.place_order(
+                symbol=symbol,
+                is_buy=is_buy,
+                volume=volume,
+                sl=sl,
+                tp=tp,
+                comment=f"{bot_name[:12]}_{action}",
+            )
+
         if self._mt5 is not None:
             try:
                 raw_pos = self._mt5.positions_get()
@@ -429,6 +587,16 @@ class MT5UniversalConnector:
         sl = round(price - sl_points, 6) if is_buy else round(price + sl_points, 6)
         tp = round(price + tp_points, 6) if is_buy else round(price - tp_points, 6)
 
+        if self._metaapi is not None:
+            return self._metaapi.place_order(
+                symbol=symbol,
+                is_buy=is_buy,
+                volume=volume,
+                sl=sl,
+                tp=tp,
+                comment=f"{bot_name[:12]}_{action}",
+            )
+
         if self._mt5 is not None:
             try:
                 tick = self._mt5.symbol_info_tick(symbol)
@@ -475,6 +643,15 @@ class MT5UniversalConnector:
         return True, f"[{bot_name}] Ordem {action} aberta em {symbol} @ {price} (Lote={volume})"
 
     def close_all_positions(self, reason: str = "MANUAL_PANIC_FLATTEN") -> tuple[int, str]:
+        if self._metaapi is not None:
+            positions = self.get_open_positions()
+            closed = 0
+            for p in positions:
+                ok, _ = self._metaapi.close_position(str(p["ticket"]))
+                if ok:
+                    closed += 1
+            return closed, f"[MetaApi] {closed} posição(ões) encerrada(s) ({reason})."
+
         if self._mt5 is not None:
             try:
                 positions = self._mt5.positions_get() or []
@@ -522,7 +699,10 @@ class MT5UniversalConnector:
         self._sim_positions.clear()
         return count, f"{count} posicao(oes) zerada(s) ({reason})."
 
-    def close_single_position(self, ticket: int) -> tuple[bool, str]:
+    def close_single_position(self, ticket: int | str) -> tuple[bool, str]:
+        if self._metaapi is not None:
+            return self._metaapi.close_position(str(ticket))
+
         if self._mt5 is not None:
             try:
                 positions = self._mt5.positions_get(ticket=int(ticket)) or []
@@ -628,6 +808,11 @@ class PradoTradingService:
             acc_id = existing["account_id"] if existing else (req_id or f"acc_{uuid.uuid4().hex[:8]}")
             label = str(payload.get("label") or f"[{acc_type}] Conta {login} ({server})").strip()
 
+            metaapi_token = str(payload.get("metaapi_token", "")).strip()
+            metaapi_account_id = str(payload.get("metaapi_account_id", "")).strip()
+            metaapi_region = str(payload.get("metaapi_region") or "london").strip()
+            connection_mode = str(payload.get("connection_mode") or ("METAAPI_CLOUD" if metaapi_token else "AUTO_MT5_WINE")).strip()
+
             if existing:
                 existing["account_type"] = acc_type
                 existing["label"] = label
@@ -635,6 +820,12 @@ class PradoTradingService:
                 if password and password != "********":
                     existing["mt5_password"] = password
                 existing["mt5_server"] = server
+                existing["connection_mode"] = connection_mode
+                if metaapi_token:
+                    existing["metaapi_token"] = metaapi_token
+                if metaapi_account_id:
+                    existing["metaapi_account_id"] = metaapi_account_id
+                existing["metaapi_region"] = metaapi_region
                 acc_record = existing
             else:
                 acc_record = {
@@ -644,6 +835,10 @@ class PradoTradingService:
                     "mt5_login": login,
                     "mt5_password": password,
                     "mt5_server": server,
+                    "connection_mode": connection_mode,
+                    "metaapi_token": metaapi_token,
+                    "metaapi_account_id": metaapi_account_id,
+                    "metaapi_region": metaapi_region,
                     "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
                 self.cfg.accounts.append(acc_record)
@@ -653,6 +848,12 @@ class PradoTradingService:
             # Set as active primary MT5 credentials too
             self.cfg.active_account_id = acc_id
             self.cfg.active_account_type = acc_type
+            self.cfg.mt5_connection_mode = connection_mode
+            if metaapi_token:
+                self.cfg.metaapi_token = metaapi_token
+            if metaapi_account_id:
+                self.cfg.metaapi_account_id = metaapi_account_id
+            self.cfg.metaapi_region = metaapi_region
             if login:
                 self.cfg.mt5_login = login
             if password and password != "********":
@@ -706,18 +907,67 @@ class PradoTradingService:
             if target.get("mt5_password") and target.get("mt5_password") != "********":
                 self.cfg.mt5_password = str(target["mt5_password"])
             self.cfg.mt5_server = str(target.get("mt5_server", ""))
+            self.cfg.mt5_connection_mode = str(target.get("connection_mode", self.cfg.mt5_connection_mode))
+            self.cfg.metaapi_token = str(target.get("metaapi_token", ""))
+            self.cfg.metaapi_account_id = str(target.get("metaapi_account_id", ""))
+            self.cfg.metaapi_region = str(target.get("metaapi_region", "london"))
             save_config(self.cfg, self.config_path)
-            self.connector.connect(
+            ok, msg = self.connector.connect(
                 login=self.cfg.mt5_login,
                 password=self.cfg.mt5_password,
                 server=self.cfg.mt5_server,
-                force_attempt=False,
+                force_attempt=bool(self.cfg.metaapi_token and self.cfg.metaapi_account_id),
             )
             self._log_event(
                 "ACCOUNT_SWITCH",
-                f"Conta ativa alterada para [{self.cfg.active_account_type}] {target.get('label')} ({self.cfg.mt5_login} @ {self.cfg.mt5_server}).",
+                f"Conta ativa alterada para [{self.cfg.active_account_type}] {target.get('label')} — {msg}",
             )
-            return {k: ("********" if k == "mt5_password" else v) for k, v in target.items()}
+            return {k: ("********" if k in ("mt5_password", "metaapi_token") else v) for k, v in target.items()}
+
+    def provision_metaapi_account(self, payload: dict[str, Any]) -> tuple[bool, str, dict[str, Any] | None]:
+        with self._lock:
+            token = str(payload.get("metaapi_token") or self.cfg.metaapi_token).strip()
+            login = str(payload.get("mt5_login") or self.cfg.mt5_login).strip()
+            password = str(payload.get("mt5_password") or self.cfg.mt5_password).strip()
+            server = str(payload.get("mt5_server") or self.cfg.mt5_server).strip()
+            label = str(payload.get("label") or f"Prado_{login}").strip()
+            region = str(payload.get("metaapi_region") or "london").strip()
+
+            if not token or not login or not password or not server:
+                return False, "Informe Token MetaApi, Login, Senha e Servidor da corretora.", None
+
+            client = MetaApiClient(token=token, region=region)
+            ok, resp = client.provision_mt5_account(
+                login=login,
+                password=password,
+                server=server,
+                name=label,
+                magic=self.cfg.magic_number,
+            )
+            if not ok:
+                msg = resp.get("message") or str(resp)
+                self._log_event("METAAPI_ERROR", f"Falha ao provisionar na MetaApi: {msg}")
+                return False, f"Erro MetaApi: {msg}", None
+
+            metaapi_acc_id = str(resp["id"])
+            acc = self.save_mt5_account(
+                {
+                    "account_id": payload.get("account_id") or "",
+                    "account_type": payload.get("account_type") or self.cfg.active_account_type,
+                    "label": label,
+                    "mt5_login": login,
+                    "mt5_password": password,
+                    "mt5_server": server,
+                    "connection_mode": "METAAPI_CLOUD",
+                    "metaapi_token": token,
+                    "metaapi_account_id": metaapi_acc_id,
+                    "metaapi_region": region,
+                }
+            )
+            self.connector.cfg = self.cfg
+            self.connector.connect(force_attempt=True)
+            self._log_event("METAAPI_CLOUD", f"Conta {login} provisionada na MetaApi Cloud (ID: {metaapi_acc_id}) sem MT5 aberto!")
+            return True, f"Conta provisionada na MetaApi Cloud! ID: {metaapi_acc_id}", acc
 
     def run_mathematical_backtest(self, params: dict[str, Any]) -> dict[str, Any]:
         """Pure mathematical tick-by-tick backtester (No UI chart rendering overhead)."""

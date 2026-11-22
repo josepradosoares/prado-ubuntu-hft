@@ -210,6 +210,7 @@ class PradoServerConfig:
     rpyc_port: int = 18812
     metaapi_token: str = ""
     metaapi_account_id: str = ""
+    metaapi_region: str = "london"
 
     # Saved MT5 Accounts (Both DEMO and REAL)
     accounts: list[dict[str, Any]] = field(default_factory=lambda: [dict(a) for a in DEFAULT_PRESEEDED_ACCOUNTS])

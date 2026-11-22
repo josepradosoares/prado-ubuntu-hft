@@ -422,6 +422,103 @@ def test_account_deduplication_broker_server_autocomplete_and_preseeded_xm_accou
     assert "deals_history" in snap
 
 
+def test_metaapi_cloud_pure_python_connector_without_mt5_terminal(tmp_path: Path):
+    from prado_linux.metaapi_client import MetaApiClient
+    from prado_linux.web_app import PradoWebApp
+
+    calls: list[tuple[str, str, dict | None]] = []
+
+    def fake_transport(method: str, url: str, headers: dict, payload: dict | None):
+        calls.append((method, url, payload))
+        if url.endswith("/account-information"):
+            return 200, {
+                "login": "346595704",
+                "server": "XMGlobal-MT5 10",
+                "name": "Jose XM Demo",
+                "currency": "USD",
+                "balance": 1299.93,
+                "equity": 1312.50,
+                "margin": 15.0,
+                "freeMargin": 1297.50,
+            }
+        if url.endswith("/positions"):
+            return 200, [
+                {
+                    "id": "99887766",
+                    "symbol": "BTCUSD#",
+                    "type": "POSITION_TYPE_BUY",
+                    "volume": 0.01,
+                    "openPrice": 92000.0,
+                    "currentPrice": 92500.0,
+                    "stopLoss": 91000.0,
+                    "takeProfit": 94000.0,
+                    "profit": 5.0,
+                    "comment": "PradoMetaApi",
+                }
+            ]
+        if url.endswith("/symbols"):
+            return 200, ["BTCUSD#", "ETHUSD#", "EURUSD", "Crypto_10#"]
+        if url.endswith("/trade"):
+            return 200, {"numericCode": 10009, "stringCode": "TRADE_RETCODE_DONE", "orderId": "554433"}
+        return 200, {}
+
+    client = MetaApiClient(
+        token="test-metaapi-token",
+        account_id="metaapi-acc-123",
+        region="london",
+        transport=fake_transport,
+    )
+    info = client.get_account_information()
+    assert info["balance"] == 1299.93
+    assert info["currency"] == "USD"
+
+    positions = client.get_positions()
+    assert len(positions) == 1
+    assert positions[0]["symbol"] == "BTCUSD#"
+
+    syms = client.get_symbols()
+    assert "BTCUSD#" in syms
+
+    ok, msg = client.place_order(
+        symbol="BTCUSD#",
+        is_buy=True,
+        volume=0.01,
+        sl=91000.0,
+        tp=94000.0,
+        comment="PradoTest",
+    )
+    assert ok is True
+    assert "554433" in msg
+
+    # Verify saving MetaApi credentials through web_app works
+    app = PradoWebApp(config_path=tmp_path / "config.json")
+    login_payload = json.dumps({"username": "admin", "password": "prado2026"}).encode("utf-8")
+    _, _, resp_headers = app.handle_request(
+        "POST", "/api/login", headers={"Content-Type": "application/json"}, body=login_payload
+    )
+    auth_headers = {"Cookie": resp_headers["Set-Cookie"], "Content-Type": "application/json"}
+
+    acc_payload = json.dumps(
+        {
+            "account_id": "acc_xm_demo_346595704",
+            "account_type": "DEMO",
+            "label": "Jose XM Demo MetaApi",
+            "mt5_login": "346595704",
+            "mt5_server": "XMGlobal-MT5 10",
+            "metaapi_token": "tok_demo_123",
+            "metaapi_account_id": "acc_uuid_456",
+            "metaapi_region": "london",
+            "connection_mode": "METAAPI_CLOUD",
+        }
+    ).encode("utf-8")
+    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=acc_payload)
+    assert code == 200
+    resp_acc = json.loads(body)["account"]
+    assert resp_acc["connection_mode"] == "METAAPI_CLOUD"
+    assert resp_acc["metaapi_account_id"] == "acc_uuid_456"
+
+
+
 
 
 
