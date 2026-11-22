@@ -1055,8 +1055,18 @@ class PradoTradingService:
 
     def sync_deriv_accounts(self) -> tuple[bool, str, list[dict[str, Any]]]:
         with self._lock:
-            if self.connector._deriv is None and self.cfg.deriv_token:
-                self.connector.connect()
+            if not self.cfg.deriv_token:
+                msg = "Nenhum token salvo em Configuração Deriv."
+                self._log_event("TOKEN_VAULT", msg)
+                return False, msg, list(self.cfg.accounts)
+            if self.connector._deriv is None:
+                ok_conn, msg_conn = self.connector.connect(
+                    token=self.cfg.deriv_token,
+                    app_id=self.cfg.deriv_app_id,
+                )
+                if not ok_conn and self.connector._deriv is None:
+                    self._log_event("TOKEN_VAULT", msg_conn)
+                    return False, msg_conn, list(self.cfg.accounts)
             ok, msg = self._sync_deriv_accounts_locked()
             if ok:
                 save_config(self.cfg, self.config_path)
