@@ -160,29 +160,30 @@ class MT5UniversalConnector:
             except Exception as exc:
                 self.last_error = f"MetaTrader5 nativo indisponivel: {exc}"
 
-            # 2. Try Official MetaTrader5 Library inside Ubuntu Wine Python Bridge (RPyC / mt5linux)
-            try:
-                import rpyc  # type: ignore
+            # 2. Try Official MetaTrader5 Library inside Ubuntu Wine Python Bridge (mt5linux port 8001 / RPyC 18812)
+            for bridge_port in dict.fromkeys([8001, int(self.cfg.rpyc_port), 18812]):
+                try:
+                    import rpyc  # type: ignore
 
-                conn = rpyc.classic.connect(self.cfg.rpyc_host, self.cfg.rpyc_port)
-                mt5_remote = conn.modules.MetaTrader5
-                init_kwargs = {}
-                if target_login.isdigit():
-                    init_kwargs["login"] = int(target_login)
-                if target_password:
-                    init_kwargs["password"] = target_password
-                if target_server:
-                    init_kwargs["server"] = target_server
+                    conn = rpyc.classic.connect(self.cfg.rpyc_host, bridge_port)
+                    mt5_remote = conn.modules.MetaTrader5
+                    init_kwargs = {}
+                    if target_login.isdigit():
+                        init_kwargs["login"] = int(target_login)
+                    if target_password:
+                        init_kwargs["password"] = target_password
+                    if target_server:
+                        init_kwargs["server"] = target_server
 
-                ok = mt5_remote.initialize(**init_kwargs) if init_kwargs else mt5_remote.initialize()
-                if ok:
-                    self._mt5 = mt5_remote
-                    self.connected = True
-                    self.backend_name = "MT5_UBUNTU_WINE_PYTHON"
-                    self.last_error = ""
-                    return True, f"Conectado à biblioteca MetaTrader5 no Ubuntu ({self.cfg.rpyc_host}:{self.cfg.rpyc_port})."
-            except Exception as exc:
-                self.last_error = f"Ubuntu Wine MetaTrader5 ({self.cfg.rpyc_host}:{self.cfg.rpyc_port}): {exc}"
+                    ok = mt5_remote.initialize(**init_kwargs) if init_kwargs else mt5_remote.initialize()
+                    if ok:
+                        self._mt5 = mt5_remote
+                        self.connected = True
+                        self.backend_name = "MT5_UBUNTU_WINE_PYTHON"
+                        self.last_error = ""
+                        return True, f"Conectado à biblioteca MetaTrader5 no Ubuntu ({self.cfg.rpyc_host}:{bridge_port})."
+                except Exception as exc:
+                    self.last_error = f"Ubuntu Wine MetaTrader5 ({self.cfg.rpyc_host}:{bridge_port}): {exc}"
 
         self._mt5 = None
         self.connected = True
