@@ -87,6 +87,7 @@ export interface PositionItem {
   sl: number;
   tp: number;
   profit: number;
+  bot_name?: string;
   comment?: string;
 }
 

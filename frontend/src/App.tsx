@@ -1139,6 +1139,7 @@ export default function App() {
                         <thead className="border-b border-slate-200 dark:border-slate-800 text-[11px] uppercase text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/40">
                           <tr>
                             <th className="px-4 py-3">Contrato</th>
+                            <th className="px-4 py-3">Robô</th>
                             <th className="px-4 py-3">Ativo</th>
                             <th className="px-4 py-3">Lado</th>
                             <th className="px-4 py-3 text-right">Stake</th>
@@ -1152,7 +1153,7 @@ export default function App() {
                           {!snapshot?.positions?.length ? (
                             <tr>
                               <td
-                                colSpan={8}
+                                colSpan={9}
                                 className="px-4 py-8 text-center text-slate-500 font-sans"
                               >
                                 Nenhum contrato aberto no momento.
@@ -1169,6 +1170,9 @@ export default function App() {
                                 >
                                   <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                                     #{p.ticket}
+                                  </td>
+                                  <td className="px-4 py-3 font-sans font-semibold text-blue-600 dark:text-blue-400">
+                                    {p.bot_name || p.comment || '--'}
                                   </td>
                                   <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">
                                     {p.symbol}

@@ -90,6 +90,7 @@ class DerivUniversalConnector:
         self._symbols_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._balance_cache: tuple[float, float] | None = None
         self._positions_cache: tuple[float, list[dict[str, Any]]] | None = None
+        self._contract_bot_map: dict[str, str] = {}
         self._last_order_ts: dict[str, float] = {}
         self._last_ping_at: float = 0.0
 
@@ -478,6 +479,14 @@ class DerivUniversalConnector:
                 return self._positions_cache[1]
             try:
                 pos = self._deriv.get_open_contracts()
+                for item in pos:
+                    cid_str = str(item.get("ticket", ""))
+                    bname = self._contract_bot_map.get(cid_str) or next(
+                        (str(b.get("name", "")) for b in self.cfg.bots if b.get("symbol") == item.get("symbol") and b.get("name")),
+                        "Deriv",
+                    )
+                    item["bot_name"] = bname
+                    item["comment"] = item.get("comment") or bname
                 self._positions_cache = (now, pos)
                 return pos
             except Exception as exc:
@@ -585,6 +594,10 @@ class DerivUniversalConnector:
                 sl_amount=sl_usd,
                 tp_amount=tp_usd,
             )
+            if ok:
+                cid = self._deriv.last_order_lifecycle.get("contract_id")
+                if cid is not None:
+                    self._contract_bot_map[str(cid)] = bot_name
             self._positions_cache = None
             return ok, msg
 
@@ -605,6 +618,7 @@ class DerivUniversalConnector:
                 "sl": sl,
                 "tp": tp,
                 "profit": 0.0,
+                "bot_name": bot_name,
                 "comment": f"{bot_name[:14]}_{action}",
             }
         )
