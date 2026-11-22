@@ -524,3 +524,29 @@ def test_grid_linear_hft_buy_only_and_sell_only_execution(tmp_path) -> None:
     r75_pos = [p for p in positions if p["symbol"] == "R_75"]
     assert len(r75_pos) == 1
     assert r75_pos[0]["type"] == "SELL"
+
+
+def test_place_multiplier_order_auto_adjusts_accepted_multiplier_for_stprng() -> None:
+    calls: list[dict] = []
+
+    def fake_rpc(payload: dict) -> dict:
+        calls.append(payload)
+        if "proposal" in payload:
+            if payload["multiplier"] == 100:
+                return {
+                    "error": {
+                        "code": "ContractBuyValidationError",
+                        "message": "Multiplier is not in acceptable range. Accepts 750,2000,3500,5500,7500.",
+                    }
+                }
+            return {"proposal": {"id": "prop_stp_1", "ask_price": 1.0}}
+        if "buy" in payload:
+            return {"buy": {"contract_id": 990011}}
+        return {}
+
+    client = DerivClient(token="legacy_demo", app_id="1089", rpc_transport=fake_rpc)
+    ok, msg = client.place_multiplier_order(symbol="stpRNG", is_buy=True, stake=1.0, multiplier=100)
+    assert ok is True
+    assert "750x" in msg
+    assert "990011" in msg
+    assert calls[1]["multiplier"] == 750

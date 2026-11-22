@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import deque
 import json
 import random
+import re
 import threading
 import time
 from typing import Any, Callable
@@ -636,7 +637,23 @@ class DerivClient:
             "multiplier": int(multiplier),
             "timestamp": time.time(),
         }
-        prop_resp = self._send_rpc(proposal_req)
+        try:
+            prop_resp = self._send_rpc(proposal_req)
+        except RuntimeError as exc:
+            err_txt = str(exc)
+            if "Multiplier is not in acceptable range" in err_txt and "Accepts" in err_txt:
+                tail = err_txt.split("Accepts", 1)[1]
+                accepted = [int(m) for m in re.findall(r"\d+", tail)]
+                if accepted:
+                    chosen = min(accepted, key=lambda x: abs(x - int(multiplier)))
+                    multiplier = chosen
+                    proposal_req["multiplier"] = chosen
+                    self.last_order_lifecycle["multiplier"] = chosen
+                    prop_resp = self._send_rpc(proposal_req)
+                else:
+                    raise
+            else:
+                raise
         prop = prop_resp.get("proposal", {})
         prop_id = prop.get("id")
         if not prop_id:
