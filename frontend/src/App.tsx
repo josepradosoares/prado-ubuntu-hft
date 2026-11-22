@@ -158,6 +158,7 @@ export default function App() {
   // Category form state
   const [catName, setCatName] = useState('')
   const [catSymbols, setCatSymbols] = useState('')
+  const [symbolSearch, setSymbolSearch] = useState('')
 
   // Config Deriv state
   const [cfgToken, setCfgToken] = useState('')
@@ -1686,6 +1687,66 @@ export default function App() {
                           </div>
                         </div>
                       ))}
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                            Catálogo ao vivo da Deriv ({symbols.length} ativos carregados)
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Clique em qualquer ativo abaixo para adicioná-lo ao campo de nova categoria acima
+                          </p>
+                        </div>
+                        <input
+                          type="text"
+                          value={symbolSearch}
+                          onChange={(e) => setSymbolSearch(e.target.value)}
+                          placeholder="Filtrar ativo (ex: R_100, EUR, BTC)..."
+                          className={`${inputClass} max-w-xs text-xs`}
+                        />
+                      </div>
+                      <div className="max-h-72 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {symbols
+                          .filter((s) => {
+                            const q = symbolSearch.trim().toLowerCase()
+                            if (!q) return true
+                            return (
+                              s.name.toLowerCase().includes(q) ||
+                              (s.description || '').toLowerCase().includes(q) ||
+                              (s.category || '').toLowerCase().includes(q)
+                            )
+                          })
+                          .map((s) => (
+                            <button
+                              key={s.name}
+                              type="button"
+                              onClick={() => {
+                                const current = catSymbols
+                                  .split(',')
+                                  .map((x) => x.trim())
+                                  .filter(Boolean)
+                                if (!current.includes(s.name)) {
+                                  setCatSymbols([...current, s.name].join(', '))
+                                }
+                              }}
+                              className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/60 hover:border-blue-500/50 px-3 py-2 text-left transition"
+                            >
+                              <div className="min-w-0">
+                                <div className="text-xs font-mono font-semibold text-slate-900 dark:text-white truncate">
+                                  {s.name}
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                  {s.description || s.category}
+                                </div>
+                              </div>
+                              <span className="shrink-0 rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                                + Add
+                              </span>
+                            </button>
+                          ))}
+                      </div>
                     </div>
                   </CardBody>
                 </Card>

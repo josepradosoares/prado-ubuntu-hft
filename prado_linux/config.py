@@ -210,6 +210,12 @@ def load_config(config_path: Path) -> PradoServerConfig:
         if isinstance(bot, dict) and _is_legacy_mt5(str(bot.get("symbol", ""))):
             bot["symbol"] = "cryBTCUSD" if "Crypto" in str(bot.get("symbol", "")) or "BTC" in str(bot.get("symbol", "")) else "R_100"
             changed = True
+    if any(
+        "B3 Futuros" in cat_name or any(_is_legacy_mt5(s) for s in syms)
+        for cat_name, syms in cfg.custom_categories.items()
+    ):
+        cfg.custom_categories = dict(DEFAULT_CATEGORIES)
+        changed = True
 
     deduped = deduplicate_accounts(cfg.accounts)
     if len(deduped) != len(cfg.accounts):
