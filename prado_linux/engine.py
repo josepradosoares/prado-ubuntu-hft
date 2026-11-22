@@ -67,11 +67,10 @@ EXTENDED_ALL_SYMBOLS: list[dict[str, str]] = MAIN_BROKER_SYMBOLS + [
 
 
 class MT5UniversalConnector:
-    """Connects using official MetaTrader5 Python package (directly or via Ubuntu Wine RPyC bridge)."""
+    """Connects to MetaTrader 5 accounts 100% via MetaApi Cloud HTTPS (zero MT5 terminal needed) or Quant Simulation."""
 
     def __init__(self, cfg: PradoServerConfig) -> None:
         self.cfg = cfg
-        self._mt5: Any = None
         self._metaapi: MetaApiClient | None = None
         self._metaapi_tick_buffers: dict[str, list[TickRecord]] = {}
         self.connected: bool = False
@@ -91,12 +90,10 @@ class MT5UniversalConnector:
         force_attempt: bool = False,
     ) -> tuple[bool, str]:
         target_login = (login if login is not None else self.cfg.mt5_login).strip()
-        target_password = password if password is not None else self.cfg.mt5_password
-        target_server = (server if server is not None else self.cfg.mt5_server).strip()
         mode = self.cfg.mt5_connection_mode.upper()
 
-        # 0. MetaApi Cloud Mode (100% pure Python on VPS, ZERO MetaTrader terminal needed anywhere)
-        if self.cfg.metaapi_token.strip() and self.cfg.metaapi_account_id.strip():
+        # MetaApi Cloud Mode (100% pure Python on VPS, ZERO MetaTrader terminal needed anywhere)
+        if mode != "SIMULATION" and self.cfg.metaapi_token.strip() and self.cfg.metaapi_account_id.strip():
             try:
                 client = MetaApiClient(
                     token=self.cfg.metaapi_token,
@@ -105,90 +102,24 @@ class MT5UniversalConnector:
                 )
                 info = client.get_account_information()
                 self._metaapi = client
-                self._mt5 = None
                 self.connected = True
                 self.backend_name = "METAAPI_CLOUD_LIVE"
                 self.last_error = ""
                 return (
                     True,
-                    f"Conectado via MetaApi Cloud (100% Python sem MT5 aberto) — Conta {info.get('login', target_login)} ({info.get('balance')} {info.get('currency', '')}).",
+                    f"Conectado via MetaApi Cloud — Conta {info.get('login', target_login)} ({info.get('balance')} {info.get('currency', '')}).",
                 )
             except Exception as exc:
                 self._metaapi = None
                 self.last_error = f"MetaApi Cloud falhou: {exc}"
 
-        if mode == "SIMULATION" or not force_attempt:
-            self._mt5 = None
-            self._metaapi = None
-            self.connected = True
-            self.backend_name = "SIMULATION_FEED"
-            return (
-                True,
-                "Modo Simulação Quant Ativo (Configure MetaApi Cloud para operar sem MetaTrader aberto).",
-            )
-
-        # 1. Try Official MetaTrader5 Python Library directly (Windows or Wine Python)
-        if mode in ("AUTO_MT5_WINE", "NATIVE_MT5"):
-            try:
-                import MetaTrader5 as mt5  # type: ignore
-
-                init_kwargs: dict[str, Any] = {}
-                if self.cfg.mt5_terminal_path:
-                    init_kwargs["path"] = self.cfg.mt5_terminal_path
-                if target_login.isdigit():
-                    init_kwargs["login"] = int(target_login)
-                if target_password:
-                    init_kwargs["password"] = target_password
-                if target_server:
-                    init_kwargs["server"] = target_server
-
-                ok = mt5.initialize(**init_kwargs) if init_kwargs else mt5.initialize()
-                if ok:
-                    if target_login.isdigit() and target_password and target_server:
-                        mt5.login(
-                            login=int(target_login),
-                            password=target_password,
-                            server=target_server,
-                        )
-                    self._mt5 = mt5
-                    self.connected = True
-                    self.backend_name = "MT5_PYTHON_LIBRARY"
-                    self.last_error = ""
-                    return True, f"Conectado via biblioteca oficial MetaTrader5 ({target_server or 'Local'})."
-                else:
-                    self.last_error = f"MetaTrader5.initialize() retornou: {mt5.last_error()}"
-            except Exception as exc:
-                self.last_error = f"MetaTrader5 nativo indisponivel: {exc}"
-
-            # 2. Try Official MetaTrader5 Library inside Ubuntu Wine Python Bridge (mt5linux port 8001 / RPyC 18812)
-            for bridge_port in dict.fromkeys([8001, int(self.cfg.rpyc_port), 18812]):
-                try:
-                    import rpyc  # type: ignore
-
-                    conn = rpyc.classic.connect(self.cfg.rpyc_host, bridge_port)
-                    mt5_remote = conn.modules.MetaTrader5
-                    init_kwargs = {}
-                    if target_login.isdigit():
-                        init_kwargs["login"] = int(target_login)
-                    if target_password:
-                        init_kwargs["password"] = target_password
-                    if target_server:
-                        init_kwargs["server"] = target_server
-
-                    ok = mt5_remote.initialize(**init_kwargs) if init_kwargs else mt5_remote.initialize()
-                    if ok:
-                        self._mt5 = mt5_remote
-                        self.connected = True
-                        self.backend_name = "MT5_UBUNTU_WINE_PYTHON"
-                        self.last_error = ""
-                        return True, f"Conectado à biblioteca MetaTrader5 no Ubuntu ({self.cfg.rpyc_host}:{bridge_port})."
-                except Exception as exc:
-                    self.last_error = f"Ubuntu Wine MetaTrader5 ({self.cfg.rpyc_host}:{bridge_port}): {exc}"
-
-        self._mt5 = None
+        self._metaapi = None
         self.connected = True
         self.backend_name = "SIMULATION_FEED"
-        return True, f"Conta registrada! Operando com Feed Quantitativo ({self.last_error})"
+        return (
+            True,
+            "Modo Simulação Quant Ativo (Informe seu MetaApi Token para operar ao vivo na corretora sem MT5 aberto).",
+        )
 
     def discover_broker_symbols(self, mode: str = "PRINCIPAIS") -> list[dict[str, Any]]:
         """Return symbols from connected MT5 / MetaApi broker in either 'PRINCIPAIS' or 'TODOS' mode."""

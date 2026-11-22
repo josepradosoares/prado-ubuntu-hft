@@ -1069,9 +1069,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 <div id="serverAutocompleteBox" class="autocomplete-menu"></div>
               </div>
               <div class="field">
-                <label for="connection_mode">Modo de conexão na VPS (sem MT5 aberto)</label>
+                <label for="connection_mode">Modo de conexão na VPS (100% Cloud API)</label>
                 <select id="connection_mode">
-                  <option value="AUTO_MT5_WINE">MT5 Headless na VPS Ubuntu (Docker/Wine porta 18812)</option>
                   <option value="METAAPI_CLOUD">MetaApi Cloud (100% Python na VPS — sem MetaTrader aberto)</option>
                   <option value="SIMULATION">Simulador Quantitativo Interno</option>
                 </select>

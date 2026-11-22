@@ -198,16 +198,13 @@ class PradoServerConfig:
     secret_key: str = ""
     web_port: int = 8080
 
-    # Primary MetaTrader 5 Credentials & Active Account Selection (DEMO vs REAL)
-    mt5_connection_mode: str = "AUTO_MT5_WINE"
+    # Primary MetaTrader 5 Credentials & Active Account Selection (DEMO vs REAL) via MetaApi Cloud
+    mt5_connection_mode: str = "METAAPI_CLOUD"
     active_account_id: str = "acc_xm_demo_346595704"
     active_account_type: str = "DEMO"
     mt5_login: str = ""
     mt5_password: str = ""
     mt5_server: str = ""
-    mt5_terminal_path: str = ""
-    rpyc_host: str = "127.0.0.1"
-    rpyc_port: int = 18812
     metaapi_token: str = ""
     metaapi_account_id: str = ""
     metaapi_region: str = "london"
