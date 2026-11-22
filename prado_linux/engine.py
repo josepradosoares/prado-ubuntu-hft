@@ -144,39 +144,6 @@ class MT5UniversalConnector:
             except Exception as exc:
                 self.last_error = f"Erro listando ativos MetaApi: {exc}"
 
-        if self._metaapi is not None:
-            return self._metaapi.place_order(
-                symbol=symbol,
-                is_buy=is_buy,
-                volume=volume,
-                sl=sl,
-                tp=tp,
-                comment=f"{bot_name[:12]}_{action}",
-            )
-
-        if self._mt5 is not None:
-            try:
-                all_syms = self._mt5.symbols_get()
-                if all_syms:
-                    items: list[dict[str, Any]] = []
-                    for s in all_syms:
-                        is_vis = bool(getattr(s, "visible", False))
-                        if mode_upper == "PRINCIPAIS" and not is_vis:
-                            continue
-                        path_str = str(getattr(s, "path", "Corretora MT5")).split("\\")[0] or "Corretora MT5"
-                        items.append(
-                            {
-                                "name": str(s.name),
-                                "category": path_str,
-                                "description": str(getattr(s, "description", s.name)),
-                                "visible": is_vis,
-                            }
-                        )
-                    if items:
-                        return items[:500]
-            except Exception as exc:
-                self.last_error = f"Erro listando ativos MT5: {exc}"
-
         source = MAIN_BROKER_SYMBOLS if mode_upper == "PRINCIPAIS" else EXTENDED_ALL_SYMBOLS
         # Also include any custom user category symbols
         seen = {item["name"] for item in source}
@@ -215,35 +182,6 @@ class MT5UniversalConnector:
                     "profit": round(eq - bal, 2),
                     "margin_free": round(float(info.get("freeMargin", eq)), 2),
                 }
-            except Exception as exc:
-                self.last_error = str(exc)
-
-        if self._metaapi is not None:
-            return self._metaapi.place_order(
-                symbol=symbol,
-                is_buy=is_buy,
-                volume=volume,
-                sl=sl,
-                tp=tp,
-                comment=f"{bot_name[:12]}_{action}",
-            )
-
-        if self._mt5 is not None:
-            try:
-                acc = self._mt5.account_info()
-                if acc is not None:
-                    return {
-                        "backend": self.backend_name,
-                        "connected": True,
-                        "login": str(acc.login),
-                        "server": str(acc.server),
-                        "name": str(getattr(acc, "name", "MT5 Trader")),
-                        "currency": str(getattr(acc, "currency", "BRL")),
-                        "balance": round(float(acc.balance), 2),
-                        "equity": round(float(acc.equity), 2),
-                        "profit": round(float(acc.profit), 2),
-                        "margin_free": round(float(getattr(acc, "margin_free", acc.equity)), 2),
-                    }
             except Exception as exc:
                 self.last_error = str(exc)
 
@@ -291,49 +229,6 @@ class MT5UniversalConnector:
                     return list(buf)
             except Exception as exc:
                 self.last_error = f"Erro tick MetaApi {symbol}: {exc}"
-
-        if self._metaapi is not None:
-            return self._metaapi.place_order(
-                symbol=symbol,
-                is_buy=is_buy,
-                volume=volume,
-                sl=sl,
-                tp=tp,
-                comment=f"{bot_name[:12]}_{action}",
-            )
-
-        if self._mt5 is not None:
-            try:
-                now = datetime.now()
-                day_start = datetime(now.year, now.month, now.day, 0, 0, 0)
-                self._mt5.symbol_select(symbol, True)
-                raw = self._mt5.copy_ticks_from(symbol, day_start, count, self._mt5.COPY_TICKS_ALL)
-                if raw is None or len(raw) < 15:
-                    raw = self._mt5.copy_ticks_from(symbol, now - timedelta(hours=24), count, self._mt5.COPY_TICKS_ALL)
-                if raw is not None and len(raw) > 0:
-                    records: list[TickRecord] = []
-                    for t in raw:
-                        names = t.dtype.names if hasattr(t, "dtype") and t.dtype.names else None
-                        if names:
-                            time_msc = int(t["time_msc"]) if "time_msc" in names else int(t["time"]) * 1000
-                            bid = float(t["bid"])
-                            ask = float(t["ask"])
-                            last = float(t["last"])
-                            vr = float(t["volume_real"]) if "volume_real" in names else 0.0
-                            vt = float(t["volume"]) if "volume" in names else 1.0
-                            fl = int(t["flags"]) if "flags" in names else 0
-                        else:
-                            time_msc = int(getattr(t, "time_msc", 0))
-                            bid = float(getattr(t, "bid", 0.0))
-                            ask = float(getattr(t, "ask", 0.0))
-                            last = float(getattr(t, "last", 0.0))
-                            vr = float(getattr(t, "volume_real", 0.0))
-                            vt = float(getattr(t, "volume", 1.0))
-                            fl = int(getattr(t, "flags", 0))
-                        records.append(TickRecord(time_msc, bid, ask, last, vr, max(vt, 1.0), fl))
-                    return records
-            except Exception as exc:
-                self.last_error = f"Erro lendo ticks de {symbol}: {exc}"
 
         return self._generate_sim_ticks(symbol)
 
@@ -435,41 +330,6 @@ class MT5UniversalConnector:
             except Exception:
                 return []
 
-        if self._metaapi is not None:
-            return self._metaapi.place_order(
-                symbol=symbol,
-                is_buy=is_buy,
-                volume=volume,
-                sl=sl,
-                tp=tp,
-                comment=f"{bot_name[:12]}_{action}",
-            )
-
-        if self._mt5 is not None:
-            try:
-                raw_pos = self._mt5.positions_get()
-                if raw_pos is None:
-                    return []
-                out: list[dict[str, Any]] = []
-                for p in raw_pos:
-                    out.append(
-                        {
-                            "ticket": int(p.ticket),
-                            "symbol": str(p.symbol),
-                            "type": "BUY" if int(p.type) == 0 else "SELL",
-                            "volume": float(p.volume),
-                            "price_open": round(float(p.price_open), 6),
-                            "price_current": round(float(p.price_current), 6),
-                            "sl": round(float(p.sl), 6),
-                            "tp": round(float(p.tp), 6),
-                            "profit": round(float(p.profit), 2),
-                            "comment": str(getattr(p, "comment", "")),
-                        }
-                    )
-                return out
-            except Exception:
-                return []
-
         for pos in list(self._sim_positions):
             sym = pos["symbol"]
             ticks = self._sim_ticks.get(sym)
@@ -529,32 +389,6 @@ class MT5UniversalConnector:
                 comment=f"{bot_name[:12]}_{action}",
             )
 
-        if self._mt5 is not None:
-            try:
-                tick = self._mt5.symbol_info_tick(symbol)
-                exec_price = float(tick.ask if is_buy else tick.bid) if tick else price
-                order_type = self._mt5.ORDER_TYPE_BUY if is_buy else self._mt5.ORDER_TYPE_SELL
-                req = {
-                    "action": self._mt5.TRADE_ACTION_DEAL,
-                    "symbol": symbol,
-                    "volume": float(volume),
-                    "type": order_type,
-                    "price": exec_price,
-                    "sl": sl,
-                    "tp": tp,
-                    "deviation": 20,
-                    "magic": int(magic),
-                    "comment": f"{bot_name[:12]}_{action}"[:30],
-                    "type_time": self._mt5.ORDER_TIME_GTC,
-                    "type_filling": self._mt5.ORDER_FILLING_RETURN,
-                }
-                res = self._mt5.order_send(req)
-                if res and getattr(res, "retcode", 0) in (10008, 10009):
-                    return True, f"[{bot_name}] Ordem {action} executada em {symbol} @ {exec_price}"
-                return False, f"[{bot_name}] Falha order_send em {symbol}: {getattr(res, 'comment', res)}"
-            except Exception as exc:
-                return False, f"Excecao order_send: {exc}"
-
         if any(p["symbol"] == symbol for p in self._sim_positions):
             return False, f"Posicao ja aberta em {symbol}"
         ticket = int(time.time() * 1000) % 100_000_000
@@ -584,31 +418,6 @@ class MT5UniversalConnector:
                     closed += 1
             return closed, f"[MetaApi] {closed} posição(ões) encerrada(s) ({reason})."
 
-        if self._mt5 is not None:
-            try:
-                positions = self._mt5.positions_get() or []
-                closed = 0
-                for p in positions:
-                    is_buy_pos = int(p.type) == 0
-                    tick = self._mt5.symbol_info_tick(p.symbol)
-                    close_price = float(tick.bid if is_buy_pos else tick.ask) if tick else float(p.price_current)
-                    req = {
-                        "action": self._mt5.TRADE_ACTION_DEAL,
-                        "position": int(p.ticket),
-                        "symbol": str(p.symbol),
-                        "volume": float(p.volume),
-                        "type": self._mt5.ORDER_TYPE_SELL if is_buy_pos else self._mt5.ORDER_TYPE_BUY,
-                        "price": close_price,
-                        "deviation": 30,
-                        "magic": int(self.cfg.magic_number),
-                        "comment": reason[:28],
-                    }
-                    self._mt5.order_send(req)
-                    closed += 1
-                return closed, f"{closed} posicao(oes) encerrada(s) no MT5 ({reason})."
-            except Exception as exc:
-                return 0, f"Erro ao zerar posicoes no MT5: {exc}"
-
         count = len(self._sim_positions)
         for p in self._sim_positions:
             pnl = float(p.get("profit", 0.0))
@@ -634,29 +443,6 @@ class MT5UniversalConnector:
     def close_single_position(self, ticket: int | str) -> tuple[bool, str]:
         if self._metaapi is not None:
             return self._metaapi.close_position(str(ticket))
-
-        if self._mt5 is not None:
-            try:
-                positions = self._mt5.positions_get(ticket=int(ticket)) or []
-                for p in positions:
-                    is_buy_pos = int(p.type) == 0
-                    tick = self._mt5.symbol_info_tick(p.symbol)
-                    close_price = float(tick.bid if is_buy_pos else tick.ask) if tick else float(p.price_current)
-                    req = {
-                        "action": self._mt5.TRADE_ACTION_DEAL,
-                        "position": int(p.ticket),
-                        "symbol": str(p.symbol),
-                        "volume": float(p.volume),
-                        "type": self._mt5.ORDER_TYPE_SELL if is_buy_pos else self._mt5.ORDER_TYPE_BUY,
-                        "price": close_price,
-                        "deviation": 30,
-                        "magic": int(self.cfg.magic_number),
-                        "comment": "CLOSE_SINGLE_WEB",
-                    }
-                    self._mt5.order_send(req)
-                return True, f"Posição #{ticket} encerrada no MT5."
-            except Exception as exc:
-                return False, f"Erro encerrando #{ticket}: {exc}"
 
         for p in list(self._sim_positions):
             if int(p["ticket"]) == int(ticket):
