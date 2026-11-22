@@ -129,6 +129,7 @@ class PradoServerConfig:
 
     # Operational Rules from Wall Street Institutional Broker Transcript ("Fio")
     auto_trading_enabled: bool = True
+    allow_real_trading: bool = False
     operation_mode: str = "BOTH"
     active_symbols: list[str] = field(
         default_factory=lambda: ["R_100", "R_75", "1HZ100V", "frxEURUSD", "cryBTCUSD"]

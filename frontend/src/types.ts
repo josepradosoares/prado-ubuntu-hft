@@ -1,7 +1,23 @@
+export interface RateLimitStatus {
+  state: string;
+  cooldown_seconds: number;
+  ws_per_min?: Record<string, number>;
+  rest_per_min?: number;
+  last_error?: string;
+}
+
 export interface AccountSummary {
   backend: string;
   connected: boolean;
   account_type: string;
+  account_mode?: string;
+  connection_state?: string;
+  auth_state?: string;
+  data_state?: string;
+  trading_state?: string;
+  rate_limit?: RateLimitStatus;
+  masked_app_id?: string;
+  last_tick_at?: number;
   active_account_id: string;
   login: string;
   server: string;

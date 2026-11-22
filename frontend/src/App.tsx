@@ -26,6 +26,7 @@ import { BotCardGrid } from './components/BotCardGrid'
 import { Sidebar, TabKey } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { MarketIndicatorsBar } from './components/MarketIndicatorsBar'
+import { DerivDiagnosticsCard } from './components/DerivDiagnosticsCard'
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from './components/ui/Card'
 import { ConfirmModal } from './components/ui/ConfirmModal'
 import { DashboardSkeleton } from './components/ui/Skeleton'
@@ -1032,6 +1033,9 @@ export default function App() {
                     symbolState={snapshot?.symbols?.[chartSymbol]}
                     connected={isConnected}
                   />
+                  {activeTab === 'overview' && (
+                    <DerivDiagnosticsCard account={snapshot?.account} />
+                  )}
 
                   <LightweightChartPanel
                     symbol={chartSymbol}
@@ -1643,7 +1647,9 @@ export default function App() {
 
               {/* DERIV CONFIG */}
               {activeTab === 'deriv-config' && (
-                <Card>
+                <div className="space-y-6">
+                  <DerivDiagnosticsCard account={snapshot?.account} />
+                  <Card>
                   <CardHeader>
                     <CardTitle>Configuração Padrão Deriv (Token &amp; App ID)</CardTitle>
                     <CardDescription>
@@ -1728,7 +1734,8 @@ export default function App() {
                       </div>
                     </div>
                   </CardBody>
-                </Card>
+                  </Card>
+                </div>
               )}
 
               {/* DERIV ACCOUNTS VAULT */}

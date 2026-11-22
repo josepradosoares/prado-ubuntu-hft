@@ -81,7 +81,26 @@ class PradoWebApp:
             return 200, target.read_bytes(), {"Content-Type": ctype or "application/octet-stream"}
         return None
 
+    SECURITY_HEADERS: dict[str, str] = {
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "SAMEORIGIN",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+    }
+
     def handle_request(
+        self,
+        method: str,
+        path: str,
+        headers: dict[str, str],
+        body: bytes = b"",
+    ) -> tuple[int, str | bytes, dict[str, str]]:
+        code, resp_body, resp_headers = self._route_request(method, path, headers, body)
+        merged_headers = dict(self.SECURITY_HEADERS)
+        merged_headers.update(resp_headers)
+        return code, resp_body, merged_headers
+
+    def _route_request(
         self,
         method: str,
         path: str,

@@ -16,7 +16,13 @@ from prado_linux.config import (
     deduplicate_accounts,
     save_config,
 )
-from prado_linux.deriv_client import DerivClient
+from prado_linux.deriv_client import (
+    DerivAuthError,
+    DerivClient,
+    DerivRateLimiter,
+    DerivRateLimitError,
+    mask_secret,
+)
 from prado_linux.flow_math import (
     TICK_FLAG_BUY,
     TICK_FLAG_SELL,
@@ -60,14 +66,20 @@ class DerivUniversalConnector:
 
     def __init__(self, cfg: PradoServerConfig) -> None:
         self.cfg = cfg
+        self.rate_limiter = DerivRateLimiter()
         self._deriv: DerivClient | None = None
         self._public_deriv: DerivClient | None = None
         self._deriv_auth: dict[str, Any] = {}
         self.connected: bool = False
+        self.connection_state: str = (
+            "DISCONNECTED" if cfg.connection_mode.upper() != "SIMULATION" else "CONNECTED"
+        )
+        self.auth_state: str = "UNAUTHENTICATED"
         self.backend_name: str = (
             "DERIV_DISCONNECTED" if cfg.connection_mode.upper() != "SIMULATION" else "SIMULATION_FEED"
         )
         self.last_error: str = ""
+        self.last_tick_at: float = 0.0
         self._sim_ticks: dict[str, list[TickRecord]] = {}
         self._sim_positions: list[dict[str, Any]] = []
         self._sim_deals_history: list[dict[str, Any]] = []
@@ -75,6 +87,9 @@ class DerivUniversalConnector:
         self._sim_balance: float = 10_000.0
         self._tick_cache: dict[str, tuple[float, list[TickRecord]]] = {}
         self._symbols_cache: tuple[float, list[dict[str, Any]]] | None = None
+        self._balance_cache: tuple[float, float] | None = None
+        self._positions_cache: tuple[float, list[dict[str, Any]]] | None = None
+        self._last_order_ts: dict[str, float] = {}
 
     def connect(self, token: str | None = None, app_id: str | None = None) -> tuple[bool, str]:
         target_token = (token if token is not None else self.cfg.deriv_token).strip()
@@ -86,28 +101,52 @@ class DerivUniversalConnector:
             self._deriv = None
 
         if mode != "SIMULATION" and target_token:
+            self.connection_state = "CONNECTING"
             try:
-                client = DerivClient(token=target_token, app_id=target_app)
+                client = DerivClient(
+                    token=target_token,
+                    app_id=target_app,
+                    rate_limiter=self.rate_limiter,
+                    preferred_account_type=self.cfg.active_account_type,
+                )
                 auth = client.authorize()
                 self._deriv = client
                 self._deriv_auth = auth
                 self.connected = True
+                self.connection_state = "CONNECTED"
+                self.auth_state = "AUTHENTICATED"
                 self.backend_name = "DERIV_LIVE_API"
                 self.last_error = ""
+                self._balance_cache = (time.time(), float(auth.get("balance", 0.0)))
                 env_str = "DEMO" if auth.get("is_virtual") else "REAL"
                 return (
                     True,
                     f"Conectado à Deriv [{env_str}] — Conta {auth.get('loginid')} ({auth.get('balance')} {auth.get('currency', 'USD')}).",
                 )
+            except DerivAuthError as exc:
+                self._deriv = None
+                self._deriv_auth = {}
+                self.auth_state = exc.auth_state
+                self.connection_state = "ERROR"
+                self.last_error = str(exc)
+                self.connected = False
+                self.backend_name = "DERIV_DISCONNECTED"
+                return False, f"Erro ao conectar na Deriv: {exc}"
             except Exception as exc:
                 self._deriv = None
                 self._deriv_auth = {}
                 err_msg = str(exc)
-                if target_token.startswith("pat_") and target_app == "1089" and "InvalidToken" in err_msg:
+                if target_token.startswith("pat_") and target_app == "1089":
+                    self.auth_state = "APP_ID_MISMATCH"
                     err_msg = (
                         "Token 'pat_...' não é aceito com App ID 1089. "
                         "Gere um token clássico em app.deriv.com/account/api-token OU use seu App ID de developers.deriv.com."
                     )
+                elif "RateLimit" in err_msg or "429" in err_msg:
+                    self.auth_state = "UNAUTHENTICATED"
+                else:
+                    self.auth_state = "TOKEN_INVALID"
+                self.connection_state = "ERROR"
                 self.last_error = err_msg
                 if mode != "SIMULATION":
                     self.connected = False
@@ -118,6 +157,8 @@ class DerivUniversalConnector:
         self._deriv_auth = {}
         if mode != "SIMULATION":
             self.connected = False
+            self.connection_state = "DISCONNECTED"
+            self.auth_state = "UNAUTHENTICATED"
             self.backend_name = "DERIV_DISCONNECTED"
             return (
                 False,
@@ -125,6 +166,8 @@ class DerivUniversalConnector:
             )
 
         self.connected = True
+        self.connection_state = "CONNECTED"
+        self.auth_state = "AUTHENTICATED"
         self.backend_name = "SIMULATION_FEED"
         return (
             True,
@@ -136,7 +179,7 @@ class DerivUniversalConnector:
         if self._public_deriv is None or self._public_deriv.app_id != app_id:
             if self._public_deriv is not None:
                 self._public_deriv.close()
-            self._public_deriv = DerivClient(token="", app_id=app_id)
+            self._public_deriv = DerivClient(token="", app_id=app_id, rate_limiter=self.rate_limiter)
         return self._public_deriv
 
     def discover_broker_symbols(self, mode: str = "PRINCIPAIS") -> list[dict[str, Any]]:
@@ -181,22 +224,74 @@ class DerivUniversalConnector:
                     )
         return result
 
+    def _compute_data_state(self, now: float | None = None) -> str:
+        t = time.time() if now is None else now
+        if self.last_tick_at <= 0:
+            return "NO_DATA"
+        if (t - self.last_tick_at) > 15.0:
+            return "STALE"
+        return "LIVE"
+
+    def _compute_trading_state(self, account_mode: str, rl_status: dict[str, Any]) -> str:
+        if self.cfg.connection_mode.upper() == "SIMULATION":
+            return "READY" if self.connected else "BLOCKED"
+        if not self.connected or self.connection_state != "CONNECTED":
+            return "BLOCKED"
+        if self.auth_state != "AUTHENTICATED":
+            return "BLOCKED"
+        if rl_status.get("state") == "BLOCKED":
+            return "BLOCKED"
+        if account_mode == "REAL" and not getattr(self.cfg, "allow_real_trading", False):
+            return "BLOCKED"
+        return "READY"
+
     def get_account_summary(self) -> dict[str, Any]:
+        now = time.time()
+        rl_status = self.rate_limiter.status(now)
+        data_state = self._compute_data_state(now)
+        masked_app = mask_secret(self.cfg.deriv_app_id or "1089", 2, 2)
+
         if self._deriv is not None:
             try:
-                auth = self._deriv.authorize()
-                self._deriv_auth = auth
+                auth = self._deriv_auth
+                if not auth:
+                    auth = self._deriv.authorize()
+                    self._deriv_auth = auth
+
                 bal = float(auth.get("balance", 0.0))
+                if self._balance_cache is None or (now - self._balance_cache[0]) >= 10.0:
+                    try:
+                        fresh_bal = self._deriv.get_balance()
+                        if fresh_bal is not None:
+                            bal = fresh_bal
+                            self._balance_cache = (now, bal)
+                    except DerivRateLimitError as exc:
+                        self.last_error = str(exc)
+                    except Exception:
+                        pass
+                else:
+                    bal = self._balance_cache[1]
+
                 positions = self.get_open_positions()
                 floating = sum(float(p.get("profit", 0.0)) for p in positions)
                 is_virt = bool(auth.get("is_virtual", 1))
+                acc_mode = "DEMO" if is_virt else "REAL"
+                trading_state = self._compute_trading_state(acc_mode, rl_status)
                 return {
                     "backend": self.backend_name,
                     "connected": True,
-                    "account_type": "DEMO" if is_virt else "REAL",
+                    "account_type": acc_mode,
+                    "account_mode": acc_mode,
+                    "connection_state": self.connection_state,
+                    "auth_state": self.auth_state,
+                    "data_state": data_state,
+                    "trading_state": trading_state,
+                    "rate_limit": rl_status,
+                    "masked_app_id": masked_app,
+                    "last_tick_at": self.last_tick_at,
                     "active_account_id": self.cfg.active_account_id,
                     "login": str(auth.get("loginid", "---")),
-                    "server": "Deriv WebSocket API",
+                    "server": "Deriv API (REST + OTP WS)",
                     "name": str(auth.get("fullname", "Conta Deriv")),
                     "currency": str(auth.get("currency", "USD")),
                     "balance": round(bal, 2),
@@ -206,14 +301,28 @@ class DerivUniversalConnector:
                     "margin_free": round(bal, 2),
                     "status_note": self.last_error,
                 }
+            except DerivAuthError as exc:
+                self.auth_state = exc.auth_state
+                self.connection_state = "ERROR"
+                self.connected = False
+                self.last_error = str(exc)
             except Exception as exc:
                 self.last_error = str(exc)
 
         if self.cfg.connection_mode.upper() != "SIMULATION":
+            acc_mode = self.cfg.active_account_type.upper() or "DEMO"
             return {
                 "backend": "DERIV_DISCONNECTED",
                 "connected": False,
-                "account_type": self.cfg.active_account_type,
+                "account_type": acc_mode,
+                "account_mode": acc_mode,
+                "connection_state": self.connection_state,
+                "auth_state": self.auth_state,
+                "data_state": data_state,
+                "trading_state": "BLOCKED",
+                "rate_limit": rl_status,
+                "masked_app_id": masked_app,
+                "last_tick_at": self.last_tick_at,
                 "active_account_id": self.cfg.active_account_id,
                 "login": "DESCONECTADO",
                 "server": self.last_error or "Aguardando token válido da Deriv",
@@ -228,14 +337,23 @@ class DerivUniversalConnector:
             }
 
         floating = sum(p.get("profit", 0.0) for p in self._sim_positions)
+        acc_mode = self.cfg.active_account_type.upper() or "DEMO"
         return {
             "backend": self.backend_name,
             "connected": self.connected,
-            "account_type": self.cfg.active_account_type,
+            "account_type": acc_mode,
+            "account_mode": acc_mode,
+            "connection_state": "CONNECTED",
+            "auth_state": "AUTHENTICATED",
+            "data_state": data_state if data_state != "NO_DATA" else "LIVE",
+            "trading_state": "READY",
+            "rate_limit": rl_status,
+            "masked_app_id": masked_app,
+            "last_tick_at": self.last_tick_at or now,
             "active_account_id": self.cfg.active_account_id,
-            "login": "VRTC-SIM" if self.cfg.active_account_type == "DEMO" else "CR-SIM",
+            "login": "VRTC-SIM" if acc_mode == "DEMO" else "CR-SIM",
             "server": "Deriv Quant Simulador",
-            "name": f"Mesa Deriv ({self.cfg.active_account_type})",
+            "name": f"Mesa Deriv ({acc_mode})",
             "currency": "USD",
             "balance": round(self._sim_balance + self._sim_daily_pnl, 2),
             "equity": round(self._sim_balance + self._sim_daily_pnl + floating, 2),
@@ -258,13 +376,17 @@ class DerivUniversalConnector:
                 ticks = client.get_ticks_history(symbol, count=min(500, count))
                 if ticks:
                     self._tick_cache[symbol] = (now, ticks)
+                    self.last_tick_at = now
                     return ticks
             except Exception as exc:
                 if cached:
                     return cached[1]
                 if self._deriv is not None:
                     self.last_error = f"Erro lendo ticks Deriv ({symbol}): {exc}"
-        return self._generate_sim_ticks(symbol)
+        ticks_sim = self._generate_sim_ticks(symbol)
+        if ticks_sim:
+            self.last_tick_at = now
+        return ticks_sim
 
     def _generate_sim_ticks(self, symbol: str) -> list[TickRecord]:
         base_map = {
@@ -335,11 +457,16 @@ class DerivUniversalConnector:
 
     def get_open_positions(self) -> list[dict[str, Any]]:
         if self._deriv is not None:
+            now = time.time()
+            if self._positions_cache and (now - self._positions_cache[0]) < 5.0:
+                return self._positions_cache[1]
             try:
-                return self._deriv.get_open_contracts()
+                pos = self._deriv.get_open_contracts()
+                self._positions_cache = (now, pos)
+                return pos
             except Exception as exc:
                 self.last_error = f"Erro lendo posições Deriv: {exc}"
-                return []
+                return self._positions_cache[1] if self._positions_cache else []
 
         for pos in list(self._sim_positions):
             sym = pos["symbol"]
@@ -385,11 +512,27 @@ class DerivUniversalConnector:
         multiplier: int = 100,
         bot_name: str = "PradoBot",
     ) -> tuple[bool, str]:
+        now = time.time()
+        last_ts = self._last_order_ts.get(symbol, 0.0)
+        if (now - last_ts) < 3.0:
+            return False, f"Intervalo mínimo entre operações ativo para {symbol}"
+
+        if self.cfg.connection_mode.upper() != "SIMULATION":
+            if self._deriv is None or not self.connected or self.auth_state != "AUTHENTICATED":
+                return False, f"Negociação bloqueada: Deriv desconectada ou não autenticada ({self.auth_state})"
+            is_virt = bool(self._deriv_auth.get("is_virtual", 1))
+            if not is_virt and not getattr(self.cfg, "allow_real_trading", False):
+                return False, "Negociação em conta REAL bloqueada por padrão de segurança."
+            rl = self.rate_limiter.status(now)
+            if rl.get("state") == "BLOCKED":
+                return False, f"Negociação bloqueada por RateLimit ({rl.get('cooldown_seconds')}s)"
+
+        self._last_order_ts[symbol] = now
         is_buy = action.startswith("BUY")
         if self._deriv is not None:
             sl_usd = round(max(1.0, stake * 0.5), 2)
             tp_usd = round(max(1.5, stake * 0.9), 2)
-            return self._deriv.place_multiplier_order(
+            ok, msg = self._deriv.place_multiplier_order(
                 symbol=symbol,
                 is_buy=is_buy,
                 stake=stake,
@@ -397,6 +540,8 @@ class DerivUniversalConnector:
                 sl_amount=sl_usd,
                 tp_amount=tp_usd,
             )
+            self._positions_cache = None
+            return ok, msg
 
         if any(p["symbol"] == symbol for p in self._sim_positions):
             return False, f"Posição já aberta em {symbol}"

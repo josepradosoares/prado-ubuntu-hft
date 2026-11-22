@@ -52,8 +52,19 @@ export function Topbar({
   onLogout,
 }: TopbarProps) {
   const [notifOpen, setNotifOpen] = useState(false)
-  const isConnected = Boolean(account?.connected)
-  const isReal = account?.account_type === 'REAL'
+  const connState = account?.connection_state || (account?.connected ? 'CONNECTED' : 'DISCONNECTED')
+  const isConnected = Boolean(account?.connected) && account?.backend !== 'DERIV_DISCONNECTED' && connState === 'CONNECTED'
+  const isReal = (account?.account_mode || account?.account_type) === 'REAL'
+  const authLabel =
+    account?.auth_state === 'AUTHENTICATED'
+      ? 'VALIDADA'
+      : account?.auth_state === 'APP_ID_MISMATCH'
+        ? 'ERRO APP ID'
+        : account?.auth_state === 'INSUFFICIENT_SCOPE'
+          ? 'ESCOPO INSUFICIENTE'
+          : account?.auth_state === 'TOKEN_INVALID' || account?.auth_state === 'TOKEN_EXPIRED'
+            ? 'TOKEN INVÁLIDO'
+            : 'NÃO AUTENTICADA'
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-[#0b0f17]/90 backdrop-blur-md">
@@ -92,7 +103,7 @@ export function Topbar({
               </span>
             </div>
             <div className="hidden sm:block text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
-              {isConnected ? 'Deriv Conectado' : 'Deriv Desconectado'} • {account?.login || '---'}
+              {isConnected ? 'CONEXÃO: CONECTADA' : 'CONEXÃO: DESCONECTADA'} • AUTH: {authLabel} • {account?.login || '--'}
             </div>
           </div>
         </div>
