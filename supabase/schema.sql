@@ -2,6 +2,8 @@
 
 create table if not exists public.prado_settings (
   user_id uuid primary key references auth.users(id) on delete cascade,
+  email text not null default '',
+  role text not null default 'user',
   connection_mode text not null default 'DERIV_CLOUD',
   allow_real_trading boolean not null default false,
   auto_trading_enabled boolean not null default true,

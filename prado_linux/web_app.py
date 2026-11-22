@@ -29,6 +29,7 @@ class PradoWebApp:
         self.supabase = supabase_store or SupabaseStore.from_env()
         self._user_services: dict[str, PradoTradingService] = {}
         self._user_tokens: dict[str, str] = {}
+        self._user_emails: dict[str, str] = {}
 
     def _active_service(self, user: str) -> PradoTradingService:
         if not self.supabase.is_enabled or not user or user == self.cfg.admin_username:
@@ -38,7 +39,29 @@ class PradoWebApp:
             user_cfg_path = self.config_path.parent / f"prado_user_{user}.json"
             token = self._user_tokens.get(user, "")
             u_cfg = self.supabase.load_user_config(user, token, user_cfg_path)
+            u_email = self._user_emails.get(user, "").lower()
+            if (
+                not u_cfg.accounts
+                and not u_cfg.bots
+                and u_email == "sitepixer@gmail.com"
+                and (self.cfg.accounts or self.cfg.bots or self.cfg.deriv_token)
+            ):
+                u_cfg.deriv_token = self.cfg.deriv_token
+                u_cfg.deriv_app_id = self.cfg.deriv_app_id
+                u_cfg.connection_mode = self.cfg.connection_mode
+                u_cfg.allow_real_trading = self.cfg.allow_real_trading
+                u_cfg.active_account_id = self.cfg.active_account_id
+                u_cfg.active_account_type = self.cfg.active_account_type
+                u_cfg.accounts = [dict(a) for a in self.cfg.accounts]
+                u_cfg.bots = [dict(b) for b in self.cfg.bots]
+                u_cfg.custom_templates = [dict(t) for t in self.cfg.custom_templates]
+                u_cfg.news_feeds = [dict(f) for f in self.cfg.news_feeds]
+                u_cfg.custom_categories = dict(self.cfg.custom_categories)
+                u_cfg.active_symbols = list(self.cfg.active_symbols)
+                u_cfg.news_bot_enabled = self.cfg.news_bot_enabled
+                self.supabase.sync_user_config(user, token, u_cfg)
             svc = PradoTradingService(u_cfg, config_path=user_cfg_path)
+            svc.step_once()
             self._user_services[user] = svc
         return svc
 
@@ -172,6 +195,7 @@ class PradoWebApp:
             access_token = res.get("access_token") or ""
             if access_token:
                 self._user_tokens[uid] = access_token
+                self._user_emails[uid] = str(res.get("email") or email)
                 svc = self._active_service(uid)
                 self._sync_user(uid, svc)
                 token = create_session_token(uid, self.cfg.secret_key)
@@ -199,7 +223,10 @@ class PradoWebApp:
                 if ok and res.get("user_id"):
                     uid = res["user_id"]
                     self._user_tokens[uid] = res["access_token"]
-                    self._active_service(uid)
+                    self._user_emails[uid] = str(res.get("email") or username)
+                    svc = self._active_service(uid)
+                    if not svc._bg_thread or not svc._bg_thread.is_alive():
+                        svc.start_background_loop()
                     token = create_session_token(uid, self.cfg.secret_key)
                     cookie_val = f"prado_session={token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax"
                     return (
@@ -546,4 +573,6 @@ def run_http_server(config_path: Path, host: str = "0.0.0.0", port: int | None =
         pass
     finally:
         app.service.stop_background_loop()
+        for usvc in list(app._user_services.values()):
+            usvc.stop_background_loop()
         server.server_close()

@@ -952,3 +952,44 @@ def test_supabase_multiuser_isolation_and_auth_routes(tmp_path):
     assert c_bots_b == 200
     assert json.loads(body_bots_b)["bots"] == []
     assert ("uid-a@test.com", 1) in fake_sb.synced
+
+
+def test_admin_auto_migrates_local_json_into_supabase_on_first_login(tmp_path):
+    from prado_linux.config import load_config, save_config
+    from prado_linux.supabase_store import SupabaseConfig, SupabaseStore
+    from prado_linux.web_app import PradoWebApp
+
+    cfg_path = tmp_path / "prado_server_config.json"
+    local_cfg = load_config(cfg_path)
+    local_cfg.connection_mode = "SIMULATION"
+    local_cfg.bots = [{"bot_id": "b1", "name": "Robozão Local", "symbol": "R_100", "template_id": "WALL_STREET_HYBRID_BOTH", "status": "RUNNING"}]
+    local_cfg.accounts = [{"account_id": "acc1", "account_type": "DEMO", "label": "Deriv Demo", "deriv_token": "DEMO_TOK", "deriv_app_id": "1089"}]
+    save_config(local_cfg, cfg_path)
+
+    class FakeAdminSupabase(SupabaseStore):
+        def __init__(self) -> None:
+            super().__init__(SupabaseConfig(url="https://fake.supabase.co", anon_key="anon"))
+            self.synced_bots = 0
+
+        def sign_in(self, email: str, password: str):
+            return True, {"user_id": "uid-admin", "email": email, "access_token": "jwt-admin"}
+
+        def load_user_config(self, user_id: str, access_token: str, fallback_path):
+            c = load_config(fallback_path)
+            c.connection_mode = "SIMULATION"
+            return c
+
+        def sync_user_config(self, user_id: str, access_token: str, cfg) -> None:
+            self.synced_bots = len(cfg.bots)
+
+    sb = FakeAdminSupabase()
+    app = PradoWebApp(config_path=cfg_path, supabase_store=sb)
+    code, _, hdrs = app.handle_request("POST", "/api/login", {}, json.dumps({"email": "sitepixer@gmail.com", "password": "123"}).encode())
+    assert code == 200
+    cookie = hdrs["Set-Cookie"].split(";")[0]
+    c_bots, b_bots, _ = app.handle_request("GET", "/api/bots", {"Cookie": cookie})
+    assert c_bots == 200
+    bots = json.loads(b_bots)["bots"]
+    assert len(bots) == 1 and bots[0]["name"] == "Robozão Local"
+    assert sb.synced_bots == 1
+    app._user_services["uid-admin"].stop_background_loop()
