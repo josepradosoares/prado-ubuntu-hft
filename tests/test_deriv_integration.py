@@ -351,7 +351,11 @@ def test_risk_guards_stake_concurrent_exposure_and_stale_price() -> None:
     ok, msg = conn.place_order("R_100", "BUY_FLOW", 75.0, 100.0, 1.0, 2.0)
     assert not ok and "limite máximo por operação" in msg.lower()
 
-    # 2. Stale price blocks order
+    # 2. NO_DATA and Stale price block order
+    conn.last_tick_at = 0.0
+    ok_nodata, msg_nodata = conn.place_order("R_100", "BUY_FLOW", 10.0, 100.0, 1.0, 2.0)
+    assert not ok_nodata and "no_data" in msg_nodata.lower()
+
     conn.last_tick_at = time.time() - 60.0
     ok_stale, msg_stale = conn.place_order("R_100", "BUY_FLOW", 10.0, 100.0, 1.0, 2.0)
     assert not ok_stale and "stale" in msg_stale.lower()
@@ -373,3 +377,41 @@ def test_risk_guards_stake_concurrent_exposure_and_stale_price() -> None:
     assert len(conn._deriv_deals_history) == 1
     assert conn._deriv_deals_history[0]["side"] == "BUY"
     assert "time_str" in conn._deriv_deals_history[0]
+
+
+def test_get_account_summary_propagates_auth_error_and_daily_realized() -> None:
+    cfg = PradoServerConfig(connection_mode="DERIV_CLOUD", active_account_type="DEMO")
+    conn = DerivUniversalConnector(cfg)
+    conn.connected = True
+    conn.connection_state = "CONNECTED"
+    conn.auth_state = "AUTHENTICATED"
+    conn.backend_name = "DERIV_LIVE_API"
+    conn._deriv_auth = {"loginid": "VRTC1", "is_virtual": 1, "currency": "USD", "balance": 1000.0}
+    conn._deriv_deals_history = [{"ticket": "1", "profit": 12.5}, {"ticket": "2", "profit": -2.5}]
+
+    def ok_rpc(payload: dict) -> dict:
+        if "balance" in payload:
+            return {"balance": {"balance": 1010.0}}
+        if "portfolio" in payload:
+            return {"portfolio": {"contracts": []}}
+        return {}
+
+    conn._deriv = DerivClient(token="legacy_demo", app_id="1089", rpc_transport=ok_rpc)
+    summary_ok = conn.get_account_summary()
+    assert summary_ok["daily_realized"] == 10.0
+    assert summary_ok["balance"] == 1010.0
+
+    # Force balance cache expiry and raise DerivAuthError on get_balance()
+    conn._balance_cache = None
+
+    def expired_rpc(payload: dict) -> dict:
+        if "balance" in payload:
+            return {"error": {"code": "InvalidToken", "message": "Token expired"}}
+        return {}
+
+    conn._deriv = DerivClient(token="legacy_demo", app_id="1089", rpc_transport=expired_rpc)
+    summary_err = conn.get_account_summary()
+    assert summary_err["connected"] is False
+    assert summary_err["auth_state"] == "TOKEN_EXPIRED"
+    assert summary_err["trading_state"] == "BLOCKED"
+    assert summary_err["backend"] == "DERIV_DISCONNECTED"

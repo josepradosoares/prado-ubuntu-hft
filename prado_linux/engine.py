@@ -268,6 +268,8 @@ class DerivUniversalConnector:
                         if fresh_bal is not None:
                             bal = fresh_bal
                             self._balance_cache = (now, bal)
+                    except DerivAuthError:
+                        raise
                     except DerivRateLimitError as exc:
                         self.last_error = str(exc)
                     except Exception:
@@ -277,6 +279,9 @@ class DerivUniversalConnector:
 
                 positions = self.get_open_positions()
                 floating = sum(float(p.get("profit", 0.0)) for p in positions)
+                deriv_daily_realized = round(
+                    sum(float(d.get("profit", 0.0)) for d in self._deriv_deals_history), 2
+                )
                 is_virt = bool(auth.get("is_virtual", 1))
                 acc_mode = "DEMO" if is_virt else "REAL"
                 trading_state = self._compute_trading_state(acc_mode, rl_status)
@@ -300,7 +305,7 @@ class DerivUniversalConnector:
                     "balance": round(bal, 2),
                     "equity": round(bal + floating, 2),
                     "profit": round(floating, 2),
-                    "daily_realized": 0.0,
+                    "daily_realized": deriv_daily_realized,
                     "margin_free": round(bal, 2),
                     "status_note": self.last_error,
                 }
@@ -545,8 +550,9 @@ class DerivUniversalConnector:
             rl = self.rate_limiter.status(now)
             if rl.get("state") == "BLOCKED":
                 return False, f"Negociação bloqueada por RateLimit ({rl.get('cooldown_seconds')}s)"
-            if self.last_tick_at > 0 and self._compute_data_state(now) == "STALE":
-                return False, f"Negociação bloqueada: preço desatualizado (STALE) para {symbol}."
+            data_state = self._compute_data_state(now)
+            if data_state != "LIVE":
+                return False, f"Negociação bloqueada: dados de mercado indisponíveis/desatualizados ({data_state}) para {symbol}."
 
         open_positions = self.get_open_positions()
         max_concurrent = int(getattr(self.cfg, "max_concurrent_trades", 5) or 5)
@@ -1225,6 +1231,7 @@ class PradoTradingService:
                         self._log_event("DERIV_WS", "Reconexão WebSocket Deriv concluída.")
                     else:
                         self.connector.connection_state = "DISCONNECTED"
+                        self.connector.auth_state = self.connector._deriv.auth_state
                         self.connector.backend_name = "DERIV_DISCONNECTED"
                         self._log_event("DERIV_WS", f"Falha na reconexão Deriv: {self.connector._deriv.last_error}")
 
