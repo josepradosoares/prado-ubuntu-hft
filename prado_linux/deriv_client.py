@@ -28,9 +28,32 @@ class DerivClient:
         self._ws: Any = None
         self._authorized_info: dict[str, Any] = {}
 
+    DERIV_ENDPOINTS = (
+        "wss://green.derivws.com/websockets/v3",
+        "wss://blue.derivws.com/websockets/v3",
+        "wss://ws.derivws.com/websockets/v3",
+    )
+
     @property
     def ws_url(self) -> str:
-        return f"wss://ws.derivws.com/websockets/v3?app_id={self.app_id}"
+        return f"{self.DERIV_ENDPOINTS[0]}?app_id={self.app_id}"
+
+    def _open_connection(self) -> Any:
+        import websocket  # type: ignore
+
+        last_exc: Exception | None = None
+        for base in self.DERIV_ENDPOINTS:
+            url = f"{base}?app_id={self.app_id}"
+            try:
+                return websocket.create_connection(
+                    url,
+                    origin="https://app.deriv.com",
+                    header=["User-Agent: Mozilla/5.0"],
+                    timeout=10,
+                )
+            except Exception as exc:
+                last_exc = exc
+        raise RuntimeError(f"Falha ao conectar nos servidores WebSocket Deriv: {last_exc}")
 
     def _send_rpc(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._rpc_transport is not None:
@@ -41,10 +64,8 @@ class DerivClient:
             return resp
 
         with self._lock:
-            import websocket  # type: ignore
-
             if self._ws is None or not getattr(self._ws, "connected", False):
-                self._ws = websocket.create_connection(self.ws_url, timeout=10)
+                self._ws = self._open_connection()
                 if self.token and "authorize" not in payload:
                     self._ws.send(json.dumps({"authorize": self.token}))
                     auth_raw = self._ws.recv()
