@@ -848,3 +848,54 @@ def test_21_indicators_and_custom_templates_crud_test_and_execution(tmp_path):
 
     assert service.delete_custom_template(saved["template_id"]) is True
     assert all(t["template_id"] != saved["template_id"] for t in service.get_all_templates())
+
+
+def test_news_paused_bot_auto_resumes_when_news_changes(tmp_path):
+    from prado_linux.config import load_config
+    from prado_linux.engine import PradoTradingService
+    from prado_linux.news_scout import NewsScout
+
+    cfg_path = tmp_path / "config.json"
+    cfg = load_config(cfg_path)
+    cfg.connection_mode = "SIMULATION"
+    cfg.news_bot_enabled = True
+    cfg.news_pause_grid_on_high_impact = True
+    service = PradoTradingService(cfg, config_path=cfg_path)
+
+    grid_bot = service.create_bot(
+        {
+            "name": "GridAutoResume",
+            "symbol": "cryBTCUSD",
+            "bot_template_id": "GRID_LINEAR_HFT",
+            "grid_direction": "BUY_ONLY",
+            "auto_start": True,
+        }
+    )
+    assert grid_bot["status"] == "RUNNING"
+
+    high_impact_rss = """<?xml version="1.0" encoding="UTF-8" ?>
+    <rss version="2.0"><channel>
+      <item>
+        <title>Bitcoin crashes after SEC lawsuit</title>
+        <link>https://example.com/btc-crash</link>
+        <description>Major selloff in BTC</description>
+      </item>
+    </channel></rss>"""
+    service.news_scout = NewsScout(fetcher=lambda url: high_impact_rss if "BTC" in url else "<rss><channel></channel></rss>")
+    service.scan_news(force=True)
+    assert service.cfg.bots[0]["status"] == "PAUSED"
+    assert service.cfg.bots[0]["last_signal"] == "PAUSED_NEWS"
+
+    # Quando a notícia muda para neutra/favorável, o robô volta a rodar automaticamente
+    bullish_rss = """<?xml version="1.0" encoding="UTF-8" ?>
+    <rss version="2.0"><channel>
+      <item>
+        <title>Bitcoin rallies on strong institutional inflows</title>
+        <link>https://example.com/btc-rally</link>
+        <description>BTC surges</description>
+      </item>
+    </channel></rss>"""
+    service.news_scout = NewsScout(fetcher=lambda url: bullish_rss if "BTC" in url else "<rss><channel></channel></rss>")
+    service.scan_news(force=True)
+    assert service.cfg.bots[0]["status"] == "RUNNING"
+    assert service.cfg.bots[0]["last_signal"] == "RESUMED_NEWS"

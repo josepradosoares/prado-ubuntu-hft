@@ -1686,6 +1686,34 @@ class PradoTradingService:
             save_config(self.cfg, self.config_path)
         return positions
 
+    def _auto_resume_news_paused_bots(self) -> None:
+        summary = self.news_scout.summary_by_symbol()
+        all_info = summary.get("ALL") or {}
+        pause_grid = bool(getattr(self.cfg, "news_pause_grid_on_high_impact", False))
+        changed = False
+        for b in self.cfg.bots:
+            if b.get("status") != "PAUSED" or b.get("last_signal") != "PAUSED_NEWS":
+                continue
+            bsym = str(b.get("symbol", ""))
+            sym_info = summary.get(bsym) or {}
+            high_cnt = int(sym_info.get("high_impact", 0) or 0)
+            bias = str(sym_info.get("bias") or all_info.get("bias") or "NEUTRAL")
+            gdir = str(b.get("grid_direction", "BOTH")).upper()
+            favorable = (gdir == "BUY_ONLY" and bias == "BULLISH") or (
+                gdir == "SELL_ONLY" and bias == "BEARISH"
+            )
+            if not pause_grid or high_cnt == 0 or bias == "NEUTRAL" or favorable:
+                b["status"] = "RUNNING"
+                b["active"] = True
+                b["last_signal"] = "RESUMED_NEWS"
+                changed = True
+                self._log_event(
+                    "NEWS_GUARD",
+                    f"Robô '{b.get('name')}' reativado automaticamente após mudança na notícia ({bsym} | Viés: {bias}).",
+                )
+        if changed:
+            save_config(self.cfg, self.config_path)
+
     def scan_news(self, force: bool = False) -> dict[str, Any]:
         with self._lock:
             now = time.time()
@@ -1698,6 +1726,7 @@ class PradoTradingService:
                 ) and new_items:
                     positions = self.connector.get_open_positions()
                     self._process_news_items(new_items, positions, risk_locked=False)
+                self._auto_resume_news_paused_bots()
                 self._log_event("NEWS_SCOUT", f"Pesquisa de notícias concluída ({len(self.news_scout.items)} manchete(s)).")
             return self._news_snapshot_dict()
 
