@@ -122,8 +122,8 @@ export default function App() {
   const [indicatorsCatalog, setIndicatorsCatalog] = useState<IndicatorMeta[]>([])
   const [defaultPythonCode, setDefaultPythonCode] = useState('')
   const [symbols, setSymbols] = useState<BrokerSymbol[]>([])
-  const [symbolMode, setSymbolMode] = useState<'PRINCIPAIS' | 'TODOS'>('PRINCIPAIS')
-  const symbolModeRef = useRef<'PRINCIPAIS' | 'TODOS'>('PRINCIPAIS')
+  const [symbolMode, setSymbolMode] = useState<'PRINCIPAIS' | 'TODOS'>('TODOS')
+  const symbolModeRef = useRef<'PRINCIPAIS' | 'TODOS'>('TODOS')
   const [chartSymbol, setChartSymbol] = useState('R_100')
   const [chartTimeframe, setChartTimeframe] = useState('TICKS')
   const [chartPoints, setChartPoints] = useState<ChartPoint[]>([])
@@ -1314,6 +1314,7 @@ export default function App() {
                 <div className="space-y-6">
                   <MarketIndicatorsBar
                     symbol={chartSymbol}
+                    symbolCatalog={symbols}
                     symbolState={snapshot?.symbols?.[chartSymbol]}
                     connected={isConnected}
                   />
@@ -1398,8 +1399,8 @@ export default function App() {
                                   <td className="px-4 py-3 font-sans font-semibold text-blue-600 dark:text-blue-400">
                                     {p.bot_name || p.comment || '--'}
                                   </td>
-                                  <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">
-                                    {p.symbol}
+                                  <td className="px-4 py-3 font-sans font-semibold text-slate-900 dark:text-white">
+                                    {formatSymbolDisplay(p.symbol, symbols)}
                                   </td>
                                   <td className="px-4 py-3">
                                     <span
@@ -2062,9 +2063,9 @@ export default function App() {
                             {(Array.isArray(list) ? list : []).map((sym) => (
                               <span
                                 key={sym}
-                                className="rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 text-[11px] font-mono text-slate-700 dark:text-slate-300"
+                                className="rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 text-[11px] text-slate-700 dark:text-slate-300"
                               >
-                                {sym}
+                                {formatSymbolDisplay(sym, symbols)}
                               </span>
                             ))}
                           </div>
@@ -2117,11 +2118,11 @@ export default function App() {
                               className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/60 hover:border-blue-500/50 px-3 py-2 text-left transition"
                             >
                               <div className="min-w-0">
-                                <div className="text-xs font-mono font-semibold text-slate-900 dark:text-white truncate">
-                                  {s.name}
+                                <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                                  {formatSymbolDisplay(s.name, symbols)}
                                 </div>
                                 <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                  {s.description || s.category}
+                                  {s.category} • {s.name}
                                 </div>
                               </div>
                               <span className="shrink-0 rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">

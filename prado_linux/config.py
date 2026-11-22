@@ -137,7 +137,7 @@ class PradoServerConfig:
     accounts: list[dict[str, Any]] = field(default_factory=list)
 
     # Symbol Selection Mode ("PRINCIPAIS" vs "TODOS") and Custom Categories
-    symbol_selection_mode: str = "PRINCIPAIS"
+    symbol_selection_mode: str = "TODOS"
     custom_categories: dict[str, list[str]] = field(default_factory=lambda: dict(DEFAULT_CATEGORIES))
 
     # Active Running / Configured Robot Fleet

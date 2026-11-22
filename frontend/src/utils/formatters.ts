@@ -115,6 +115,38 @@ export function hasValidSymbolMetrics(state?: Partial<SymbolState> | null): bool
   return isFiniteNumber(state.price) || isFiniteNumber(state.vwap)
 }
 
+const FRIENDLY_SYMBOL_NAMES: Record<string, string> = {
+  R_10: 'Volatility 10 Index',
+  R_25: 'Volatility 25 Index',
+  R_50: 'Volatility 50 Index',
+  R_75: 'Volatility 75 Index',
+  R_100: 'Volatility 100 Index',
+  '1HZ10V': 'Volatility 10 (1s) Index',
+  '1HZ25V': 'Volatility 25 (1s) Index',
+  '1HZ50V': 'Volatility 50 (1s) Index',
+  '1HZ75V': 'Volatility 75 (1s) Index',
+  '1HZ100V': 'Volatility 100 (1s) Index',
+  stpRNG: 'Step Index',
+  BOOM500: 'Boom 500 Index',
+  BOOM1000: 'Boom 1000 Index',
+  CRASH500: 'Crash 500 Index',
+  CRASH1000: 'Crash 1000 Index',
+  frxXAUUSD: 'Gold/USD',
+  frxXAGUSD: 'Silver/USD',
+  cryBTCUSD: 'BTC/USD',
+  cryETHUSD: 'ETH/USD',
+  OTC_SP500: 'US 500',
+  OTC_NDX: 'US Tech 100',
+  OTC_DJI: 'Wall Street 30',
+  OTC_HSI: 'Hong Kong 50',
+  OTC_AS51: 'Australia 200',
+  OTC_N225: 'Japan 225',
+  OTC_GDAXI: 'Germany 40',
+  OTC_FTSE: 'UK 100',
+  OTC_FCHI: 'France 40',
+  OTC_SX5E: 'Euro 50',
+}
+
 export function formatSymbolDisplay(
   symbol: string,
   catalog?: Array<{ name: string; description?: string }>,
@@ -123,8 +155,14 @@ export function formatSymbolDisplay(
   if (symbol === 'ALL') return 'TODOS OS ATIVOS'
   const found = catalog?.find((item) => item.name === symbol)
   const desc = found?.description?.trim()
-  if (desc && desc.toLowerCase() !== symbol.toLowerCase()) {
-    return `${desc} (${symbol})`
+  if (desc && desc.toLowerCase() !== symbol.toLowerCase() && !desc.startsWith('Ativo ')) {
+    return desc
+  }
+  if (FRIENDLY_SYMBOL_NAMES[symbol]) {
+    return FRIENDLY_SYMBOL_NAMES[symbol]
+  }
+  if ((symbol.startsWith('frx') || symbol.startsWith('cry')) && symbol.length === 9) {
+    return `${symbol.slice(3, 6)}/${symbol.slice(6, 9)}`
   }
   return symbol
 }

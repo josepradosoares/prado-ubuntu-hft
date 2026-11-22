@@ -1,14 +1,15 @@
 import { Activity, Wifi, WifiOff } from 'lucide-react'
-import { SymbolState } from '../types'
-import { formatNumber, formatPercent, formatPrice, isFiniteNumber } from '../utils/formatters'
+import { BrokerSymbol, SymbolState } from '../types'
+import { formatNumber, formatPercent, formatPrice, formatSymbolDisplay, isFiniteNumber } from '../utils/formatters'
 
 interface MarketIndicatorsBarProps {
   symbol: string
+  symbolCatalog?: BrokerSymbol[]
   symbolState?: SymbolState
   connected: boolean
 }
 
-export function MarketIndicatorsBar({ symbol, symbolState, connected }: MarketIndicatorsBarProps) {
+export function MarketIndicatorsBar({ symbol, symbolCatalog, symbolState, connected }: MarketIndicatorsBarProps) {
   const zVal = symbolState?.zscore
   const imbVal = symbolState?.imbalance
 
@@ -27,8 +28,8 @@ export function MarketIndicatorsBar({ symbol, symbolState, connected }: MarketIn
   const items = [
     {
       label: 'Ativo Selecionado',
-      value: symbol || '--',
-      valueClass: 'text-slate-900 dark:text-white font-mono',
+      value: formatSymbolDisplay(symbol, symbolCatalog),
+      valueClass: 'text-slate-900 dark:text-white font-sans',
     },
     {
       label: 'Preço Atual',
