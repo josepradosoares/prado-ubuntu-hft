@@ -169,6 +169,7 @@ class DerivUniversalConnector:
         self.connection_state = "CONNECTED"
         self.auth_state = "AUTHENTICATED"
         self.backend_name = "SIMULATION_FEED"
+        self._tick_cache.clear()
         return (
             True,
             "Modo Simulação Quant Ativo.",
@@ -365,11 +366,17 @@ class DerivUniversalConnector:
 
     def fetch_ticks(self, symbol: str, count: int = 200) -> list[TickRecord]:
         now = time.time()
+        if self.cfg.connection_mode.upper() == "SIMULATION":
+            ticks_sim = self._generate_sim_ticks(symbol)
+            if ticks_sim:
+                self.last_tick_at = now
+            return ticks_sim
+
         cached = self._tick_cache.get(symbol)
         if cached and (now - cached[0]) < 3.0 and len(cached[1]) >= min(count, 40):
             return cached[1]
         client = self._deriv
-        if client is None and self.cfg.connection_mode.upper() != "SIMULATION":
+        if client is None:
             client = self._get_public_deriv()
         if client is not None:
             try:

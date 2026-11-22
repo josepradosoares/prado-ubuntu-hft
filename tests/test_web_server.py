@@ -338,3 +338,30 @@ def test_web_app_deriv_token_vault_bots_categories_and_backtester(tmp_path: Path
     code, html_body, _ = app.handle_request("GET", "/", headers=auth_headers, body=b"")
     assert code == 200
     assert "Prado Institutional HFT" in html_body
+
+
+def test_simulation_mode_ignores_stale_live_tick_cache(tmp_path: Path):
+    import time
+    from prado_linux.config import PradoServerConfig
+    from prado_linux.engine import DerivUniversalConnector
+    from prado_linux.flow_math import TickRecord
+
+    cfg = PradoServerConfig(connection_mode="SIMULATION")
+    conn = DerivUniversalConnector(cfg)
+    # Seed stale live-style tick cache (far from simulated R_100 base price ~1850)
+    conn._tick_cache["R_100"] = (
+        time.time(),
+        [TickRecord(int(time.time() * 1000), 500.0, 500.0, 500.0, 0.0, 10.0, 0) for _ in range(60)],
+    )
+    ticks = conn.fetch_ticks("R_100", count=60)
+    assert ticks
+    assert ticks[-1].effective_price() > 1000.0
+
+    # Switching to SIMULATION via connect() also clears _tick_cache
+    conn._tick_cache["R_100"] = (
+        time.time(),
+        [TickRecord(int(time.time() * 1000), 500.0, 500.0, 500.0, 0.0, 10.0, 0) for _ in range(60)],
+    )
+    ok, _ = conn.connect()
+    assert ok is True
+    assert conn._tick_cache == {}
