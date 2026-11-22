@@ -42,6 +42,7 @@ def test_auth_password_and_session_tokens(tmp_path: Path):
 
 def test_trading_service_snapshot_and_vwap_flow_cycle(tmp_path: Path):
     cfg = load_config(tmp_path / "config.json")
+    cfg.connection_mode = "SIMULATION"
     cfg.active_symbols = ["R_100", "cryBTCUSD"]
     cfg.correlated_basket = ["R_50", "R_75"]
     service = PradoTradingService(cfg, config_path=tmp_path / "config.json")
@@ -162,11 +163,25 @@ def test_deriv_client_websocket_rpc_and_multipliers(tmp_path: Path):
     assert closed_ok is True
 
 
+def test_deriv_cloud_disconnected_shows_zero_balance_never_fake_sim(tmp_path: Path):
+    cfg = load_config(tmp_path / "config.json")
+    cfg.connection_mode = "DERIV_CLOUD"
+    cfg.deriv_token = ""
+    service = PradoTradingService(cfg, config_path=tmp_path / "config.json")
+
+    snap = service.step_once()
+    assert snap["account"]["balance"] == 0.0
+    assert snap["account"]["equity"] == 0.0
+    assert snap["account"]["backend"] == "DERIV_DISCONNECTED"
+    assert snap["account"]["login"] == "DESCONECTADO"
+
+
 def test_web_app_deriv_token_vault_bots_categories_and_backtester(tmp_path: Path):
     from prado_linux.web_app import PradoWebApp
 
     cfg_path = tmp_path / "config.json"
     app = PradoWebApp(config_path=cfg_path)
+    app.cfg.connection_mode = "SIMULATION"
 
     # 1. Unauthenticated request blocked
     code, _, _ = app.handle_request("GET", "/api/status", headers={}, body=b"")

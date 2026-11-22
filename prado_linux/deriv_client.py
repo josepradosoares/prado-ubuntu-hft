@@ -96,6 +96,39 @@ class DerivClient:
                 self._ws = None
 
     def authorize(self) -> dict[str, Any]:
+        # Support new Deriv Personal Access Tokens (pat_...) via REST v1 when using custom App ID
+        if self.token.startswith("pat_") and self.app_id != "1089":
+            import urllib.request
+            import urllib.error
+
+            url = "https://api.derivws.com/trading/v1/options/accounts"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                    "Deriv-App-ID": self.app_id,
+                    "User-Agent": "Mozilla/5.0",
+                },
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    data = json.loads(r.read().decode("utf-8"))
+                    accounts = data.get("data", []) if isinstance(data, dict) else []
+                    if accounts:
+                        acc = accounts[0]
+                        auth = {
+                            "loginid": str(acc.get("account_id", acc.get("loginid", "---"))),
+                            "currency": str(acc.get("currency", "USD")),
+                            "balance": float(acc.get("balance", 0.0)),
+                            "is_virtual": 1 if acc.get("account_type") == "demo" else 0,
+                            "fullname": "Conta Deriv (REST v1)",
+                        }
+                        self._authorized_info = auth
+                        return auth
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="ignore")
+                raise RuntimeError(f"Deriv REST ({exc.code}): {body}")
+
         resp = self._send_rpc({"authorize": self.token})
         auth = resp.get("authorize", {})
         self._authorized_info = auth

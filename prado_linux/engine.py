@@ -63,7 +63,9 @@ class DerivUniversalConnector:
         self._deriv: DerivClient | None = None
         self._deriv_auth: dict[str, Any] = {}
         self.connected: bool = False
-        self.backend_name: str = "SIMULATION_FEED"
+        self.backend_name: str = (
+            "DERIV_DISCONNECTED" if cfg.connection_mode.upper() != "SIMULATION" else "SIMULATION_FEED"
+        )
         self.last_error: str = ""
         self._sim_ticks: dict[str, list[TickRecord]] = {}
         self._sim_positions: list[dict[str, Any]] = []
@@ -98,15 +100,26 @@ class DerivUniversalConnector:
                 self._deriv = None
                 self._deriv_auth = {}
                 self.last_error = str(exc)
-                return False, f"Erro ao conectar na Deriv: {exc}"
+                if mode != "SIMULATION":
+                    self.connected = False
+                    self.backend_name = "DERIV_DISCONNECTED"
+                    return False, f"Erro ao conectar na Deriv: {exc}"
 
         self._deriv = None
         self._deriv_auth = {}
+        if mode != "SIMULATION":
+            self.connected = False
+            self.backend_name = "DERIV_DISCONNECTED"
+            return (
+                False,
+                "Nenhum token Deriv válido conectado. Cole seu token na aba 'Tokens e Contas Deriv'.",
+            )
+
         self.connected = True
         self.backend_name = "SIMULATION_FEED"
         return (
             True,
-            "Modo Simulação Quant Ativo (Salve seu Token da Deriv na aba 'Tokens e Contas Deriv' para operar ao vivo).",
+            "Modo Simulação Quant Ativo.",
         )
 
     def discover_broker_symbols(self, mode: str = "PRINCIPAIS") -> list[dict[str, Any]]:
@@ -168,6 +181,24 @@ class DerivUniversalConnector:
                 }
             except Exception as exc:
                 self.last_error = str(exc)
+
+        if self.cfg.connection_mode.upper() != "SIMULATION":
+            return {
+                "backend": "DERIV_DISCONNECTED",
+                "connected": False,
+                "account_type": self.cfg.active_account_type,
+                "active_account_id": self.cfg.active_account_id,
+                "login": "DESCONECTADO",
+                "server": self.last_error or "Aguardando token válido da Deriv",
+                "name": "Conta Deriv Desconectada",
+                "currency": "USD",
+                "balance": 0.0,
+                "equity": 0.0,
+                "profit": 0.0,
+                "daily_realized": 0.0,
+                "margin_free": 0.0,
+                "status_note": self.last_error,
+            }
 
         floating = sum(p.get("profit", 0.0) for p in self._sim_positions)
         return {
