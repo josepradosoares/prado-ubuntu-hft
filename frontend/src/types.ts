@@ -77,6 +77,7 @@ export interface BotItem {
   max_grid_levels?: number;
   loss_guard_enabled?: boolean;
   max_loss_usd?: number;
+  news_assisted?: boolean;
   realized_pnl?: number;
   floating_pnl?: number;
   total_pnl?: number;
@@ -114,6 +115,13 @@ export interface LogEvent {
   message: string;
 }
 
+export interface NewsFeed {
+  feed_id: string;
+  source: string;
+  url: string;
+  default_symbol: string;
+}
+
 export interface NewsItem {
   id: string;
   title: string;
@@ -135,6 +143,7 @@ export interface NewsSnapshot {
   multiplier: number;
   last_scan_at: number;
   last_error?: string;
+  feeds?: NewsFeed[];
   items: NewsItem[];
   summary_by_symbol: Record<string, { symbol: string; count: number; high_impact: number; avg_score: number; bias: string }>;
 }
@@ -201,6 +210,7 @@ export interface BotTemplate {
   max_grid_levels?: number;
   loss_guard_enabled?: boolean;
   max_loss_usd?: number;
+  news_assisted?: boolean;
   realized_pnl?: number;
   floating_pnl?: number;
   total_pnl?: number;

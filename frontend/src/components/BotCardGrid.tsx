@@ -356,6 +356,11 @@ export function BotCardGrid({
                     >
                       {b.loss_guard_enabled ? `Trava -$${formatNumber(b.max_loss_usd ?? 20, 2)}` : 'Sem trava'}
                     </span>
+                    {b.news_assisted && (
+                      <span className="rounded-md bg-blue-500/10 border border-blue-500/30 px-2 py-0.5 font-mono text-blue-600 dark:text-blue-300">
+                        Técnica + Notícias
+                      </span>
+                    )}
                   </div>
 
                   {/* Live Quant Metrics */}

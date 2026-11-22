@@ -9,6 +9,7 @@ import secrets
 from typing import Any
 
 from prado_linux.auth import hash_password
+from prado_linux.news_scout import DEFAULT_NEWS_FEEDS
 
 DEFAULT_CATEGORIES: dict[str, list[str]] = {
     "Índices Sintéticos Volatility (24/7)": ["R_10", "R_25", "R_50", "R_75", "R_100", "1HZ10V", "1HZ50V", "1HZ100V"],
@@ -174,13 +175,14 @@ class PradoServerConfig:
     max_total_exposure_usd: float = 500.0
     min_order_interval_sec: float = 3.0
 
-    # News & Market Research Scout
+    # News & Market Research Scout (feeds managed in panel; bots opt-in individually)
     news_bot_enabled: bool = False
-    news_pause_grid_on_high_impact: bool = True
+    news_pause_grid_on_high_impact: bool = False
     news_auto_trade_enabled: bool = False
     news_stake_usd: float = 5.0
     news_multiplier: int = 100
     news_poll_interval_sec: int = 90
+    news_feeds: list[dict[str, str]] = field(default_factory=lambda: [dict(f) for f in DEFAULT_NEWS_FEEDS])
 
 
 def load_config(config_path: Path) -> PradoServerConfig:

@@ -310,6 +310,20 @@ class PradoWebApp:
             self.service.step_once()
             return 200, json.dumps({"ok": True, "news": news_data}, ensure_ascii=False), {"Content-Type": "application/json"}
 
+        if method == "POST" and clean_path == "/api/news/feeds":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            act = str(payload.get("action", "SAVE")).upper()
+            if act == "DELETE":
+                feeds = self.service.delete_news_feed(str(payload.get("feed_id", "")).strip())
+            elif act == "RESET_DEFAULT":
+                feeds = self.service.reset_news_feeds()
+            else:
+                feeds = self.service.save_news_feed(payload)
+            return 200, json.dumps({"ok": True, "news_feeds": feeds}, ensure_ascii=False), {"Content-Type": "application/json"}
+
         if method == "GET" and clean_path == "/api/bot-templates":
             return 200, json.dumps({"ok": True, "templates": MATH_BOT_TEMPLATES}, ensure_ascii=False), {"Content-Type": "application/json"}
 

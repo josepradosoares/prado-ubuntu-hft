@@ -154,6 +154,7 @@ export default function App() {
   const [botGridMaxLevels, setBotGridMaxLevels] = useState(5)
   const [botLossGuardEnabled, setBotLossGuardEnabled] = useState(true)
   const [botMaxLossUsd, setBotMaxLossUsd] = useState(20)
+  const [botNewsAssisted, setBotNewsAssisted] = useState(false)
   const [botFormDirty, setBotFormDirty] = useState(false)
 
   // Backtest form state
@@ -187,6 +188,10 @@ export default function App() {
   const [useCustomCreds, setUseCustomCreds] = useState(false)
   const [syncingAccounts, setSyncingAccounts] = useState(false)
   const [newsScanning, setNewsScanning] = useState(false)
+  const [feedEditingId, setFeedEditingId] = useState('')
+  const [feedSource, setFeedSource] = useState('')
+  const [feedUrl, setFeedUrl] = useState('')
+  const [feedSymbol, setFeedSymbol] = useState('cryBTCUSD')
 
   // Settings password state
   const [newAdminPassword, setNewAdminPassword] = useState('')
@@ -401,6 +406,7 @@ export default function App() {
     setBotGridMaxLevels(5)
     setBotLossGuardEnabled(true)
     setBotMaxLossUsd(20)
+    setBotNewsAssisted(false)
     setBotFormDirty(false)
   }
 
@@ -422,6 +428,7 @@ export default function App() {
     setBotGridMaxLevels(b.max_grid_levels ?? 5)
     setBotLossGuardEnabled(Boolean(b.loss_guard_enabled))
     setBotMaxLossUsd(b.max_loss_usd ?? 20)
+    setBotNewsAssisted(Boolean(b.news_assisted))
     setBotFormDirty(false)
     setActiveTab('create-bot')
   }
@@ -488,6 +495,7 @@ export default function App() {
       max_grid_levels: Number(botGridMaxLevels),
       loss_guard_enabled: Boolean(botLossGuardEnabled),
       max_loss_usd: Number(botMaxLossUsd),
+      news_assisted: Boolean(botNewsAssisted),
       auto_start: true,
     }
     if (editingBotId) payload.bot_id = editingBotId
@@ -656,6 +664,89 @@ export default function App() {
       }
     } catch {
       showToast('Erro de rede ao atualizar Robô de Notícias.', true)
+    }
+  }
+
+  async function saveNewsFeed(e: FormEvent) {
+    e.preventDefault()
+    if (!feedUrl.trim()) {
+      showToast('Informe a URL da fonte/RSS.', true)
+      return
+    }
+    try {
+      const res = await fetch('/api/news/feeds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'SAVE',
+          feed_id: feedEditingId || undefined,
+          source: feedSource.trim() || 'Fonte Customizada',
+          url: feedUrl.trim(),
+          default_symbol: feedSymbol || 'cryBTCUSD',
+        }),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        setFeedEditingId('')
+        setFeedSource('')
+        setFeedUrl('')
+        setFeedSymbol('cryBTCUSD')
+        showToast('URL de notícia salva com sucesso!')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao salvar URL de notícia.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao salvar URL de notícia.', true)
+    }
+  }
+
+  async function deleteNewsFeed(feedId: string) {
+    try {
+      const res = await fetch('/api/news/feeds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'DELETE', feed_id: feedId }),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        if (feedEditingId === feedId) {
+          setFeedEditingId('')
+          setFeedSource('')
+          setFeedUrl('')
+        }
+        showToast('URL de notícia removida.')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao remover URL.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao remover URL.', true)
+    }
+  }
+
+  async function resetNewsFeeds() {
+    try {
+      const res = await fetch('/api/news/feeds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'RESET_DEFAULT' }),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        setFeedEditingId('')
+        setFeedSource('')
+        setFeedUrl('')
+        showToast('URLs padrão restauradas!')
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao restaurar URLs padrão.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao restaurar URLs.', true)
     }
   }
 
@@ -1563,6 +1654,20 @@ export default function App() {
                         )}
                       </div>
 
+                      <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 p-4 flex flex-wrap items-center justify-between gap-4">
+                        <label className="flex items-center gap-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={botNewsAssisted}
+                            onChange={(e) => setBotNewsAssisted(e.target.checked)}
+                            className="h-4 w-4 rounded border-slate-400 text-blue-500 focus:ring-blue-500"
+                          />
+                          <span>
+                            <strong>Operar com Técnica + Notícias:</strong> este robô usa as informações das URLs monitoradas junto com VWAP/Z-Score para entrar a favor da notícia, segurar posição favorável até lucro maior ou sair se a notícia virar contra.
+                          </span>
+                        </label>
+                      </div>
+
                       <div className="flex flex-wrap gap-2 pt-2">
                         <button
                           type="submit"
@@ -2278,9 +2383,9 @@ export default function App() {
                   <Card>
                     <CardHeader className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <CardTitle>Robô de Pesquisa &amp; Notícias na Internet</CardTitle>
+                        <CardTitle>Pesquisa &amp; Notícias na Internet</CardTitle>
                         <CardDescription>
-                          Monitora manchetes financeiras em tempo real, pausa robôs Grid em alto impacto e abre ordens a favor da notícia
+                          Monitora manchetes das URLs configuradas abaixo. Os robôs só usam essas notícias se você ativar a opção &quot;Operar com Técnica + Notícias&quot; ao criar ou editar o robô.
                         </CardDescription>
                       </div>
                       <button
@@ -2293,7 +2398,7 @@ export default function App() {
                       </button>
                     </CardHeader>
                     <CardBody className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
                         <button
                           type="button"
                           onClick={() => updateNewsConfig({ news_bot_enabled: !(snapshot?.news?.enabled ?? false) })}
@@ -2304,54 +2409,131 @@ export default function App() {
                           }`}
                         >
                           <div className="text-xs font-bold">
-                            Robô de Notícias: {snapshot?.news?.enabled ? 'ATIVO' : 'PAUSADO'}
+                            Robô de Pesquisa: {snapshot?.news?.enabled ? 'ATIVO' : 'PAUSADO'}
                           </div>
                           <div className="text-[11px] opacity-80 mt-0.5">
-                            Pesquisa automática a cada 90s em segundo plano
+                            Pesquisa automática a cada 90s nas URLs cadastradas (sem interferir automaticamente nos robôs)
                           </div>
                         </button>
+                      </div>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateNewsConfig({
-                              news_pause_grid_on_high_impact: !(snapshot?.news?.pause_grid_on_high_impact ?? true),
-                            })
-                          }
-                          className={`rounded-xl border px-4 py-3 text-left transition ${
-                            snapshot?.news?.pause_grid_on_high_impact ?? true
-                              ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                              : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-300'
-                          }`}
-                        >
-                          <div className="text-xs font-bold">
-                            Pausar Grid em Alto Impacto: {(snapshot?.news?.pause_grid_on_high_impact ?? true) ? 'SIM' : 'NÃO'}
+                      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-4 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-xs font-bold text-slate-900 dark:text-white">
+                              Fontes &amp; URLs Monitoradas ({(snapshot?.news?.feeds || []).length})
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                              Cadastre, troque ou exclua URLs RSS/notícias que alimentam os robôs com Técnica + Notícias ativada
+                            </div>
                           </div>
-                          <div className="text-[11px] opacity-80 mt-0.5">
-                            Protege robôs Gradiente Linear de rompimentos por notícia
-                          </div>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={resetNewsFeeds}
+                            className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800"
+                          >
+                            Restaurar padrões
+                          </button>
+                        </div>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateNewsConfig({
-                              news_auto_trade_enabled: !(snapshot?.news?.auto_trade_enabled ?? false),
-                            })
-                          }
-                          className={`rounded-xl border px-4 py-3 text-left transition ${
-                            snapshot?.news?.auto_trade_enabled
-                              ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300'
-                              : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-300'
-                          }`}
-                        >
-                          <div className="text-xs font-bold">
-                            Abrir Ordem na Notícia: {snapshot?.news?.auto_trade_enabled ? 'ATIVO' : 'DESLIGADO'}
+                        <form onSubmit={saveNewsFeed} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+                          <div className="md:col-span-3">
+                            <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">Nome da fonte</label>
+                            <input
+                              type="text"
+                              placeholder="Ex: Reuters / X / RSS"
+                              value={feedSource}
+                              onChange={(e) => setFeedSource(e.target.value)}
+                              className={inputClass}
+                            />
                           </div>
-                          <div className="text-[11px] opacity-80 mt-0.5">
-                            Entra a favor de notícias fortes (Alta / Baixa)
+                          <div className="md:col-span-5">
+                            <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">URL do Feed / Site</label>
+                            <input
+                              type="url"
+                              required
+                              placeholder="https://..."
+                              value={feedUrl}
+                              onChange={(e) => setFeedUrl(e.target.value)}
+                              className={inputClass}
+                            />
                           </div>
-                        </button>
+                          <div className="md:col-span-2">
+                            <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">Ativo padrão</label>
+                            <select
+                              value={feedSymbol}
+                              onChange={(e) => setFeedSymbol(e.target.value)}
+                              className={inputClass}
+                            >
+                              {symbols.map((s) => (
+                                <option key={s.name} value={s.name}>
+                                  {s.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="md:col-span-2 flex gap-1.5">
+                            <button
+                              type="submit"
+                              className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 px-3 py-2 text-xs font-semibold text-white"
+                            >
+                              {feedEditingId ? 'Atualizar' : 'Salvar URL'}
+                            </button>
+                            {feedEditingId && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFeedEditingId('')
+                                  setFeedSource('')
+                                  setFeedUrl('')
+                                }}
+                                className="rounded-xl border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-600 dark:text-slate-300"
+                              >
+                                Cancelar
+                              </button>
+                            )}
+                          </div>
+                        </form>
+
+                        <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                          {(snapshot?.news?.feeds || []).map((f) => (
+                            <div
+                              key={f.feed_id}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 px-3 py-2"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-semibold text-slate-900 dark:text-white">{f.source}</span>
+                                  <span className="rounded bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-700 dark:text-slate-300">
+                                    {f.default_symbol}
+                                  </span>
+                                </div>
+                                <div className="truncate text-[11px] text-slate-500 dark:text-slate-400 font-mono">{f.url}</div>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFeedEditingId(f.feed_id)
+                                    setFeedSource(f.source)
+                                    setFeedUrl(f.url)
+                                    setFeedSymbol(f.default_symbol || 'cryBTCUSD')
+                                  }}
+                                  className="rounded-lg border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteNewsFeed(f.feed_id)}
+                                  className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] font-medium text-rose-600 dark:text-rose-300 hover:bg-rose-500/20"
+                                >
+                                  Apagar
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">

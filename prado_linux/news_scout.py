@@ -12,26 +12,31 @@ import xml.etree.ElementTree as ET
 
 RSS_FEEDS: list[dict[str, str]] = [
     {
+        "feed_id": "yahoo_btc",
         "source": "Yahoo Finance BTC",
         "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=BTC-USD&region=US&lang=en-US",
         "default_symbol": "cryBTCUSD",
     },
     {
+        "feed_id": "yahoo_eurusd",
         "source": "Yahoo Finance EURUSD",
         "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=EURUSD=X&region=US&lang=en-US",
         "default_symbol": "frxEURUSD",
     },
     {
+        "feed_id": "yahoo_gold",
         "source": "Yahoo Finance Gold",
         "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=GC=F&region=US&lang=en-US",
         "default_symbol": "frxXAUUSD",
     },
     {
+        "feed_id": "yahoo_sp500",
         "source": "Yahoo Finance S&P500",
         "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC&region=US&lang=en-US",
         "default_symbol": "OTC_SP500",
     },
 ]
+DEFAULT_NEWS_FEEDS = RSS_FEEDS
 
 HIGH_IMPACT_KEYWORDS = {
     "fed", "fomc", "powell", "cpi", "inflation", "payroll", "nfp", "interest rate",
@@ -69,10 +74,14 @@ def _clean_html(raw: str) -> str:
     return re.sub(r"\s+", " ", txt).strip()
 
 
+def _has_keyword(text_lower: str, kw: str) -> bool:
+    return bool(re.search(rf"(?<!\w){re.escape(kw)}(?!\w)", text_lower))
+
+
 def infer_symbol(text: str, fallback: str = "cryBTCUSD") -> str:
     low = text.lower()
     for sym, kws in SYMBOL_KEYWORDS:
-        if any(kw in low for kw in kws):
+        if any(_has_keyword(low, kw) for kw in kws):
             return sym
     return fallback
 
@@ -80,9 +89,9 @@ def infer_symbol(text: str, fallback: str = "cryBTCUSD") -> str:
 def analyze_headline(title: str, summary: str = "", fallback_symbol: str = "cryBTCUSD") -> dict[str, Any]:
     """Classify headline impact (HIGH/MEDIUM/LOW), directional bias (BULLISH/BEARISH/NEUTRAL), and Deriv symbol."""
     combined = f"{title} {summary}".lower()
-    bull_hits = sum(1 for kw in BULLISH_KEYWORDS if kw in combined)
-    bear_hits = sum(1 for kw in BEARISH_KEYWORDS if kw in combined)
-    high_hits = sum(1 for kw in HIGH_IMPACT_KEYWORDS if kw in combined)
+    bull_hits = sum(1 for kw in BULLISH_KEYWORDS if _has_keyword(combined, kw))
+    bear_hits = sum(1 for kw in BEARISH_KEYWORDS if _has_keyword(combined, kw))
+    high_hits = sum(1 for kw in HIGH_IMPACT_KEYWORDS if _has_keyword(combined, kw))
 
     if high_hits >= 1 or abs(bull_hits - bear_hits) >= 2:
         impact = "HIGH"

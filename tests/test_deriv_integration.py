@@ -654,3 +654,95 @@ def test_bot_pnl_tracking_and_loss_guard_auto_pause(tmp_path) -> None:
 
     assert bots_by_name["UnguardedBot"]["total_pnl"] == -25.0
     assert bots_by_name["UnguardedBot"]["status"] == "RUNNING"
+
+
+def test_news_feeds_crud_and_per_bot_hybrid_news_decision(tmp_path):
+    from prado_linux.config import load_config
+    from prado_linux.engine import PradoTradingService
+    from prado_linux.news_scout import NewsScout
+
+    cfg_path = tmp_path / "config.json"
+    cfg = load_config(cfg_path)
+    cfg.connection_mode = "SIMULATION"
+    cfg.auto_trading_enabled = True
+    cfg.active_symbols = ["cryBTCUSD"]
+    cfg.news_bot_enabled = True
+    service = PradoTradingService(cfg, config_path=cfg_path)
+
+    # 1. CRUD de URLs de notícias
+    feeds = service.save_news_feed(
+        {"source": "Minha Fonte RSS", "url": "https://example.com/btc.xml", "default_symbol": "cryBTCUSD"}
+    )
+    saved = next(f for f in feeds if f["url"] == "https://example.com/btc.xml")
+    assert any(f["feed_id"] == saved["feed_id"] for f in service.cfg.news_feeds)
+    updated_feeds = service.save_news_feed(
+        {
+            "feed_id": saved["feed_id"],
+            "source": "Fonte Editada",
+            "url": "https://example.com/btc2.xml",
+            "default_symbol": "cryBTCUSD",
+        }
+    )
+    assert any(f["feed_id"] == saved["feed_id"] and f["source"] == "Fonte Editada" for f in updated_feeds)
+    remaining = service.delete_news_feed(saved["feed_id"])
+    assert all(f["feed_id"] != saved["feed_id"] for f in remaining)
+    assert all(f["feed_id"] != saved["feed_id"] for f in service.cfg.news_feeds)
+
+    # 2. Robô sem news_assisted não é afetado; robô com news_assisted entra a favor da notícia e estende lucro
+    bullish_rss = """<?xml version="1.0" encoding="UTF-8" ?>
+    <rss version="2.0"><channel>
+      <item>
+        <title>Bitcoin surges to record high after ETF approval</title>
+        <link>https://example.com/btc-etf</link>
+        <description>Major rally in BTC market</description>
+      </item>
+    </channel></rss>"""
+    service.news_scout = NewsScout(fetcher=lambda url: bullish_rss if "BTC" in url else "<rss><channel></channel></rss>")
+    service.scan_news(force=True)
+
+    plain_bot = service.create_bot(
+        {
+            "name": "PlainTechBot",
+            "symbol": "cryBTCUSD",
+            "bot_template_id": "WALL_STREET_HYBRID_BOTH",
+            "news_assisted": False,
+            "auto_start": True,
+        }
+    )
+    hybrid_bot = service.create_bot(
+        {
+            "name": "NewsHybridBot",
+            "symbol": "cryBTCUSD",
+            "bot_template_id": "WALL_STREET_HYBRID_BOTH",
+            "news_assisted": True,
+            "auto_start": True,
+        }
+    )
+    assert plain_bot["news_assisted"] is False
+    assert hybrid_bot["news_assisted"] is True
+
+    snap = service.step_once()
+    bots_by_name = {b["name"]: b for b in snap["bots"]}
+    assert bots_by_name["NewsHybridBot"]["last_signal"] == "BUY_NEWS_HYBRID"
+    assert bots_by_name["PlainTechBot"]["last_signal"] != "BUY_NEWS_HYBRID"
+    assert any(p["bot_name"] == "NewsHybridBot" and p["type"] == "BUY" for p in snap["positions"])
+
+    # 3. Se já estiver comprado no lucro e a notícia virar contra (BEARISH), fecha protegendo o lucro
+    bearish_rss = """<?xml version="1.0" encoding="UTF-8" ?>
+    <rss version="2.0"><channel>
+      <item>
+        <title>Bitcoin crashes after exchange hack and market selloff</title>
+        <link>https://example.com/btc-crash</link>
+        <description>Sharp plunge in BTC</description>
+      </item>
+    </channel></rss>"""
+    service.news_scout = NewsScout(fetcher=lambda url: bearish_rss if "BTC" in url else "<rss><channel></channel></rss>")
+    service.scan_news(force=True)
+    for p in service.connector._sim_positions:
+        if p.get("bot_name") == "NewsHybridBot":
+            p["price_open"] = float(p.get("price_open", 0.0)) - 500.0
+            p["profit"] = 1.5
+    snap2 = service.step_once()
+    bots_by_name2 = {b["name"]: b for b in snap2["bots"]}
+    assert bots_by_name2["NewsHybridBot"]["last_signal"] == "NEWS_TECH_EXIT"
+    assert not any(p["bot_name"] == "NewsHybridBot" for p in snap2["positions"])

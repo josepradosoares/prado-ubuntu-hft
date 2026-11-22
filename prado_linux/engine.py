@@ -542,6 +542,7 @@ class DerivUniversalConnector:
         bot_name: str = "PradoBot",
         allow_multi_same_symbol: bool = False,
         max_levels_override: int = 0,
+        tp_usd_mult: float = 0.9,
     ) -> tuple[bool, str]:
         now = time.time()
         max_stake = float(getattr(self.cfg, "max_stake_per_trade", 100.0) or 100.0)
@@ -586,7 +587,7 @@ class DerivUniversalConnector:
         is_buy = action.startswith("BUY")
         if self._deriv is not None:
             sl_usd = round(max(1.0, stake * 0.5), 2)
-            tp_usd = round(max(1.5, stake * 0.9), 2)
+            tp_usd = round(max(1.5, stake * tp_usd_mult), 2)
             ok, msg = self._deriv.place_multiplier_order(
                 symbol=symbol,
                 is_buy=is_buy,
@@ -948,6 +949,7 @@ class PradoTradingService:
                 "grid_anchor_price": float(existing_bot.get("grid_anchor_price", 0.0)) if existing_bot else 0.0,
                 "loss_guard_enabled": bool(payload["loss_guard_enabled"]) if "loss_guard_enabled" in payload else bool(existing_bot.get("loss_guard_enabled", False) if existing_bot else False),
                 "max_loss_usd": max(0.5, float(payload.get("max_loss_usd") or (existing_bot.get("max_loss_usd") if existing_bot else 20.0))),
+                "news_assisted": bool(payload["news_assisted"]) if "news_assisted" in payload else bool(existing_bot.get("news_assisted", False) if existing_bot else False),
                 "realized_pnl": float(existing_bot.get("realized_pnl", 0.0)) if existing_bot else 0.0,
                 "floating_pnl": float(existing_bot.get("floating_pnl", 0.0)) if existing_bot else 0.0,
                 "total_pnl": float(existing_bot.get("total_pnl", 0.0)) if existing_bot else 0.0,
@@ -1426,15 +1428,50 @@ class PradoTradingService:
     def _news_snapshot_dict(self) -> dict[str, Any]:
         return {
             "enabled": bool(getattr(self.cfg, "news_bot_enabled", False)),
-            "pause_grid_on_high_impact": bool(getattr(self.cfg, "news_pause_grid_on_high_impact", True)),
+            "pause_grid_on_high_impact": bool(getattr(self.cfg, "news_pause_grid_on_high_impact", False)),
             "auto_trade_enabled": bool(getattr(self.cfg, "news_auto_trade_enabled", False)),
             "stake_usd": float(getattr(self.cfg, "news_stake_usd", 5.0)),
             "multiplier": int(getattr(self.cfg, "news_multiplier", 100)),
             "last_scan_at": self.news_scout.last_scan_at,
             "last_error": self.news_scout.last_error,
+            "feeds": list(getattr(self.cfg, "news_feeds", [])),
             "items": list(self.news_scout.items),
             "summary_by_symbol": self.news_scout.summary_by_symbol(),
         }
+
+    def save_news_feed(self, payload: dict[str, Any]) -> list[dict[str, str]]:
+        with self._lock:
+            feed_id = str(payload.get("feed_id") or "").strip() or f"feed_{uuid.uuid4().hex[:8]}"
+            source = str(payload.get("source") or "Feed Personalizado").strip()
+            url = str(payload.get("url") or "").strip()
+            default_symbol = str(payload.get("default_symbol") or "cryBTCUSD").strip()
+            if not url:
+                return list(self.cfg.news_feeds)
+            existing = next((f for f in self.cfg.news_feeds if f.get("feed_id") == feed_id), None)
+            rec = {"feed_id": feed_id, "source": source, "url": url, "default_symbol": default_symbol}
+            if existing is not None:
+                existing.update(rec)
+            else:
+                self.cfg.news_feeds.append(rec)
+            save_config(self.cfg, self.config_path)
+            self._log_event("NEWS_FEED", f"Fonte '{source}' ({default_symbol}) salva.")
+            return list(self.cfg.news_feeds)
+
+    def delete_news_feed(self, feed_id: str) -> list[dict[str, str]]:
+        with self._lock:
+            self.cfg.news_feeds = [f for f in self.cfg.news_feeds if f.get("feed_id") != feed_id]
+            save_config(self.cfg, self.config_path)
+            self._log_event("NEWS_FEED", f"Fonte '{feed_id}' removida.")
+            return list(self.cfg.news_feeds)
+
+    def reset_news_feeds(self) -> list[dict[str, str]]:
+        from prado_linux.news_scout import DEFAULT_NEWS_FEEDS
+
+        with self._lock:
+            self.cfg.news_feeds = [dict(f) for f in DEFAULT_NEWS_FEEDS]
+            save_config(self.cfg, self.config_path)
+            self._log_event("NEWS_FEED", "Fontes padrão de notícias restauradas.")
+            return list(self.cfg.news_feeds)
 
     def _process_news_items(
         self,
@@ -1507,8 +1544,11 @@ class PradoTradingService:
             now = time.time()
             poll_sec = max(30, int(getattr(self.cfg, "news_poll_interval_sec", 90) or 90))
             if force or (now - self.news_scout.last_scan_at) >= poll_sec:
-                _, new_items = self.news_scout.scan()
-                if getattr(self.cfg, "news_bot_enabled", False) and new_items:
+                _, new_items = self.news_scout.scan(feeds=self.cfg.news_feeds)
+                if getattr(self.cfg, "news_bot_enabled", False) and (
+                    getattr(self.cfg, "news_pause_grid_on_high_impact", False)
+                    or getattr(self.cfg, "news_auto_trade_enabled", False)
+                ) and new_items:
                     positions = self.connector.get_open_positions()
                     self._process_news_items(new_items, positions, risk_locked=False)
                 self._log_event("NEWS_SCOUT", f"Pesquisa de notícias concluída ({len(self.news_scout.items)} manchete(s)).")
@@ -1701,6 +1741,68 @@ class PradoTradingService:
                     bot["last_regime"] = bot_flow.regime
                     bot["last_signal"] = bot_action
 
+                    # Per-bot News + Technical hybrid decision (only when enabled on THIS bot)
+                    if bot.get("news_assisted"):
+                        news_info = self.news_scout.summary_by_symbol().get(bsym) or {}
+                        news_bias = str(news_info.get("bias", "NEUTRAL"))
+                        bot_pos = [
+                            p for p in positions
+                            if p.get("symbol") == bsym
+                            and (
+                                str(p.get("bot_name", "")) == bname
+                                or (bprefix and str(p.get("comment", "")).startswith(bprefix))
+                                or not p.get("bot_name")
+                            )
+                        ]
+                        if bot_pos:
+                            for p in list(bot_pos):
+                                p_profit = float(p.get("profit", 0.0) or 0.0)
+                                p_is_buy = str(p.get("type", "")).upper() == "BUY"
+                                flipped_against = (p_is_buy and news_bias == "BEARISH") or (
+                                    not p_is_buy and news_bias == "BULLISH"
+                                )
+                                if flipped_against and p_profit > 0:
+                                    ok_ex, msg_ex = self.connector.close_single_position(p["ticket"])
+                                    if ok_ex:
+                                        bot["last_signal"] = "NEWS_TECH_EXIT"
+                                        self._log_event("BOT_NEWS_EXIT", f"[{bname}] {msg_ex}")
+                                        positions = self.connector.get_open_positions()
+                                else:
+                                    bot["last_signal"] = "HOLD_NEWS_PROFIT"
+                        elif (
+                            bot.get("status") == "RUNNING"
+                            and self.cfg.auto_trading_enabled
+                            and not risk_locked
+                        ):
+                            chosen_action = ""
+                            if news_bias == "BULLISH" and not bot_action.startswith("SELL"):
+                                chosen_action = "BUY_NEWS_HYBRID"
+                            elif news_bias == "BEARISH" and not bot_action.startswith("BUY"):
+                                chosen_action = "SELL_NEWS_HYBRID"
+                            elif bot_action in ("BUY_FLOW", "BUY_REVERT_VWAP") and news_bias != "BEARISH":
+                                chosen_action = bot_action
+                            elif bot_action in ("SELL_FLOW", "SELL_REVERT_VWAP") and news_bias != "BULLISH":
+                                chosen_action = bot_action
+
+                            if chosen_action and not any(p["symbol"] == bsym for p in positions):
+                                bot["last_signal"] = chosen_action
+                                ok, msg = self.connector.place_order(
+                                    symbol=bsym,
+                                    action=chosen_action,
+                                    stake=float(bot.get("lot_size", self.cfg.default_stake_usd)),
+                                    price=last_price,
+                                    sl_points=bot_flow.sl_points,
+                                    tp_points=bot_flow.tp_points * 3.0,
+                                    multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
+                                    bot_name=bname or "PradoBot",
+                                    tp_usd_mult=2.5,
+                                )
+                                if ok:
+                                    bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
+                                    self._log_event("BOT_NEWS_EXEC", msg)
+                                    positions = self.connector.get_open_positions()
+                        continue
+
                     if (
                         bot.get("status") == "RUNNING"
                         and self.cfg.auto_trading_enabled
@@ -1732,8 +1834,11 @@ class PradoTradingService:
             if getattr(self.cfg, "news_bot_enabled", False):
                 poll_sec = max(30, int(getattr(self.cfg, "news_poll_interval_sec", 90) or 90))
                 if (time.time() - self.news_scout.last_scan_at) >= poll_sec:
-                    _, new_items = self.news_scout.scan()
-                    if new_items:
+                    _, new_items = self.news_scout.scan(feeds=self.cfg.news_feeds)
+                    if (
+                        getattr(self.cfg, "news_pause_grid_on_high_impact", False)
+                        or getattr(self.cfg, "news_auto_trade_enabled", False)
+                    ) and new_items:
                         positions = self._process_news_items(new_items, positions, risk_locked)
 
             active_deals = (
