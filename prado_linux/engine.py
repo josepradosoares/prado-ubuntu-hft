@@ -1625,9 +1625,10 @@ class PradoTradingService:
         new_items: list[dict[str, Any]],
         positions: list[dict[str, Any]],
         risk_locked: bool,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], set[str]]:
+        just_paused_ids: set[str] = set()
         if not new_items:
-            return positions
+            return positions, just_paused_ids
         pause_grid = bool(getattr(self.cfg, "news_pause_grid_on_high_impact", True))
         auto_trade = bool(getattr(self.cfg, "news_auto_trade_enabled", False))
         stake = float(getattr(self.cfg, "news_stake_usd", 5.0) or 5.0)
@@ -1651,6 +1652,7 @@ class PradoTradingService:
                         b["status"] = "PAUSED"
                         b["active"] = False
                         b["last_signal"] = "PAUSED_NEWS"
+                        just_paused_ids.add(str(b.get("bot_id", "")))
                         config_dirty = True
                         self._log_event(
                             "NEWS_GUARD",
@@ -1684,14 +1686,17 @@ class PradoTradingService:
                         positions = self.connector.get_open_positions()
         if config_dirty:
             save_config(self.cfg, self.config_path)
-        return positions
+        return positions, just_paused_ids
 
-    def _auto_resume_news_paused_bots(self) -> None:
+    def _auto_resume_news_paused_bots(self, skip_bot_ids: set[str] | None = None) -> None:
         summary = self.news_scout.summary_by_symbol()
         all_info = summary.get("ALL") or {}
         pause_grid = bool(getattr(self.cfg, "news_pause_grid_on_high_impact", False))
+        skip = skip_bot_ids or set()
         changed = False
         for b in self.cfg.bots:
+            if str(b.get("bot_id", "")) in skip:
+                continue
             if b.get("status") != "PAUSED" or b.get("last_signal") != "PAUSED_NEWS":
                 continue
             bsym = str(b.get("symbol", ""))
@@ -1720,13 +1725,14 @@ class PradoTradingService:
             poll_sec = max(30, int(getattr(self.cfg, "news_poll_interval_sec", 90) or 90))
             if force or (now - self.news_scout.last_scan_at) >= poll_sec:
                 _, new_items = self.news_scout.scan(feeds=self.cfg.news_feeds)
+                just_paused_ids: set[str] = set()
                 if getattr(self.cfg, "news_bot_enabled", False) and (
                     getattr(self.cfg, "news_pause_grid_on_high_impact", False)
                     or getattr(self.cfg, "news_auto_trade_enabled", False)
                 ) and new_items:
                     positions = self.connector.get_open_positions()
-                    self._process_news_items(new_items, positions, risk_locked=False)
-                self._auto_resume_news_paused_bots()
+                    _, just_paused_ids = self._process_news_items(new_items, positions, risk_locked=False)
+                self._auto_resume_news_paused_bots(skip_bot_ids=just_paused_ids)
                 self._log_event("NEWS_SCOUT", f"Pesquisa de notícias concluída ({len(self.news_scout.items)} manchete(s)).")
             return self._news_snapshot_dict()
 
