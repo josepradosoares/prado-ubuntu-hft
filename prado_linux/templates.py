@@ -1071,6 +1071,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <div class="field">
                 <label for="connection_mode">Modo de conexão na VPS (sem MT5 aberto)</label>
                 <select id="connection_mode">
+                  <option value="AUTO_MT5_WINE">MT5 Headless na VPS Ubuntu (Docker/Wine porta 18812)</option>
                   <option value="METAAPI_CLOUD">MetaApi Cloud (100% Python na VPS — sem MetaTrader aberto)</option>
                   <option value="SIMULATION">Simulador Quantitativo Interno</option>
                 </select>
