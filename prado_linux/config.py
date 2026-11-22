@@ -186,13 +186,27 @@ def load_config(config_path: Path) -> PradoServerConfig:
         cfg.custom_categories = dict(DEFAULT_CATEGORIES)
         changed = True
 
-    legacy_mt5 = {"WIN$N", "WDO$N", "IND$N", "DOL$N", "BTCUSD#", "US100Cash#", "EURUSD"}
-    if any(sym in legacy_mt5 for sym in cfg.active_symbols):
-        cfg.active_symbols = ["R_100", "R_75", "1HZ100V", "frxEURUSD", "cryBTCUSD"]
+    legacy_mt5 = {"WIN$N", "WDO$N", "IND$N", "DOL$N", "BTCUSD#", "US100Cash#", "EURUSD", "Crypto_10#"}
+
+    def _is_legacy_mt5(sym: str) -> bool:
+        return sym in legacy_mt5 or "#" in sym or "$" in sym
+
+    if any(_is_legacy_mt5(sym) for sym in cfg.active_symbols):
+        cfg.active_symbols = [s for s in cfg.active_symbols if not _is_legacy_mt5(s)] or [
+            "R_100",
+            "R_75",
+            "1HZ100V",
+            "frxEURUSD",
+            "cryBTCUSD",
+        ]
         changed = True
-    if any(sym in legacy_mt5 for sym in cfg.correlated_basket):
-        cfg.correlated_basket = ["R_50", "R_25"]
+    if any(_is_legacy_mt5(sym) for sym in cfg.correlated_basket):
+        cfg.correlated_basket = [s for s in cfg.correlated_basket if not _is_legacy_mt5(s)] or ["R_50", "R_25"]
         changed = True
+    for bot in cfg.bots:
+        if isinstance(bot, dict) and _is_legacy_mt5(str(bot.get("symbol", ""))):
+            bot["symbol"] = "cryBTCUSD" if "Crypto" in str(bot.get("symbol", "")) or "BTC" in str(bot.get("symbol", "")) else "R_100"
+            changed = True
 
     deduped = deduplicate_accounts(cfg.accounts)
     if len(deduped) != len(cfg.accounts):

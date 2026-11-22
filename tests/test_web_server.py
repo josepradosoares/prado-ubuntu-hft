@@ -29,6 +29,14 @@ def test_default_config_and_persistence(tmp_path: Path):
     assert reloaded.active_symbols == ["R_100", "R_75", "cryBTCUSD"]
     assert reloaded.correlated_basket == ["R_50", "R_25"]
 
+    raw = json.loads(cfg_file.read_text(encoding="utf-8"))
+    raw["active_symbols"] = ["Crypto_10#", "R_100"]
+    raw["bots"] = [{"bot_id": "b1", "symbol": "Crypto_10#"}]
+    cfg_file.write_text(json.dumps(raw), encoding="utf-8")
+    cleaned = load_config(cfg_file)
+    assert cleaned.active_symbols == ["R_100"]
+    assert cleaned.bots[0]["symbol"] == "cryBTCUSD"
+
 
 def test_auth_password_and_session_tokens(tmp_path: Path):
     cfg = load_config(tmp_path / "config.json")
