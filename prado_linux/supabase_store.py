@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -106,6 +106,8 @@ class SupabaseStore:
             except Exception:
                 parsed = {"error": raw or str(exc)}
             return exc.code, parsed
+        except (URLError, OSError, TimeoutError) as exc:
+            return 503, {"error": f"Falha de rede Supabase: {exc}"}
 
     def sign_up(self, email: str, password: str) -> tuple[bool, dict[str, Any]]:
         code, data = self._request("POST", "/auth/v1/signup", {"email": email, "password": password})

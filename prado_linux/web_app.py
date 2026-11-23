@@ -68,7 +68,10 @@ class PradoWebApp:
     def _sync_user(self, user: str, svc: PradoTradingService) -> None:
         if self.supabase.is_enabled and user and user != self.cfg.admin_username:
             token = self._user_tokens.get(user, "")
-            self.supabase.sync_user_config(user, token, svc.cfg)
+            try:
+                self.supabase.sync_user_config(user, token, svc.cfg)
+            except Exception as exc:
+                svc._log_event("SUPABASE_SYNC", f"Aviso ao sincronizar Supabase: {exc}")
 
     def _extract_session_user(self, headers: dict[str, str]) -> str | None:
         cookie_raw = headers.get("Cookie") or headers.get("cookie") or ""
@@ -495,10 +498,12 @@ class PradoWebApp:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
-            bot = svc.create_bot(payload)
-            svc.step_once()
-            self._sync_user(user, svc)
-            return 200, json.dumps({"ok": True, "bot": bot, "bots": cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
+            try:
+                bot = svc.create_bot(payload)
+                self._sync_user(user, svc)
+                return 200, json.dumps({"ok": True, "bot": bot, "bots": cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
+            except Exception as exc:
+                return 400, json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/bots/action":
             try:
