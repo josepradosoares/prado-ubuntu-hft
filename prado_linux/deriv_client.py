@@ -76,7 +76,7 @@ class DerivRateLimiter:
     """Centralized thread-safe sliding-window rate limiter with exponential backoff + jitter."""
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._ws_windows: dict[str, deque[float]] = {k: deque() for k in WS_BUDGETS}
         self._ws_blocked_until: dict[str, float] = {}
         self._rest_window: deque[float] = deque()
@@ -181,7 +181,7 @@ class DerivClient:
         self._rpc_transport = rpc_transport
         self._rest_transport = rest_transport
         self.rate_limiter = rate_limiter or DerivRateLimiter()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._ws: Any = None
         self._ws_url_active: str = ""
         self._authorized_info: dict[str, Any] = {}
@@ -398,28 +398,47 @@ class DerivClient:
             return resp
 
         with self._lock:
-            if self._ws is None or not getattr(self._ws, "connected", False):
-                self._ws = self._open_connection()
-                # Legacy classic token handshake only; modern OTP connections NEVER send authorize
-                if self.token and not self.is_pat_token and len(self.token) <= 40 and "authorize" not in req_payload:
-                    self._ws.send(json.dumps({"authorize": self.token, "req_id": self._next_req_id()}))
-                    auth_raw = self._ws.recv()
-                    auth_resp = json.loads(auth_raw)
-                    if auth_resp.get("error"):
-                        self._ws.close()
-                        self._ws = None
-                        self.connection_state = "DISCONNECTED"
-                        self._handle_rpc_error(auth_resp["error"])
-                    self._authorized_info = auth_resp.get("authorize", {})
-                    self.auth_state = "AUTHENTICATED"
+            is_buy_call = "buy" in req_payload
+            max_attempts = 1 if is_buy_call else 2
+            last_transport_exc: Exception | None = None
+            raw = ""
+            for attempt in range(max_attempts):
+                if (
+                    self._ws is not None
+                    and (self.is_pat_token or len(self.token) > 40)
+                    and self._otp_expires_at > 0
+                    and time.time() >= self._otp_expires_at
+                ):
+                    self.close()
+                try:
+                    if self._ws is None or not getattr(self._ws, "connected", False):
+                        self._ws = self._open_connection()
+                        # Legacy classic token handshake only; modern OTP connections NEVER send authorize
+                        if self.token and not self.is_pat_token and len(self.token) <= 40 and "authorize" not in req_payload:
+                            self._ws.send(json.dumps({"authorize": self.token, "req_id": self._next_req_id()}))
+                            auth_raw = self._ws.recv()
+                            auth_resp = json.loads(auth_raw)
+                            if auth_resp.get("error"):
+                                self.close()
+                                self._handle_rpc_error(auth_resp["error"])
+                            self._authorized_info = auth_resp.get("authorize", {})
+                            self.auth_state = "AUTHENTICATED"
 
-            try:
-                self._ws.send(json.dumps(req_payload))
-                raw = self._ws.recv()
-            except Exception as exc:
-                self.close()
-                self.connection_state = "DISCONNECTED"
-                raise RuntimeError(f"Conexão WebSocket interrompida: {exc}")
+                    self._ws.send(json.dumps(req_payload))
+                    raw = self._ws.recv()
+                    last_transport_exc = None
+                    break
+                except (DerivAuthError, DerivRateLimitError):
+                    raise
+                except Exception as exc:
+                    last_transport_exc = exc
+                    self.close()
+                    self.connection_state = "DISCONNECTED"
+                    if attempt + 1 >= max_attempts:
+                        raise RuntimeError(f"Conexão WebSocket interrompida: {exc}")
+
+            if last_transport_exc is not None:
+                raise RuntimeError(f"Conexão WebSocket interrompida: {last_transport_exc}")
 
             resp = json.loads(raw)
             if resp.get("error"):
@@ -734,7 +753,14 @@ class DerivClient:
         return positions
 
     def close_contract(self, contract_id: str | int) -> tuple[bool, str]:
-        resp = self._send_rpc({"sell": int(contract_id), "price": 0})
+        try:
+            cid_int = int(contract_id)
+        except (TypeError, ValueError):
+            return False, f"[Deriv] ID de contrato inválido: {contract_id}"
+        try:
+            resp = self._send_rpc({"sell": cid_int, "price": 0})
+        except Exception as exc:
+            return False, f"[Deriv] Erro ao encerrar #{contract_id}: {exc}"
         sold = resp.get("sell", {})
         if sold:
             return True, f"[Deriv] Contrato #{contract_id} encerrado (Valor: {sold.get('sold_for', 0)})."

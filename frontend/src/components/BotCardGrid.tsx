@@ -23,6 +23,7 @@ interface Props {
   symbols: Record<string, SymbolState>
   symbolCatalog?: BrokerSymbol[]
   lastUpdated?: string
+  autoTradingEnabled?: boolean
   onAction: (botId: string, action: string) => void
   onEdit: (bot: BotItem) => void
   onDuplicate: (bot: BotItem) => void
@@ -35,6 +36,7 @@ export function BotCardGrid({
   symbols,
   symbolCatalog,
   lastUpdated,
+  autoTradingEnabled = true,
   onAction,
   onEdit,
   onDuplicate,
@@ -225,7 +227,11 @@ export function BotCardGrid({
             const isReal = b.account_type === 'REAL'
             const zVal = st?.zscore
             const imbVal = st?.imbalance
-            const signal = st?.signal || b.last_signal || 'WAIT'
+            const signal = !b.active
+              ? b.last_signal || (b.status === 'PAUSED' ? 'PAUSED_MANUAL' : 'STOPPED')
+              : !autoTradingEnabled
+                ? 'AUTO_PAUSED'
+                : b.last_signal || st?.signal || 'WAIT'
             const isBuySig = signal.includes('BUY')
             const isSellSig = signal.includes('SELL')
 

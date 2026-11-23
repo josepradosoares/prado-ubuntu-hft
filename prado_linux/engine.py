@@ -672,10 +672,15 @@ class DerivUniversalConnector:
         if self.cfg.connection_mode.upper() != "SIMULATION":
             if self._deriv is None:
                 return 0, "Deriv desconectada: nenhuma posição ativa para encerrar."
+            self._positions_cache = None
             positions = self.get_open_positions()
             closed = 0
+            errors: list[str] = []
             for p in positions:
-                ok, _ = self._deriv.close_contract(str(p["ticket"]))
+                try:
+                    ok, err_msg = self._deriv.close_contract(str(p["ticket"]))
+                except Exception as exc:
+                    ok, err_msg = False, str(exc)
                 if ok:
                     closed += 1
                     ts_str = datetime.now().strftime("%H:%M:%S")
@@ -697,8 +702,14 @@ class DerivUniversalConnector:
                             "bot_name": p.get("comment", "Deriv"),
                         },
                     )
+                else:
+                    errors.append(err_msg)
             self._positions_cache = None
-            return closed, f"[Deriv] {closed} contrato(s) encerrado(s) ({reason})."
+            self._balance_cache = None
+            if errors and closed == 0:
+                return 0, f"[Deriv] Falha ao zerar posições: {errors[0]}"
+            suffix = f" ({len(errors)} erro(s))" if errors else ""
+            return closed, f"[Deriv] {closed} contrato(s) encerrado(s) ({reason}){suffix}."
 
         count = len(self._sim_positions)
         for p in self._sim_positions:
@@ -732,9 +743,13 @@ class DerivUniversalConnector:
                 return False, "Deriv desconectada: não é possível encerrar contrato."
             positions = self.get_open_positions()
             matched = next((p for p in positions if str(p.get("ticket")) == str(ticket)), None)
-            ok, msg = self._deriv.close_contract(str(ticket))
+            try:
+                ok, msg = self._deriv.close_contract(str(ticket))
+            except Exception as exc:
+                return False, f"[Deriv] Erro ao encerrar #{ticket}: {exc}"
             if ok:
                 self._positions_cache = None
+                self._balance_cache = None
                 ts_str = datetime.now().strftime("%H:%M:%S")
                 self._deriv_deals_history.insert(
                     0,
@@ -1051,6 +1066,7 @@ class PradoTradingService:
                     elif act == "PAUSE":
                         b["status"] = "PAUSED"
                         b["active"] = False
+                        b["last_signal"] = "PAUSED_MANUAL"
                         self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) pausado (contratos existentes mantidos).")
                     elif act == "RESUME":
                         b["status"] = "RUNNING"
@@ -1060,6 +1076,7 @@ class PradoTradingService:
                     elif act == "STOP":
                         b["status"] = "STOPPED"
                         b["active"] = False
+                        b["last_signal"] = "STOPPED_MANUAL"
                         self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) parado com segurança.")
                     elif act in ("FIRE_BUY", "FIRE_SELL"):
                         sym = str(b.get("symbol", "R_100"))
@@ -1196,6 +1213,12 @@ class PradoTradingService:
             count, msg = self.connector.close_all_positions(reason)
             self._log_event("RISK_GUARD", msg)
             return count, msg
+
+    def close_position(self, ticket: int | str) -> tuple[bool, str]:
+        with self._lock:
+            ok, msg = self.connector.close_single_position(ticket)
+            self._log_event("POSITION_CLOSE", msg)
+            return ok, msg
 
     def reset_daily_risk_lock(self) -> dict[str, Any]:
         with self._lock:
@@ -1599,31 +1622,32 @@ class PradoTradingService:
             and (not p.get("comment") or str(p.get("comment", "")).startswith(bot_name[:14]))
         ]
 
-        # 1. Close individual grid levels that reached take-profit distance
+        # 1. Close individual grid levels that reached take-profit distance (only when running & auto-trading active)
         closed_any = False
-        for p in list(bot_positions):
-            entry = float(p.get("price_open", 0.0) or 0.0)
-            if entry <= 0:
-                continue
-            ptype = str(p.get("type", "")).upper()
-            hit_tp = (ptype == "BUY" and last_price >= entry + grid_tp) or (
-                ptype == "SELL" and last_price <= entry - grid_tp
-            )
-            if hit_tp:
-                ok_c, msg_c = self.connector.close_single_position(p["ticket"])
-                if ok_c:
-                    closed_any = True
-                    self._log_event("GRID_TP", f"[{bot_name}] {msg_c}")
-        if closed_any:
-            positions = self.connector.get_open_positions()
-            bot_positions = [
-                p for p in positions
-                if p.get("symbol") == bsym
-                and (not p.get("comment") or str(p.get("comment", "")).startswith(bot_name[:14]))
-            ]
+        if bot.get("status") == "RUNNING" and self.cfg.auto_trading_enabled and not risk_locked:
+            for p in list(bot_positions):
+                entry = float(p.get("price_open", 0.0) or 0.0)
+                if entry <= 0:
+                    continue
+                ptype = str(p.get("type", "")).upper()
+                hit_tp = (ptype == "BUY" and last_price >= entry + grid_tp) or (
+                    ptype == "SELL" and last_price <= entry - grid_tp
+                )
+                if hit_tp:
+                    ok_c, msg_c = self.connector.close_single_position(p["ticket"])
+                    if ok_c:
+                        closed_any = True
+                        self._log_event("GRID_TP", f"[{bot_name}] {msg_c}")
+            if closed_any:
+                positions = self.connector.get_open_positions()
+                bot_positions = [
+                    p for p in positions
+                    if p.get("symbol") == bsym
+                    and (not p.get("comment") or str(p.get("comment", "")).startswith(bot_name[:14]))
+                ]
 
         bot["last_regime"] = f"GRID_{grid_dir} ({len(bot_positions)}/{max_levels})"
-        signal = "GRID_WAIT"
+        signal = "GRID_WAIT" if (bot.get("status") == "RUNNING" and self.cfg.auto_trading_enabled) else "PAUSED"
 
         # 2. Open new grid level if bot is active and below max_levels
         if (
@@ -2038,13 +2062,18 @@ class PradoTradingService:
                         positions = self._evaluate_grid_bot(bot, last_price, positions, risk_locked)
                         continue
 
-                    positions = self._check_bot_tick_take_profit(bot, ticks, positions)
+                    is_bot_active = bot.get("status") == "RUNNING" and self.cfg.auto_trading_enabled and not risk_locked
+                    if is_bot_active:
+                        positions = self._check_bot_tick_take_profit(bot, ticks, positions)
 
                     bot["last_regime"] = bot_flow.regime
-                    bot["last_signal"] = bot_action
+                    if bot.get("status") == "RUNNING":
+                        bot["last_signal"] = bot_action if self.cfg.auto_trading_enabled else "AUTO_PAUSED"
 
                     # Per-bot News + Technical hybrid decision (only when enabled on THIS bot)
                     if bot.get("news_assisted"):
+                        if not is_bot_active:
+                            continue
                         news_summary = self.news_scout.summary_by_symbol()
                         news_info = news_summary.get(bsym) or {}
                         if not news_info or news_info.get("bias") == "NEUTRAL":

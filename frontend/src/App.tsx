@@ -540,9 +540,12 @@ export default function App() {
       timeframe: botTimeframe,
       tp_mode: botTpMode,
       tp_value: botTpMode === 'AUTO' ? 0 : Number(botTpValue),
-      auto_start: true,
     }
-    if (editingBotId) payload.bot_id = editingBotId
+    if (editingBotId) {
+      payload.bot_id = editingBotId
+    } else {
+      payload.auto_start = true
+    }
 
     try {
       const res = await fetch('/api/bots', {
@@ -952,18 +955,22 @@ export default function App() {
       variant: 'danger',
       onConfirm: async () => {
         setConfirmModal((m) => ({ ...m, open: false }))
-        const res = await fetch('/api/flatten', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(isSingle ? { ticket } : {}),
-        })
-        const d = await res.json()
-        if (d.ok) {
-          showToast(d.message || 'Posições zeradas.')
-          const stRes = await fetch('/api/status')
-          if (stRes.ok) setSnapshot(await stRes.json())
-        } else {
-          showToast(d.message || 'Nenhuma posição fechada.', true)
+        try {
+          const res = await fetch('/api/flatten', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(isSingle ? { ticket } : {}),
+          })
+          const d = await res.json().catch(() => ({ ok: false, message: `Erro HTTP ${res.status}` }))
+          if (res.ok && d.ok) {
+            showToast(d.message || 'Posições zeradas.')
+            const stRes = await fetch('/api/status')
+            if (stRes.ok) setSnapshot(await stRes.json())
+          } else {
+            showToast(d.message || d.error || 'Nenhuma posição fechada.', true)
+          }
+        } catch {
+          showToast('Erro de rede ao encerrar posição na Deriv.', true)
         }
       },
     })
@@ -1350,6 +1357,7 @@ export default function App() {
                     symbols={snapshot?.symbols || {}}
                     symbolCatalog={symbols}
                     lastUpdated={snapshot?.timestamp}
+                    autoTradingEnabled={snapshot?.auto_trading_enabled ?? true}
                     onAction={handleBotAction}
                     onEdit={startEditBot}
                     onDuplicate={duplicateBot}
@@ -1467,6 +1475,7 @@ export default function App() {
                   symbols={snapshot?.symbols || {}}
                   symbolCatalog={symbols}
                   lastUpdated={snapshot?.timestamp}
+                  autoTradingEnabled={snapshot?.auto_trading_enabled ?? true}
                   onAction={handleBotAction}
                   onEdit={startEditBot}
                   onDuplicate={duplicateBot}
