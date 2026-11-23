@@ -176,6 +176,7 @@ export default function App() {
   // Backtest form state
   const [btSymbol, setBtSymbol] = useState('R_100')
   const [btTemplateId, setBtTemplateId] = useState('WALL_STREET_HYBRID_BOTH')
+  const [btTimeframe, setBtTimeframe] = useState('TICKS')
   const [btTicks, setBtTicks] = useState(400)
   const [btCapital, setBtCapital] = useState(10000)
   const [btStake, setBtStake] = useState(10)
@@ -578,6 +579,7 @@ export default function App() {
         body: JSON.stringify({
           symbol: btSymbol,
           template_id: btTemplateId,
+          timeframe: btTimeframe,
           tick_count: Number(btTicks),
           initial_capital: Number(btCapital),
           lot_size: Number(btStake),
@@ -1879,7 +1881,7 @@ export default function App() {
                     <CardBody className="space-y-6">
                       <form
                         onSubmit={runBacktest}
-                        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4"
+                        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4"
                       >
                         <div>
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
@@ -1890,6 +1892,7 @@ export default function App() {
                             onChange={(e) => setBtSymbol(e.target.value)}
                             className={`${inputClass} font-mono`}
                           >
+                            <option value="ALL">Todos os ativos</option>
                             {symbols.map((s) => (
                               <option key={s.name} value={s.name}>
                                 {formatSymbolDisplay(s.name, symbols)}
@@ -1915,10 +1918,32 @@ export default function App() {
                         </div>
                         <div>
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
-                            Ticks
+                            Timeframe
+                          </label>
+                          <select
+                            value={btTimeframe}
+                            onChange={(e) => setBtTimeframe(e.target.value)}
+                            className={`${inputClass} font-mono`}
+                          >
+                            <option value="TICKS">Tick a Tick</option>
+                            <option value="M1">1 Minuto (M1)</option>
+                            <option value="M5">5 Minutos (M5)</option>
+                            <option value="M15">15 Minutos (M15)</option>
+                            <option value="M30">30 Minutos (M30)</option>
+                            <option value="H1">1 Hora (H1)</option>
+                            <option value="H4">4 Horas (H4)</option>
+                            <option value="D1">1 Dia (D1 • 365=1 ano)</option>
+                            <option value="MN1">1 Mês (MN1 • Anos)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
+                            {btTimeframe === 'TICKS' ? 'Ticks (120-5000)' : 'Velas (120-5000)'}
                           </label>
                           <input
                             type="number"
+                            min={120}
+                            max={5000}
                             value={btTicks}
                             onChange={(e) => setBtTicks(Number(e.target.value))}
                             className={`${inputClass} font-mono`}
@@ -1947,37 +1972,81 @@ export default function App() {
                       </form>
 
                       {btResult && (
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-4 font-mono text-xs">
-                          <div>
-                            <span className="text-slate-500 dark:text-slate-400">Trades</span>
-                            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">
-                              {btResult.total_trades ?? '--'}
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-slate-500 dark:text-slate-400">Taxa de acerto</span>
-                            <div className="text-base font-bold text-blue-600 dark:text-blue-400 mt-1">
-                              {formatPercent(btResult.win_rate, 1, false)}
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-slate-500 dark:text-slate-400">Lucro líquido</span>
-                            <div
-                              className={`text-base font-bold mt-1 ${
-                                (btResult.net_profit ?? 0) >= 0
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : 'text-rose-600 dark:text-rose-400'
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+                            <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-slate-700 dark:text-slate-200">
+                              {btResult.symbol} • {btResult.timeframe || 'TICKS'}
+                            </span>
+                            <span
+                              className={`rounded-md px-2 py-0.5 font-semibold ${
+                                btResult.data_source === 'DERIV_REAL'
+                                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                  : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
                               }`}
                             >
-                              ${formatNumber(btResult.net_profit, 2)}
+                              {btResult.data_source === 'DERIV_REAL' ? 'Dados Reais Deriv' : 'Simulação'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-4 font-mono text-xs">
+                            <div>
+                              <span className="text-slate-500 dark:text-slate-400">Trades</span>
+                              <div className="text-base font-bold text-slate-900 dark:text-white mt-1">
+                                {btResult.total_trades ?? '--'}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 dark:text-slate-400">Taxa de acerto</span>
+                              <div className="text-base font-bold text-blue-600 dark:text-blue-400 mt-1">
+                                {formatPercent(btResult.win_rate, 1, false)}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 dark:text-slate-400">Lucro líquido</span>
+                              <div
+                                className={`text-base font-bold mt-1 ${
+                                  (btResult.net_profit ?? 0) >= 0
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-rose-600 dark:text-rose-400'
+                                }`}
+                              >
+                                ${formatNumber(btResult.net_profit, 2)}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 dark:text-slate-400">Drawdown máx.</span>
+                              <div className="text-base font-bold text-rose-600 dark:text-rose-400 mt-1">
+                                ${formatNumber(btResult.max_drawdown, 2)}
+                              </div>
                             </div>
                           </div>
-                          <div>
-                            <span className="text-slate-500 dark:text-slate-400">Drawdown máx.</span>
-                            <div className="text-base font-bold text-rose-600 dark:text-rose-400 mt-1">
-                              ${formatNumber(btResult.max_drawdown, 2)}
+                          {btResult.per_symbol && btResult.per_symbol.length > 0 && (
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                              <table className="w-full text-left text-xs font-mono">
+                                <thead className="bg-slate-50 dark:bg-slate-950/40 text-[11px] uppercase text-slate-500 border-b border-slate-200 dark:border-slate-800">
+                                  <tr>
+                                    <th className="px-3 py-2">Ativo</th>
+                                    <th className="px-3 py-2">Fonte</th>
+                                    <th className="px-3 py-2 text-right">Trades</th>
+                                    <th className="px-3 py-2 text-right">Acerto</th>
+                                    <th className="px-3 py-2 text-right">Lucro</th>
+                                    <th className="px-3 py-2 text-right">Drawdown</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                                  {btResult.per_symbol.map((ps, idx) => (
+                                    <tr key={idx}>
+                                      <td className="px-3 py-2 font-semibold">{ps.symbol}</td>
+                                      <td className="px-3 py-2">{ps.data_source || '--'}</td>
+                                      <td className="px-3 py-2 text-right">{ps.total_trades}</td>
+                                      <td className="px-3 py-2 text-right">{formatPercent(ps.win_rate, 1, false)}</td>
+                                      <td className="px-3 py-2 text-right">${formatNumber(ps.net_profit, 2)}</td>
+                                      <td className="px-3 py-2 text-right text-rose-600 dark:text-rose-400">${formatNumber(ps.max_drawdown, 2)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
                             </div>
-                          </div>
+                          )}
                         </div>
                       )}
                     </CardBody>

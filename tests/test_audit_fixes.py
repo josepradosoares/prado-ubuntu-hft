@@ -169,3 +169,30 @@ def test_control_bot_pause_resume_stop_updates_snapshot_immediately(tmp_path: Pa
     assert snap["bots"][0]["status"] == "STOPPED"
 
 
+def test_backtest_generates_trades_and_supports_all_symbols_and_timeframes(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "cfg.json"
+    app = PradoWebApp(config_path=cfg_path)
+    app.service.cfg.connection_mode = "SIMULATION"
+    app.service.cfg.active_symbols = ["R_100", "R_75"]
+
+    rep_single = app.service.run_mathematical_backtest({
+        "symbol": "R_100",
+        "template_id": "WALL_STREET_HYBRID_BOTH",
+        "timeframe": "M5",
+        "tick_count": 400,
+    })
+    assert rep_single["total_trades"] > 0
+    assert rep_single["timeframe"] == "M5"
+
+    rep_all = app.service.run_mathematical_backtest({
+        "symbol": "ALL",
+        "template_id": "WALL_STREET_HYBRID_BOTH",
+        "timeframe": "D1",
+        "tick_count": 400,
+    })
+    assert rep_all["symbol"] == "TODOS (2)"
+    assert len(rep_all["per_symbol"]) == 2
+    assert rep_all["total_trades"] > 0
+
+
+

@@ -402,8 +402,39 @@ class DerivUniversalConnector:
         "M1": 60,
         "M5": 300,
         "M15": 900,
+        "M30": 1800,
         "H1": 3600,
+        "H4": 14400,
+        "D1": 86400,
     }
+
+    def fetch_backtest_history(self, symbol: str, count: int, timeframe: str = "TICKS") -> tuple[list[TickRecord], str]:
+        """Fetch real Deriv historical ticks or candles (M1..D1, MN1 aggregated from D1) for backtesting."""
+        tf = str(timeframe or "TICKS").strip().upper()
+        if self.cfg.connection_mode.upper() == "SIMULATION":
+            return [], "SIMULATION"
+        client = self._deriv or self._get_public_deriv()
+        if client is None:
+            return [], "SIMULATION_FALLBACK"
+        try:
+            if tf == "MN1":
+                daily_count = min(5000, max(int(count) * 30, 360))
+                daily = client.get_ticks_history(symbol, count=daily_count, granularity=86400)
+                if not daily:
+                    return [], "SIMULATION_FALLBACK"
+                monthly: dict[tuple[int, int], TickRecord] = {}
+                for tk in daily:
+                    dt = datetime.fromtimestamp(tk.time_msc / 1000.0)
+                    monthly[(dt.year, dt.month)] = tk
+                bars = [monthly[k] for k in sorted(monthly.keys())]
+                return (bars, "DERIV_REAL") if len(bars) >= 45 else ([], "SIMULATION_FALLBACK")
+            gran = self.TIMEFRAME_GRANULARITIES.get(tf, 0)
+            records = client.get_ticks_history(symbol, count=min(5000, max(120, int(count))), granularity=gran)
+            if len(records) >= 45:
+                return records, "DERIV_REAL"
+        except Exception as exc:
+            self.last_error = f"Aviso backtest histórico ({symbol}/{tf}): {exc}"
+        return [], "SIMULATION_FALLBACK"
 
     def fetch_ticks(self, symbol: str, count: int = 200, granularity: int = 0) -> list[TickRecord]:
         now = time.time()
@@ -1440,134 +1471,192 @@ class PradoTradingService:
             )
         return points
 
+    def _run_single_backtest_locked(self, symbol: str, params: dict[str, Any]) -> dict[str, Any]:
+        template_id = str(params.get("bot_template_id") or params.get("template_id") or "WALL_STREET_HYBRID_BOTH").strip()
+        tpl = next((t for t in self.get_all_templates() if t.get("template_id") == template_id), MATH_BOT_TEMPLATES[0])
+        tpl_window = tpl.get("window_ticks")
+        tpl_z = tpl.get("zscore_threshold")
+        tpl_imb = tpl.get("imbalance_threshold")
+        tpl_rev = tpl.get("revert_sigma")
+        tpl_sl = tpl.get("sl_sigma_mult")
+        tpl_tp = tpl.get("tp_sigma_mult")
+
+        timeframe = str(params.get("timeframe") or "TICKS").strip().upper()
+        tick_count = max(120, min(5000, int(params.get("tick_count") or 800)))
+        initial_capital = float(params.get("initial_capital") or 10000.0)
+        stake = float(params.get("lot_size") or self.cfg.default_stake_usd)
+        multiplier = int(params.get("multiplier") or self.cfg.default_multiplier)
+        window_ticks = int(params.get("window_ticks") or (tpl_window if tpl_window is not None else 120))
+        z_thresh = float(params.get("zscore_threshold") if params.get("zscore_threshold") is not None else (tpl_z if tpl_z is not None else 1.8))
+        imb_thresh = float(params.get("imbalance_threshold") if params.get("imbalance_threshold") is not None else (tpl_imb if tpl_imb is not None else 0.35))
+        rev_sigma = float(params.get("revert_sigma") if params.get("revert_sigma") is not None else (tpl_rev if tpl_rev is not None else 2.0))
+        sl_mult = float(params.get("sl_sigma_mult") or (tpl_sl if tpl_sl is not None else 1.0))
+        tp_mult = float(params.get("tp_sigma_mult") or (tpl_tp if tpl_tp is not None else 1.8))
+        op_mode = str(params.get("operation_mode") or tpl.get("operation_mode") or ("CUSTOM" if tpl.get("is_custom") else "BOTH"))
+
+        ticks, data_source = self.connector.fetch_backtest_history(symbol, tick_count, timeframe=timeframe)
+        if not ticks:
+            ticks = self._build_backtest_tick_series(symbol, tick_count)
+        balance = initial_capital
+        peak_balance = initial_capital
+        max_drawdown = 0.0
+        trades: list[dict[str, Any]] = []
+        open_pos: dict[str, Any] | None = None
+
+        step_stride = max(1, len(ticks) // 250)
+        for idx in range(40, len(ticks), step_stride):
+            sub_ticks = ticks[: idx + 1]
+            curr_price = sub_ticks[-1].effective_price()
+
+            if open_pos is not None:
+                is_buy = open_pos["type"] == "BUY"
+                hit_tp = (curr_price >= open_pos["tp"]) if is_buy else (curr_price <= open_pos["tp"])
+                hit_sl = (curr_price <= open_pos["sl"]) if is_buy else (curr_price >= open_pos["sl"])
+                if hit_tp or hit_sl or idx >= len(ticks) - step_stride:
+                    pct = ((curr_price - open_pos["entry"]) / open_pos["entry"]) if is_buy else ((open_pos["entry"] - curr_price) / open_pos["entry"])
+                    pnl = round(pct * stake * multiplier, 2)
+                    balance = round(balance + pnl, 2)
+                    peak_balance = max(peak_balance, balance)
+                    max_drawdown = max(max_drawdown, round(peak_balance - balance, 2))
+                    trades.append(
+                        {
+                            "id": len(trades) + 1,
+                            "type": open_pos["type"],
+                            "signal": open_pos["signal"],
+                            "entry": round(open_pos["entry"], 6),
+                            "exit": round(curr_price, 6),
+                            "pnl": pnl,
+                            "result": "WIN" if pnl >= 0 else "LOSS",
+                            "equity_after": balance,
+                        }
+                    )
+                    open_pos = None
+
+            if open_pos is None and idx < len(ticks) - step_stride * 2:
+                vwap_b = compute_intraday_vwap(sub_ticks)
+                flow = compute_flow_metrics(
+                    sub_ticks,
+                    vwap_b,
+                    window_size=min(window_ticks, len(sub_ticks)),
+                    z_threshold=z_thresh,
+                    imbalance_threshold=imb_thresh,
+                    revert_sigma=rev_sigma,
+                    sl_sigma_mult=sl_mult,
+                    tp_sigma_mult=tp_mult,
+                    operation_mode=op_mode,
+                )
+                act = flow.recommended_action
+                if tpl.get("is_custom"):
+                    custom_act = self._evaluate_custom_template(tpl, sub_ticks, params)
+                    if custom_act:
+                        act = custom_act
+                if act in ("BUY_FLOW", "SELL_FLOW", "BUY_REVERT_VWAP", "SELL_REVERT_VWAP"):
+                    is_b = act.startswith("BUY")
+                    sl_pts = max(flow.sl_points, curr_price * 0.0005)
+                    tp_pts = max(flow.tp_points, curr_price * 0.0009)
+                    open_pos = {
+                        "type": "BUY" if is_b else "SELL",
+                        "signal": act,
+                        "entry": curr_price,
+                        "sl": (curr_price - sl_pts) if is_b else (curr_price + sl_pts),
+                        "tp": (curr_price + tp_pts) if is_b else (curr_price - tp_pts),
+                    }
+
+        wins = [t for t in trades if t["pnl"] > 0]
+        losses = [t for t in trades if t["pnl"] <= 0]
+        gross_profit = round(sum(t["pnl"] for t in wins), 2)
+        gross_loss = round(abs(sum(t["pnl"] for t in losses)), 2)
+        net_profit = round(balance - initial_capital, 2)
+        win_rate = round((len(wins) / len(trades)) * 100.0, 2) if trades else 0.0
+        profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (99.9 if gross_profit > 0 else 1.0)
+
+        report = {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "data_source": data_source,
+            "bot_template_id": template_id,
+            "bot_template_name": str(tpl.get("name") or template_id),
+            "template_name": str(tpl.get("name") or template_id),
+            "formula": str(tpl.get("formula") or ""),
+            "operation_mode": op_mode,
+            "ticks_processed": len(ticks),
+            "initial_capital": round(initial_capital, 2),
+            "final_equity": round(balance, 2),
+            "final_capital": round(balance, 2),
+            "net_profit": net_profit,
+            "return_pct": round((net_profit / initial_capital) * 100.0, 2) if initial_capital > 0 else 0.0,
+            "total_trades": len(trades),
+            "winning_trades": len(wins),
+            "losing_trades": len(losses),
+            "win_rate_pct": win_rate,
+            "win_rate": win_rate,
+            "gross_profit": gross_profit,
+            "gross_loss": gross_loss,
+            "profit_factor": profit_factor,
+            "max_drawdown": round(max_drawdown, 2),
+            "trades": trades[-30:],
+            "executed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        self.cfg.backtest_history.insert(0, {k: v for k, v in report.items() if k != "trades"})
+        self.cfg.backtest_history = self.cfg.backtest_history[:15]
+        return report
+
     def run_mathematical_backtest(self, params: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            symbol = str(params.get("symbol") or "R_100").strip()
-            template_id = str(params.get("bot_template_id") or params.get("template_id") or "WALL_STREET_HYBRID_BOTH").strip()
-            tpl = next((t for t in self.get_all_templates() if t.get("template_id") == template_id), MATH_BOT_TEMPLATES[0])
-            tpl_window = tpl.get("window_ticks")
-            tpl_z = tpl.get("zscore_threshold")
-            tpl_imb = tpl.get("imbalance_threshold")
-            tpl_rev = tpl.get("revert_sigma")
-            tpl_sl = tpl.get("sl_sigma_mult")
-            tpl_tp = tpl.get("tp_sigma_mult")
+            raw_symbol = str(params.get("symbol") or "R_100").strip()
+            if raw_symbol.upper() == "ALL":
+                targets: list[str] = []
+                for s in list(self.cfg.active_symbols) + [str(b.get("symbol") or "") for b in self.cfg.bots]:
+                    if s and s not in targets:
+                        targets.append(s)
+                if not targets:
+                    targets = ["R_100"]
+                reports = [self._run_single_backtest_locked(sym, params) for sym in targets]
+                save_config(self.cfg, self.config_path)
+                total_trades = sum(r["total_trades"] for r in reports)
+                total_wins = sum(r["winning_trades"] for r in reports)
+                total_losses = sum(r["losing_trades"] for r in reports)
+                net_profit = round(sum(r["net_profit"] for r in reports), 2)
+                initial_cap = float(reports[0]["initial_capital"]) if reports else 10000.0
+                max_dd = round(max((r["max_drawdown"] for r in reports), default=0.0), 2)
+                win_rate = round((total_wins / total_trades) * 100.0, 2) if total_trades else 0.0
+                sources = {r["data_source"] for r in reports}
+                summary = {
+                    "symbol": f"TODOS ({len(reports)})",
+                    "timeframe": reports[0]["timeframe"] if reports else "TICKS",
+                    "data_source": "DERIV_REAL" if sources == {"DERIV_REAL"} else ("SIMULATION" if "DERIV_REAL" not in sources else "MISTO"),
+                    "bot_template_id": reports[0]["bot_template_id"],
+                    "bot_template_name": reports[0]["bot_template_name"],
+                    "template_name": reports[0]["template_name"],
+                    "formula": reports[0]["formula"],
+                    "operation_mode": reports[0]["operation_mode"],
+                    "ticks_processed": sum(r["ticks_processed"] for r in reports),
+                    "initial_capital": initial_cap,
+                    "final_equity": round(initial_cap + net_profit, 2),
+                    "final_capital": round(initial_cap + net_profit, 2),
+                    "net_profit": net_profit,
+                    "return_pct": round((net_profit / initial_cap) * 100.0, 2) if initial_cap > 0 else 0.0,
+                    "total_trades": total_trades,
+                    "winning_trades": total_wins,
+                    "losing_trades": total_losses,
+                    "win_rate_pct": win_rate,
+                    "win_rate": win_rate,
+                    "gross_profit": round(sum(r["gross_profit"] for r in reports), 2),
+                    "gross_loss": round(sum(r["gross_loss"] for r in reports), 2),
+                    "profit_factor": 1.0,
+                    "max_drawdown": max_dd,
+                    "trades": [],
+                    "per_symbol": [{k: v for k, v in r.items() if k != "trades"} for r in reports],
+                    "executed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                self._log_event("BACKTEST", f"Backtest em TODOS ({len(reports)} ativos): {total_trades} trades | Lucro: {net_profit:+.2f}")
+                return summary
 
-            tick_count = max(120, min(5000, int(params.get("tick_count") or 800)))
-            initial_capital = float(params.get("initial_capital") or 10000.0)
-            stake = float(params.get("lot_size") or self.cfg.default_stake_usd)
-            multiplier = int(params.get("multiplier") or self.cfg.default_multiplier)
-            window_ticks = int(params.get("window_ticks") or (tpl_window if tpl_window is not None else 120))
-            z_thresh = float(params.get("zscore_threshold") if params.get("zscore_threshold") is not None else (tpl_z if tpl_z is not None else 1.8))
-            imb_thresh = float(params.get("imbalance_threshold") if params.get("imbalance_threshold") is not None else (tpl_imb if tpl_imb is not None else 0.35))
-            rev_sigma = float(params.get("revert_sigma") if params.get("revert_sigma") is not None else (tpl_rev if tpl_rev is not None else 2.0))
-            sl_mult = float(params.get("sl_sigma_mult") or (tpl_sl if tpl_sl is not None else 1.0))
-            tp_mult = float(params.get("tp_sigma_mult") or (tpl_tp if tpl_tp is not None else 1.8))
-            op_mode = str(params.get("operation_mode") or tpl.get("operation_mode") or ("CUSTOM" if tpl.get("is_custom") else "BOTH"))
-
-            ticks = self._build_backtest_tick_series(symbol, tick_count)
-            balance = initial_capital
-            peak_balance = initial_capital
-            max_drawdown = 0.0
-            trades: list[dict[str, Any]] = []
-            open_pos: dict[str, Any] | None = None
-
-            step_stride = max(1, tick_count // 250)
-            for idx in range(40, len(ticks), step_stride):
-                sub_ticks = ticks[: idx + 1]
-                curr_price = sub_ticks[-1].effective_price()
-
-                if open_pos is not None:
-                    is_buy = open_pos["type"] == "BUY"
-                    hit_tp = (curr_price >= open_pos["tp"]) if is_buy else (curr_price <= open_pos["tp"])
-                    hit_sl = (curr_price <= open_pos["sl"]) if is_buy else (curr_price >= open_pos["sl"])
-                    if hit_tp or hit_sl or idx >= len(ticks) - step_stride:
-                        pct = ((curr_price - open_pos["entry"]) / open_pos["entry"]) if is_buy else ((open_pos["entry"] - curr_price) / open_pos["entry"])
-                        pnl = round(pct * stake * multiplier, 2)
-                        balance = round(balance + pnl, 2)
-                        peak_balance = max(peak_balance, balance)
-                        max_drawdown = max(max_drawdown, round(peak_balance - balance, 2))
-                        trades.append(
-                            {
-                                "id": len(trades) + 1,
-                                "type": open_pos["type"],
-                                "signal": open_pos["signal"],
-                                "entry": round(open_pos["entry"], 6),
-                                "exit": round(curr_price, 6),
-                                "pnl": pnl,
-                                "result": "WIN" if pnl >= 0 else "LOSS",
-                                "equity_after": balance,
-                            }
-                        )
-                        open_pos = None
-
-                if open_pos is None and idx < len(ticks) - step_stride * 2:
-                    vwap_b = compute_intraday_vwap(sub_ticks)
-                    flow = compute_flow_metrics(
-                        sub_ticks,
-                        vwap_b,
-                        window_size=min(window_ticks, len(sub_ticks)),
-                        z_threshold=z_thresh,
-                        imbalance_threshold=imb_thresh,
-                        revert_sigma=rev_sigma,
-                        sl_sigma_mult=sl_mult,
-                        tp_sigma_mult=tp_mult,
-                        operation_mode=op_mode,
-                    )
-                    act = flow.recommended_action
-                    if tpl.get("is_custom"):
-                        custom_act = self._evaluate_custom_template(tpl, sub_ticks, params)
-                        if custom_act:
-                            act = custom_act
-                    if act in ("BUY_FLOW", "SELL_FLOW", "BUY_REVERT_VWAP", "SELL_REVERT_VWAP"):
-                        is_b = act.startswith("BUY")
-                        sl_pts = max(flow.sl_points, curr_price * 0.0005)
-                        tp_pts = max(flow.tp_points, curr_price * 0.0009)
-                        open_pos = {
-                            "type": "BUY" if is_b else "SELL",
-                            "signal": act,
-                            "entry": curr_price,
-                            "sl": (curr_price - sl_pts) if is_b else (curr_price + sl_pts),
-                            "tp": (curr_price + tp_pts) if is_b else (curr_price - tp_pts),
-                        }
-
-            wins = [t for t in trades if t["pnl"] > 0]
-            losses = [t for t in trades if t["pnl"] <= 0]
-            gross_profit = round(sum(t["pnl"] for t in wins), 2)
-            gross_loss = round(abs(sum(t["pnl"] for t in losses)), 2)
-            net_profit = round(balance - initial_capital, 2)
-            win_rate = round((len(wins) / len(trades)) * 100.0, 2) if trades else 0.0
-            profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (99.9 if gross_profit > 0 else 1.0)
-
-            report = {
-                "symbol": symbol,
-                "bot_template_id": template_id,
-                "bot_template_name": str(tpl.get("name") or template_id),
-                "template_name": str(tpl.get("name") or template_id),
-                "formula": str(tpl.get("formula") or ""),
-                "operation_mode": op_mode,
-                "ticks_processed": len(ticks),
-                "initial_capital": round(initial_capital, 2),
-                "final_equity": round(balance, 2),
-                "final_capital": round(balance, 2),
-                "net_profit": net_profit,
-                "return_pct": round((net_profit / initial_capital) * 100.0, 2) if initial_capital > 0 else 0.0,
-                "total_trades": len(trades),
-                "winning_trades": len(wins),
-                "losing_trades": len(losses),
-                "win_rate_pct": win_rate,
-                "win_rate": win_rate,
-                "gross_profit": gross_profit,
-                "gross_loss": gross_loss,
-                "profit_factor": profit_factor,
-                "max_drawdown": round(max_drawdown, 2),
-                "trades": trades[-30:],
-                "executed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            }
-            self.cfg.backtest_history.insert(0, {k: v for k, v in report.items() if k != "trades"})
-            self.cfg.backtest_history = self.cfg.backtest_history[:15]
+            report = self._run_single_backtest_locked(raw_symbol, params)
             save_config(self.cfg, self.config_path)
-            self._log_event("BACKTEST", f"Backtest em {symbol}: {len(trades)} trades | Lucro: {net_profit:+.2f} | WinRate: {win_rate}%")
+            self._log_event("BACKTEST", f"Backtest em {raw_symbol} ({report['timeframe']}/{report['data_source']}): {report['total_trades']} trades | Lucro: {report['net_profit']:+.2f} | WinRate: {report['win_rate']}%")
             return report
 
     def _build_backtest_tick_series(self, symbol: str, count: int) -> list[TickRecord]:
@@ -1578,15 +1667,15 @@ class PradoTradingService:
         p = base_price
         now_msc = int(time.time() * 1000)
         for i in range(count):
-            phase = i % 90
-            if phase < 30:
-                delta = step * 0.85 + rng.uniform(-step * 0.2, step * 0.4)
+            phase = i % 180
+            if phase < 75:
+                delta = step * 0.95 + rng.uniform(-step * 0.15, step * 0.45)
                 flag = TICK_FLAG_BUY
-                vol = rng.randint(60, 220)
-            elif phase < 60:
-                delta = -step * 0.75 + rng.uniform(-step * 0.4, step * 0.2)
+                vol = rng.randint(80, 240)
+            elif phase < 150:
+                delta = -step * 0.85 + rng.uniform(-step * 0.45, step * 0.15)
                 flag = TICK_FLAG_SELL
-                vol = rng.randint(50, 190)
+                vol = rng.randint(70, 220)
             else:
                 delta = math.sin(i / 4.0) * step * 0.5
                 flag = TICK_FLAG_BUY if delta >= 0 else TICK_FLAG_SELL

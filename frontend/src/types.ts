@@ -245,6 +245,8 @@ export interface BrokerSymbol {
 
 export interface BacktestReport {
   symbol: string;
+  timeframe?: string;
+  data_source?: string;
   template_name?: string;
   total_trades: number;
   win_rate: number;
@@ -252,6 +254,7 @@ export interface BacktestReport {
   max_drawdown: number;
   final_capital: number;
   timestamp?: string;
+  per_symbol?: BacktestReport[];
 }
 
 export interface ChartPoint {
