@@ -995,3 +995,125 @@ def test_admin_auto_migrates_local_json_into_supabase_on_first_login(tmp_path):
     assert len(bots) == 1 and bots[0]["name"] == "Robozão Local"
     assert sb.synced_bots == 1
     app._user_services["uid-admin"].stop_background_loop()
+
+
+def test_create_bot_and_backtest_with_partial_custom_template_no_operation_mode_keyerror(tmp_path):
+    from prado_linux.config import load_config
+    from prado_linux.engine import PradoTradingService
+    from prado_linux.supabase_store import SupabaseConfig, SupabaseStore
+    from prado_linux.web_app import PradoWebApp
+
+    class FakePartialTplSupabase(SupabaseStore):
+        def __init__(self) -> None:
+            super().__init__(SupabaseConfig(url="https://fake.supabase.co", anon_key="anon"))
+
+        def _request(self, method, path, body=None, bearer_token=None, extra_headers=None):
+            if method == "GET" and "/rest/v1/prado_custom_templates" in path:
+                return 200, [
+                    {
+                        "template_id": "CUSTOM_MINIMAL_01",
+                        "name": "Meu Modelo Supabase",
+                        "description": "Sem config_json completo",
+                        "custom_mode": "INDICATORS",
+                        "combine_mode": "MAJORITY",
+                        "formula": "RSI + EMA",
+                        "indicators": [{"id": "RSI", "period": 14}],
+                        "python_code": "",
+                        "config_json": {},
+                    }
+                ]
+            return 200, []
+
+    sb = FakePartialTplSupabase()
+    u_cfg = sb.load_user_config("uid-1", "jwt-1", tmp_path / "user_cfg.json")
+    assert len(u_cfg.custom_templates) == 1
+    assert u_cfg.custom_templates[0]["operation_mode"] == "CUSTOM"
+
+    cfg_path = tmp_path / "srv_cfg.json"
+    cfg = load_config(cfg_path)
+    cfg.connection_mode = "SIMULATION"
+    # Also simulate a partial custom template directly in config without operation_mode/thresholds
+    # as well as explicit None values and a malformed entry lacking template_id
+    cfg.custom_templates = [
+        {"name": "Malformed Without ID"},
+        {
+            "template_id": "CUSTOM_NO_OP_MODE",
+            "name": "Modelo Sem Operation Mode",
+            "custom_mode": "INDICATORS",
+            "indicators": [{"id": "RSI", "period": 14}],
+        },
+        {
+            "template_id": "CUSTOM_NULL_FIELDS",
+            "name": "Modelo Com Campos Null",
+            "operation_mode": None,
+            "window_ticks": None,
+            "zscore_threshold": None,
+            "imbalance_threshold": None,
+            "revert_sigma": None,
+            "sl_sigma_mult": None,
+            "tp_sigma_mult": None,
+            "custom_mode": "INDICATORS",
+            "indicators": [{"id": "RSI", "period": 14}],
+        },
+    ]
+    svc = PradoTradingService(cfg, config_path=cfg_path)
+    bot = svc.create_bot(
+        {
+            "name": "Bot Custom",
+            "bot_template_id": "CUSTOM_NO_OP_MODE",
+            "symbol": "R_100",
+            "lot_size": 10,
+            "multiplier": 100,
+        }
+    )
+    assert bot["operation_mode"] == "CUSTOM"
+    assert bot["bot_template_id"] == "CUSTOM_NO_OP_MODE"
+
+    # Also test duplicateBot-style payload with only template_id (no bot_template_id)
+    dup_bot = svc.create_bot(
+        {
+            "name": "Bot Custom (Cópia)",
+            "template_id": "CUSTOM_NO_OP_MODE",
+            "symbol": "R_100",
+            "auto_start": False,
+        }
+    )
+    assert dup_bot["bot_template_id"] == "CUSTOM_NO_OP_MODE"
+    assert dup_bot["operation_mode"] == "CUSTOM"
+    assert dup_bot["status"] == "STOPPED"
+
+    # Backtest with partial custom template should also succeed
+    report = svc.run_mathematical_backtest({"bot_template_id": "CUSTOM_NO_OP_MODE", "symbol": "R_100", "tick_count": 150})
+    assert report["operation_mode"] == "CUSTOM"
+    assert report["bot_template_id"] == "CUSTOM_NO_OP_MODE"
+
+    # End-to-end HTTP POST /api/bots via PradoWebApp
+    app = PradoWebApp(config_path=cfg_path)
+    app.service.cfg.connection_mode = "SIMULATION"
+    app.service.cfg.custom_templates = list(cfg.custom_templates)
+    _, _, login_hdrs = app.handle_request("POST", "/api/login", {}, json.dumps({"username": "admin", "password": cfg.admin_password_hash and "prado2026"}).encode())
+    cookie = login_hdrs["Set-Cookie"].split(";")[0]
+    code, resp_body, _ = app.handle_request(
+        "POST",
+        "/api/bots",
+        {"Cookie": cookie},
+        json.dumps({"name": "Bot Web", "bot_template_id": "CUSTOM_NO_OP_MODE", "symbol": "R_100", "lot_size": 10, "multiplier": 100}).encode(),
+    )
+    assert code == 200
+    parsed = json.loads(resp_body)
+    assert parsed["ok"] is True
+    assert parsed["bot"]["operation_mode"] == "CUSTOM"
+
+    # Explicit None fields in custom template should not raise TypeError in create_bot or backtest
+    null_bot = svc.create_bot(
+        {
+            "name": "Bot Null Fields",
+            "bot_template_id": "CUSTOM_NULL_FIELDS",
+            "symbol": "R_100",
+        }
+    )
+    assert null_bot["operation_mode"] == "CUSTOM"
+    assert null_bot["window_ticks"] == 120
+    assert null_bot["zscore_threshold"] == 1.8
+    null_report = svc.run_mathematical_backtest({"bot_template_id": "CUSTOM_NULL_FIELDS", "symbol": "R_100", "tick_count": 150})
+    assert null_report["operation_mode"] == "CUSTOM"

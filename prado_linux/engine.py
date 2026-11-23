@@ -923,12 +923,20 @@ class PradoTradingService:
             account_label = acc_obj["label"] if acc_obj else f"Deriv {account_type}"
 
             template_id = str(
-                payload.get(
-                    "bot_template_id",
-                    existing_bot.get("bot_template_id", "WALL_STREET_HYBRID_BOTH") if existing_bot else "WALL_STREET_HYBRID_BOTH",
-                )
+                payload.get("bot_template_id")
+                or payload.get("template_id")
+                or (existing_bot.get("bot_template_id", "WALL_STREET_HYBRID_BOTH") if existing_bot else "WALL_STREET_HYBRID_BOTH")
             ).strip()
-            tpl = next((t for t in self.get_all_templates() if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
+            tpl = next((t for t in self.get_all_templates() if t.get("template_id") == template_id), MATH_BOT_TEMPLATES[0])
+            tpl_name = str(tpl.get("name") or template_id)
+            tpl_formula = str(tpl.get("formula") or "")
+            tpl_op_mode = str(tpl.get("operation_mode") or ("CUSTOM" if tpl.get("is_custom") else "BOTH"))
+            tpl_window = tpl.get("window_ticks")
+            tpl_z = tpl.get("zscore_threshold")
+            tpl_imb = tpl.get("imbalance_threshold")
+            tpl_rev = tpl.get("revert_sigma")
+            tpl_sl = tpl.get("sl_sigma_mult")
+            tpl_tp = tpl.get("tp_sigma_mult")
             auto_start = bool(payload.get("auto_start", True))
 
             bot_status = (
@@ -938,26 +946,26 @@ class PradoTradingService:
             )
             bot_record: dict[str, Any] = {
                 "bot_id": bot_id,
-                "name": str(payload.get("name") or (existing_bot.get("name") if existing_bot else f"{tpl['name'].split('—')[0].strip()} ({symbol})")).strip(),
+                "name": str(payload.get("name") or (existing_bot.get("name") if existing_bot else f"{tpl_name.split('—')[0].strip()} ({symbol})")).strip(),
                 "bot_template_id": template_id,
-                "bot_template_name": tpl["name"],
+                "bot_template_name": tpl_name,
                 "template_id": template_id,
-                "template_name": tpl["name"],
-                "formula": tpl["formula"],
+                "template_name": tpl_name,
+                "formula": tpl_formula,
                 "account_id": account_id,
                 "account_type": account_type,
                 "account_label": account_label,
                 "symbol": symbol,
                 "category": str(payload.get("category") or (existing_bot.get("category") if existing_bot else "Deriv")).strip(),
-                "operation_mode": str(payload.get("operation_mode") or tpl["operation_mode"]),
+                "operation_mode": str(payload.get("operation_mode") or tpl_op_mode),
                 "lot_size": float(payload.get("lot_size") if payload.get("lot_size") is not None else self.cfg.default_stake_usd),
                 "multiplier": int(payload.get("multiplier") if payload.get("multiplier") is not None else self.cfg.default_multiplier),
-                "window_ticks": int(payload.get("window_ticks") or tpl["window_ticks"]),
-                "zscore_threshold": float(payload.get("zscore_threshold") if payload.get("zscore_threshold") is not None else tpl["zscore_threshold"]),
-                "imbalance_threshold": float(payload.get("imbalance_threshold") if payload.get("imbalance_threshold") is not None else tpl["imbalance_threshold"]),
-                "revert_sigma": float(payload.get("revert_sigma") if payload.get("revert_sigma") is not None else tpl["revert_sigma"]),
-                "sl_sigma_mult": float(payload.get("sl_sigma_mult") or tpl["sl_sigma_mult"]),
-                "tp_sigma_mult": float(payload.get("tp_sigma_mult") or tpl["tp_sigma_mult"]),
+                "window_ticks": int(payload.get("window_ticks") or (tpl_window if tpl_window is not None else 120)),
+                "zscore_threshold": float(payload.get("zscore_threshold") if payload.get("zscore_threshold") is not None else (tpl_z if tpl_z is not None else 1.8)),
+                "imbalance_threshold": float(payload.get("imbalance_threshold") if payload.get("imbalance_threshold") is not None else (tpl_imb if tpl_imb is not None else 0.35)),
+                "revert_sigma": float(payload.get("revert_sigma") if payload.get("revert_sigma") is not None else (tpl_rev if tpl_rev is not None else 2.0)),
+                "sl_sigma_mult": float(payload.get("sl_sigma_mult") or (tpl_sl if tpl_sl is not None else 1.0)),
+                "tp_sigma_mult": float(payload.get("tp_sigma_mult") or (tpl_tp if tpl_tp is not None else 1.8)),
                 "grid_direction": str(payload.get("grid_direction") or (existing_bot.get("grid_direction") if existing_bot else tpl.get("grid_direction", "BUY_ONLY"))).upper(),
                 "grid_step_points": max(0.0001, float(payload.get("grid_step_points") or (existing_bot.get("grid_step_points") if existing_bot else tpl.get("grid_step_points", 1.5)))),
                 "grid_tp_points": max(0.0001, float(payload.get("grid_tp_points") or (existing_bot.get("grid_tp_points") if existing_bot else tpl.get("grid_tp_points", 1.5)))),
@@ -1324,20 +1332,26 @@ class PradoTradingService:
     def run_mathematical_backtest(self, params: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             symbol = str(params.get("symbol") or "R_100").strip()
-            template_id = str(params.get("bot_template_id") or "WALL_STREET_HYBRID_BOTH").strip()
-            tpl = next((t for t in self.get_all_templates() if t["template_id"] == template_id), MATH_BOT_TEMPLATES[0])
+            template_id = str(params.get("bot_template_id") or params.get("template_id") or "WALL_STREET_HYBRID_BOTH").strip()
+            tpl = next((t for t in self.get_all_templates() if t.get("template_id") == template_id), MATH_BOT_TEMPLATES[0])
+            tpl_window = tpl.get("window_ticks")
+            tpl_z = tpl.get("zscore_threshold")
+            tpl_imb = tpl.get("imbalance_threshold")
+            tpl_rev = tpl.get("revert_sigma")
+            tpl_sl = tpl.get("sl_sigma_mult")
+            tpl_tp = tpl.get("tp_sigma_mult")
 
             tick_count = max(120, min(5000, int(params.get("tick_count") or 800)))
             initial_capital = float(params.get("initial_capital") or 10000.0)
             stake = float(params.get("lot_size") or self.cfg.default_stake_usd)
             multiplier = int(params.get("multiplier") or self.cfg.default_multiplier)
-            window_ticks = int(params.get("window_ticks") or tpl["window_ticks"])
-            z_thresh = float(params.get("zscore_threshold") or tpl["zscore_threshold"])
-            imb_thresh = float(params.get("imbalance_threshold") or tpl["imbalance_threshold"])
-            rev_sigma = float(params.get("revert_sigma") or tpl["revert_sigma"])
-            sl_mult = float(params.get("sl_sigma_mult") or tpl["sl_sigma_mult"])
-            tp_mult = float(params.get("tp_sigma_mult") or tpl["tp_sigma_mult"])
-            op_mode = str(params.get("operation_mode") or tpl["operation_mode"])
+            window_ticks = int(params.get("window_ticks") or (tpl_window if tpl_window is not None else 120))
+            z_thresh = float(params.get("zscore_threshold") if params.get("zscore_threshold") is not None else (tpl_z if tpl_z is not None else 1.8))
+            imb_thresh = float(params.get("imbalance_threshold") if params.get("imbalance_threshold") is not None else (tpl_imb if tpl_imb is not None else 0.35))
+            rev_sigma = float(params.get("revert_sigma") if params.get("revert_sigma") is not None else (tpl_rev if tpl_rev is not None else 2.0))
+            sl_mult = float(params.get("sl_sigma_mult") or (tpl_sl if tpl_sl is not None else 1.0))
+            tp_mult = float(params.get("tp_sigma_mult") or (tpl_tp if tpl_tp is not None else 1.8))
+            op_mode = str(params.get("operation_mode") or tpl.get("operation_mode") or ("CUSTOM" if tpl.get("is_custom") else "BOTH"))
 
             ticks = self._build_backtest_tick_series(symbol, tick_count)
             balance = initial_capital
@@ -1416,9 +1430,9 @@ class PradoTradingService:
             report = {
                 "symbol": symbol,
                 "bot_template_id": template_id,
-                "bot_template_name": tpl["name"],
-                "template_name": tpl["name"],
-                "formula": tpl["formula"],
+                "bot_template_name": str(tpl.get("name") or template_id),
+                "template_name": str(tpl.get("name") or template_id),
+                "formula": str(tpl.get("formula") or ""),
                 "operation_mode": op_mode,
                 "ticks_processed": len(ticks),
                 "initial_capital": round(initial_capital, 2),

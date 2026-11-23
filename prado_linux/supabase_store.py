@@ -198,7 +198,8 @@ class SupabaseStore:
         if code_bots == 200 and isinstance(bot_rows, list):
             loaded_bots: list[dict[str, Any]] = []
             for r in bot_rows:
-                rec = dict(r.get("config_json") or {})
+                raw_cj = r.get("config_json")
+                rec = dict(raw_cj) if isinstance(raw_cj, dict) else {}
                 rec.update(
                     {
                         "bot_id": str(r.get("bot_id") or ""),
@@ -231,21 +232,32 @@ class SupabaseStore:
             bearer_token=access_token,
         )
         if code_tpl == 200 and isinstance(tpl_rows, list):
-            cfg.custom_templates = [
-                {
-                    **(r.get("config_json") or {}),
-                    "template_id": str(r.get("template_id") or ""),
-                    "name": str(r.get("name") or ""),
-                    "description": str(r.get("description") or ""),
-                    "custom_mode": str(r.get("custom_mode") or "INDICATORS"),
-                    "combine_mode": str(r.get("combine_mode") or "MAJORITY"),
-                    "formula": str(r.get("formula") or ""),
-                    "indicators": list(r.get("indicators") or []),
-                    "python_code": str(r.get("python_code") or ""),
-                    "is_custom": True,
-                }
-                for r in tpl_rows
-            ]
+            loaded_tpls: list[dict[str, Any]] = []
+            for r in tpl_rows:
+                raw_cj = r.get("config_json")
+                cj = raw_cj if isinstance(raw_cj, dict) else {}
+                loaded_tpls.append(
+                    {
+                        **cj,
+                        "template_id": str(r.get("template_id") or ""),
+                        "name": str(r.get("name") or ""),
+                        "description": str(r.get("description") or ""),
+                        "operation_mode": str(cj.get("operation_mode") or "CUSTOM"),
+                        "custom_mode": str(r.get("custom_mode") or "INDICATORS"),
+                        "combine_mode": str(r.get("combine_mode") or "MAJORITY"),
+                        "formula": str(r.get("formula") or ""),
+                        "indicators": list(r.get("indicators") or []),
+                        "python_code": str(r.get("python_code") or ""),
+                        "window_ticks": max(20, int(cj.get("window_ticks") or 120)),
+                        "zscore_threshold": float(cj.get("zscore_threshold") if cj.get("zscore_threshold") is not None else 1.8),
+                        "imbalance_threshold": float(cj.get("imbalance_threshold") if cj.get("imbalance_threshold") is not None else 0.35),
+                        "revert_sigma": float(cj.get("revert_sigma") if cj.get("revert_sigma") is not None else 2.0),
+                        "sl_sigma_mult": float(cj.get("sl_sigma_mult") or 1.0),
+                        "tp_sigma_mult": float(cj.get("tp_sigma_mult") or 1.8),
+                        "is_custom": True,
+                    }
+                )
+            cfg.custom_templates = loaded_tpls
 
         code_feeds, feed_rows = self._request(
             "GET",
