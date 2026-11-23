@@ -65,6 +65,8 @@ export interface BotItem {
   revert_sigma: number;
   sl_sigma_mult: number;
   tp_sigma_mult: number;
+  tp_mode?: 'AUTO' | 'USD' | 'PCT' | 'TICKS' | string;
+  tp_value?: number;
   active: boolean;
   status?: 'STOPPED' | 'STARTING' | 'RUNNING' | 'PAUSED' | 'ERROR' | 'STOPPING';
   last_error?: string;

@@ -38,6 +38,24 @@ from prado_linux.indicators import (
 )
 from prado_linux.news_scout import NewsScout
 
+
+def normalize_tp_config(tp_mode: Any, tp_value: Any) -> tuple[str, float]:
+    """Normalize per-bot Take Profit mode ('AUTO', 'USD', 'PCT', 'TICKS') and value."""
+    mode = str(tp_mode or "AUTO").strip().upper()
+    if mode not in ("AUTO", "USD", "PCT", "TICKS"):
+        return "AUTO", 0.0
+    if mode == "AUTO":
+        return "AUTO", 0.0
+    defaults = {"USD": 0.5, "PCT": 10.0, "TICKS": 2.0}
+    try:
+        val = float(tp_value)
+    except (TypeError, ValueError):
+        val = defaults[mode]
+    if not math.isfinite(val) or val <= 0.0:
+        val = defaults[mode]
+    return mode, round(val, 4)
+
+
 MAIN_DERIV_SYMBOLS: list[dict[str, str]] = [
     {"name": "R_100", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 100 Index (24/7)"},
     {"name": "R_75", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 75 Index (24/7)"},
@@ -559,6 +577,8 @@ class DerivUniversalConnector:
         allow_multi_same_symbol: bool = False,
         max_levels_override: int = 0,
         tp_usd_mult: float = 0.9,
+        tp_mode: str = "AUTO",
+        tp_value: float = 0.0,
     ) -> tuple[bool, str]:
         now = time.time()
         max_stake = float(getattr(self.cfg, "max_stake_per_trade", 100.0) or 100.0)
@@ -602,8 +622,14 @@ class DerivUniversalConnector:
         self._last_order_ts[symbol] = now
         is_buy = action.startswith("BUY")
         if self._deriv is not None:
+            norm_tp_mode, norm_tp_val = normalize_tp_config(tp_mode, tp_value)
             sl_usd = round(max(1.0, stake * 0.5), 2)
-            tp_usd = round(max(1.5, stake * tp_usd_mult), 2)
+            if norm_tp_mode == "USD":
+                tp_usd = round(max(0.05, norm_tp_val), 2)
+            elif norm_tp_mode == "PCT":
+                tp_usd = round(max(0.05, float(stake) * (norm_tp_val / 100.0)), 2)
+            else:
+                tp_usd = round(max(1.5, stake * tp_usd_mult), 2)
             ok, msg = self._deriv.place_multiplier_order(
                 symbol=symbol,
                 is_buy=is_buy,
@@ -944,6 +970,10 @@ class PradoTradingService:
                 if existing_bot and "auto_start" not in payload
                 else ("RUNNING" if auto_start else "STOPPED")
             )
+            raw_tp_mode = payload.get("tp_mode", existing_bot.get("tp_mode", "AUTO") if existing_bot else "AUTO")
+            raw_tp_val = payload.get("tp_value", existing_bot.get("tp_value", 0.0) if existing_bot else 0.0)
+            norm_tp_mode, norm_tp_val = normalize_tp_config(raw_tp_mode, raw_tp_val)
+
             bot_record: dict[str, Any] = {
                 "bot_id": bot_id,
                 "name": str(payload.get("name") or (existing_bot.get("name") if existing_bot else f"{tpl_name.split('—')[0].strip()} ({symbol})")).strip(),
@@ -966,6 +996,8 @@ class PradoTradingService:
                 "revert_sigma": float(payload.get("revert_sigma") if payload.get("revert_sigma") is not None else (tpl_rev if tpl_rev is not None else 2.0)),
                 "sl_sigma_mult": float(payload.get("sl_sigma_mult") or (tpl_sl if tpl_sl is not None else 1.0)),
                 "tp_sigma_mult": float(payload.get("tp_sigma_mult") or (tpl_tp if tpl_tp is not None else 1.8)),
+                "tp_mode": norm_tp_mode,
+                "tp_value": norm_tp_val,
                 "grid_direction": str(payload.get("grid_direction") or (existing_bot.get("grid_direction") if existing_bot else tpl.get("grid_direction", "BUY_ONLY"))).upper(),
                 "grid_step_points": max(0.0001, float(payload.get("grid_step_points") or (existing_bot.get("grid_step_points") if existing_bot else tpl.get("grid_step_points", 1.5)))),
                 "grid_tp_points": max(0.0001, float(payload.get("grid_tp_points") or (existing_bot.get("grid_tp_points") if existing_bot else tpl.get("grid_tp_points", 1.5)))),
@@ -1047,6 +1079,8 @@ class PradoTradingService:
                             tp_points=round(bw * float(b.get("tp_sigma_mult", 1.8)), 6),
                             multiplier=int(b.get("multiplier", self.cfg.default_multiplier)),
                             bot_name=str(b.get("name", "PradoBot")),
+                            tp_mode=str(b.get("tp_mode", "AUTO")),
+                            tp_value=float(b.get("tp_value", 0.0) or 0.0),
                         )
                         if ok:
                             b["trades_executed"] = int(b.get("trades_executed", 0)) + 1
@@ -1483,6 +1517,65 @@ class PradoTradingService:
             p = max(step, p + delta)
             out.append(TickRecord(now_msc - (count - i) * 1000, p, p, p, 0.0, float(vol), flag))
         return out
+
+    @staticmethod
+    def _estimate_tick_step(ticks: list[TickRecord]) -> float:
+        """Estimate the minimum non-zero price increment from recent ticks."""
+        if len(ticks) < 2:
+            return 0.0
+        prices = [float(t.effective_price()) for t in ticks[-40:]]
+        deltas = [abs(prices[i] - prices[i - 1]) for i in range(1, len(prices))]
+        non_zero = [d for d in deltas if d > 1e-9]
+        return min(non_zero) if non_zero else 0.0
+
+    def _check_bot_tick_take_profit(
+        self,
+        bot: dict[str, Any],
+        ticks: list[TickRecord],
+        positions: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Close open positions for a bot in TICKS mode when price moves >= tp_value ticks in profit."""
+        norm_mode, norm_val = normalize_tp_config(bot.get("tp_mode", "AUTO"), bot.get("tp_value", 0.0))
+        if norm_mode != "TICKS" or norm_val <= 0.0 or not ticks:
+            return positions
+        tick_step = self._estimate_tick_step(ticks)
+        if tick_step <= 0.0:
+            return positions
+
+        last_price = float(ticks[-1].effective_price())
+        target_dist = norm_val * tick_step
+        bsym = str(bot.get("symbol", "R_100"))
+        bname = str(bot.get("name", ""))
+        bprefix = bname[:14]
+
+        closed_any = False
+        for p in list(positions):
+            if p.get("symbol") != bsym:
+                continue
+            belongs = (
+                (bname and str(p.get("bot_name", "")) == bname)
+                or (bprefix and str(p.get("comment", "")).startswith(bprefix))
+                or (not p.get("bot_name") and not p.get("comment"))
+            )
+            if not belongs:
+                continue
+            entry = float(p.get("price_open", 0.0) or 0.0)
+            profit = float(p.get("profit", 0.0) or 0.0)
+            if entry <= 0.0 or profit <= 0.0:
+                continue
+            ptype = str(p.get("type", "")).upper()
+            hit_tp = (ptype == "BUY" and last_price >= entry + target_dist - 1e-9) or (
+                ptype == "SELL" and last_price <= entry - target_dist + 1e-9
+            )
+            if hit_tp:
+                ok_c, msg_c = self.connector.close_single_position(p["ticket"])
+                if ok_c:
+                    closed_any = True
+                    bot["last_signal"] = "TICK_SCALP_TP"
+                    self._log_event("BOT_TICK_TP", f"[{bname}] {msg_c}")
+        if closed_any:
+            return self.connector.get_open_positions()
+        return positions
 
     def _evaluate_grid_bot(
         self,
@@ -1945,6 +2038,8 @@ class PradoTradingService:
                         positions = self._evaluate_grid_bot(bot, last_price, positions, risk_locked)
                         continue
 
+                    positions = self._check_bot_tick_take_profit(bot, ticks, positions)
+
                     bot["last_regime"] = bot_flow.regime
                     bot["last_signal"] = bot_action
 
@@ -2008,6 +2103,8 @@ class PradoTradingService:
                                     multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
                                     bot_name=bname or "PradoBot",
                                     tp_usd_mult=2.5,
+                                    tp_mode=str(bot.get("tp_mode", "AUTO")),
+                                    tp_value=float(bot.get("tp_value", 0.0) or 0.0),
                                 )
                                 if ok:
                                     bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
@@ -2032,6 +2129,8 @@ class PradoTradingService:
                                 tp_points=bot_flow.tp_points,
                                 multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
                                 bot_name=str(bot.get("name", "PradoBot")),
+                                tp_mode=str(bot.get("tp_mode", "AUTO")),
+                                tp_value=float(bot.get("tp_value", 0.0) or 0.0),
                             )
                             if ok:
                                 bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1

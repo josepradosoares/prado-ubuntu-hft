@@ -1117,3 +1117,110 @@ def test_create_bot_and_backtest_with_partial_custom_template_no_operation_mode_
     assert null_bot["zscore_threshold"] == 1.8
     null_report = svc.run_mathematical_backtest({"bot_template_id": "CUSTOM_NULL_FIELDS", "symbol": "R_100", "tick_count": 150})
     assert null_report["operation_mode"] == "CUSTOM"
+
+
+def test_bot_tp_mode_usd_pct_ticks_and_supabase_defaults(tmp_path):
+    from prado_linux.config import load_config
+    from prado_linux.engine import PradoTradingService, normalize_tp_config
+    from prado_linux.flow_math import TickRecord
+    from prado_linux.supabase_store import SupabaseStore
+
+    assert normalize_tp_config("usd", "0.35") == ("USD", 0.35)
+    assert normalize_tp_config("PCT", 15) == ("PCT", 15.0)
+    assert normalize_tp_config("ticks", 3) == ("TICKS", 3.0)
+    assert normalize_tp_config("INVALID", 5) == ("AUTO", 0.0)
+    assert normalize_tp_config("USD", -1) == ("USD", 0.5)
+    assert normalize_tp_config("PCT", None) == ("PCT", 10.0)
+    assert normalize_tp_config("TICKS", 0) == ("TICKS", 2.0)
+
+    cfg_path = tmp_path / "config.json"
+    cfg = load_config(cfg_path)
+    cfg.connection_mode = "DEMO"
+    cfg.active_symbols = ["R_100"]
+    svc = PradoTradingService(cfg, config_path=cfg_path)
+
+    captured_tp: list[float | None] = []
+
+    class FakeDeriv:
+        def place_multiplier_order(self, symbol, is_buy, stake, multiplier=100, sl_amount=None, tp_amount=None):
+            captured_tp.append(tp_amount)
+            return True, "OK"
+
+        last_order_lifecycle = {"contract_id": "999"}
+
+    svc.connector._deriv = FakeDeriv()
+    svc.connector.connected = True
+    svc.connector.auth_state = "AUTHENTICATED"
+    svc.connector._last_tick_ts = 9999999999.0
+    svc.connector._compute_data_state = lambda now=None: "LIVE"
+    svc.connector.get_open_positions = lambda: []
+
+    # 1. USD mode sends exact tp_value (clamped >= 0.05)
+    svc.connector._last_order_ts.clear()
+    ok, _ = svc.connector.place_order("R_100", "BUY_FLOW", 10.0, 500.0, 1.0, 2.0, tp_mode="USD", tp_value=0.35)
+    assert ok is True
+    assert captured_tp[-1] == 0.35
+
+    # 2. PCT mode sends stake * (pct / 100)
+    svc.connector._last_order_ts.clear()
+    ok, _ = svc.connector.place_order("R_100", "BUY_FLOW", 10.0, 500.0, 1.0, 2.0, tp_mode="PCT", tp_value=15.0)
+    assert ok is True
+    assert captured_tp[-1] == 1.5
+
+    # 3. AUTO mode keeps legacy 90% of stake
+    svc.connector._last_order_ts.clear()
+    ok, _ = svc.connector.place_order("R_100", "BUY_FLOW", 10.0, 500.0, 1.0, 2.0, tp_mode="AUTO", tp_value=0.0)
+    assert ok is True
+    assert captured_tp[-1] == 9.0
+
+    # 4. TICKS mode sends safety TP on Deriv
+    svc.connector._last_order_ts.clear()
+    ok, _ = svc.connector.place_order("R_100", "BUY_FLOW", 10.0, 500.0, 1.0, 2.0, tp_mode="TICKS", tp_value=3.0)
+    assert ok is True
+    assert captured_tp[-1] == 9.0
+
+    # 5. create_bot persists tp_mode and tp_value
+    bot_ticks = svc.create_bot(
+        {
+            "name": "ScalpTicks",
+            "symbol": "R_100",
+            "bot_template_id": "WALL_STREET_HYBRID_BOTH",
+            "tp_mode": "TICKS",
+            "tp_value": 3,
+        }
+    )
+    assert bot_ticks["tp_mode"] == "TICKS"
+    assert bot_ticks["tp_value"] == 3.0
+
+    # 6. Tick monitoring closes only when >= tp_value ticks in favor AND profit > 0
+    closed_tickets: list[int | str] = []
+    svc.connector.close_single_position = lambda ticket: (closed_tickets.append(ticket) or True, "Closed")
+
+    flat_ticks = [TickRecord(time_msc=(100 + i) * 1000, bid=500.0, ask=500.0, last=500.0, volume_real=1.0, tick_volume=1.0) for i in range(5)]
+    pos_open = [{"ticket": 101, "symbol": "R_100", "type": "BUY", "price_open": 500.0, "profit": 0.40, "bot_name": "ScalpTicks"}]
+    svc._check_bot_tick_take_profit(bot_ticks, flat_ticks, pos_open)
+    assert closed_tickets == []
+
+    step_ticks = [TickRecord(time_msc=(200 + i) * 1000, bid=500.0 + i * 0.1, ask=500.0 + i * 0.1, last=500.0 + i * 0.1, volume_real=1.0, tick_volume=1.0) for i in range(6)]
+    pos_neg_profit = [{"ticket": 102, "symbol": "R_100", "type": "BUY", "price_open": 500.0, "profit": -0.05, "bot_name": "ScalpTicks"}]
+    svc._check_bot_tick_take_profit(bot_ticks, step_ticks, pos_neg_profit)
+    assert closed_tickets == []
+
+    pos_in_profit = [{"ticket": 103, "symbol": "R_100", "type": "BUY", "price_open": 500.0, "profit": 0.25, "bot_name": "ScalpTicks"}]
+    svc._check_bot_tick_take_profit(bot_ticks, step_ticks, pos_in_profit)
+    assert closed_tickets == [103]
+
+    # 7. SupabaseStore defaults tp_mode and tp_value for legacy bots
+    from prado_linux.supabase_store import SupabaseConfig
+    store = SupabaseStore(SupabaseConfig(url="https://example.supabase.co", anon_key="anon"))
+    store._request = lambda method, path, bearer_token=None, payload=None: (
+        (200, [{"role": "admin"}])
+        if "prado_settings" in path
+        else (200, [{"bot_id": "b1", "name": "Legacy", "symbol": "R_100", "template_id": "WALL_STREET_HYBRID_BOTH", "config_json": {}}])
+        if "prado_bots" in path
+        else (200, [])
+    )
+    loaded = store.load_user_config("uid-1", "tok", cfg_path)
+    assert loaded.bots[0]["tp_mode"] == "AUTO"
+    assert loaded.bots[0]["tp_value"] == 0.0
+

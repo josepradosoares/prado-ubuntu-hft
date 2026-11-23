@@ -169,6 +169,8 @@ export default function App() {
   const [botMaxLossUsd, setBotMaxLossUsd] = useState(20)
   const [botNewsAssisted, setBotNewsAssisted] = useState(false)
   const [botTimeframe, setBotTimeframe] = useState('TICKS')
+  const [botTpMode, setBotTpMode] = useState<'AUTO' | 'USD' | 'PCT' | 'TICKS'>('AUTO')
+  const [botTpValue, setBotTpValue] = useState(0.5)
   const [botFormDirty, setBotFormDirty] = useState(false)
 
   // Backtest form state
@@ -463,6 +465,9 @@ export default function App() {
     setBotMaxLossUsd(b.max_loss_usd ?? 20)
     setBotNewsAssisted(Boolean(b.news_assisted))
     setBotTimeframe((b.timeframe || 'TICKS').toUpperCase())
+    const loadedTpMode = (String(b.tp_mode || 'AUTO').toUpperCase() as 'AUTO' | 'USD' | 'PCT' | 'TICKS')
+    setBotTpMode(['AUTO', 'USD', 'PCT', 'TICKS'].includes(loadedTpMode) ? loadedTpMode : 'AUTO')
+    setBotTpValue(b.tp_value && b.tp_value > 0 ? b.tp_value : loadedTpMode === 'PCT' ? 10 : loadedTpMode === 'TICKS' ? 2 : 0.5)
     setBotFormDirty(false)
     setActiveTab('create-bot')
   }
@@ -479,6 +484,8 @@ export default function App() {
       zscore_threshold: Number(b.zscore_threshold) || 1.8,
       imbalance_threshold: Number(b.imbalance_threshold) || 0.35,
       revert_sigma: Number(b.revert_sigma) || 2.0,
+      tp_mode: b.tp_mode || 'AUTO',
+      tp_value: Number(b.tp_value) || 0,
       auto_start: false,
     }
     try {
@@ -531,6 +538,8 @@ export default function App() {
       max_loss_usd: Number(botMaxLossUsd),
       news_assisted: Boolean(botNewsAssisted),
       timeframe: botTimeframe,
+      tp_mode: botTpMode,
+      tp_value: botTpMode === 'AUTO' ? 0 : Number(botTpValue),
       auto_start: true,
     }
     if (editingBotId) payload.bot_id = editingBotId
@@ -1677,6 +1686,46 @@ export default function App() {
                             className={`${inputClass} font-mono`}
                           />
                         </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                            Alvo de Ganho (Take Profit)
+                          </label>
+                          <select
+                            value={botTpMode}
+                            onChange={(e) => {
+                              const next = e.target.value as 'AUTO' | 'USD' | 'PCT' | 'TICKS'
+                              setBotTpMode(next)
+                              if (next === 'USD' && botTpValue <= 0) setBotTpValue(0.5)
+                              else if (next === 'PCT' && botTpValue <= 0) setBotTpValue(10)
+                              else if (next === 'TICKS' && botTpValue <= 0) setBotTpValue(2)
+                            }}
+                            className={inputClass}
+                          >
+                            <option value="AUTO">Padrão (90% do Stake)</option>
+                            <option value="USD">Valor fixo (USD)</option>
+                            <option value="PCT">% do Stake</option>
+                            <option value="TICKS">Quantidade de Ticks</option>
+                          </select>
+                        </div>
+                        {botTpMode !== 'AUTO' && (
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                              {botTpMode === 'USD'
+                                ? 'Lucro alvo (USD)'
+                                : botTpMode === 'PCT'
+                                  ? 'Lucro alvo (% do Stake)'
+                                  : 'Alvo em Ticks (a favor)'}
+                            </label>
+                            <input
+                              type="number"
+                              step={botTpMode === 'TICKS' ? '1' : botTpMode === 'PCT' ? '1' : '0.05'}
+                              min={botTpMode === 'TICKS' ? '1' : botTpMode === 'PCT' ? '1' : '0.05'}
+                              value={botTpValue}
+                              onChange={(e) => setBotTpValue(Number(e.target.value))}
+                              className={`${inputClass} font-mono`}
+                            />
+                          </div>
+                        )}
                       </div>
 
                       {botTemplateId === 'GRID_LINEAR_HFT' && (

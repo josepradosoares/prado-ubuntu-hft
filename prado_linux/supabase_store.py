@@ -221,6 +221,10 @@ class SupabaseStore:
                         "floating_pnl": float(r.get("floating_pnl") or 0.0),
                         "total_pnl": float(r.get("total_pnl") or 0.0),
                         "trades_executed": int(r.get("trades_executed") or 0),
+                        "sl_sigma_mult": float(rec.get("sl_sigma_mult") or 1.0),
+                        "tp_sigma_mult": float(rec.get("tp_sigma_mult") or 1.8),
+                        "tp_mode": str(rec.get("tp_mode") or "AUTO").upper(),
+                        "tp_value": float(rec.get("tp_value") or 0.0),
                     }
                 )
                 loaded_bots.append(rec)
