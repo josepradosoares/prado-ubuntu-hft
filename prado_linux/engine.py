@@ -36,7 +36,7 @@ from prado_linux.indicators import (
     evaluate_indicator_model,
     evaluate_python_model,
 )
-from prado_linux.news_scout import NewsScout
+from prado_linux.news_scout import NewsScout, validate_rss_url
 
 
 def normalize_tp_config(tp_mode: Any, tp_value: Any) -> tuple[str, float]:
@@ -1079,14 +1079,22 @@ class PradoTradingService:
                         b["last_signal"] = "STOPPED_MANUAL"
                         self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) parado com segurança.")
                     elif act in ("FIRE_BUY", "FIRE_SELL"):
+                        acc_now = self.connector.get_account_summary()
+                        cur_pnl = float(acc_now.get("profit", 0.0)) + float(acc_now.get("daily_realized", 0.0))
+                        is_locked = (
+                            self.cfg.max_daily_loss_money > 0
+                            and cur_pnl <= -abs(self.cfg.max_daily_loss_money)
+                        )
+                        if is_locked:
+                            b["last_signal"] = "RISK_LOCKED"
+                            self._log_event("RISK_GUARD", f"Ordem manual bloqueada em '{b.get('name')}': trava de perda diária atingida ({cur_pnl:.2f}).")
+                            return b
                         sym = str(b.get("symbol", "R_100"))
                         ticks = self.connector.fetch_ticks(sym, count=120)
                         vwap_b = compute_intraday_vwap(ticks)
                         last_p = ticks[-1].effective_price() if ticks else 100.0
                         bw = max(vwap_b.std_dev, abs(last_p) * 0.0020, 1e-4)
                         ord_act = "BUY_FLOW" if act == "FIRE_BUY" else "SELL_FLOW"
-                        if self.connector._sim_daily_pnl <= -abs(self.cfg.max_daily_loss_money):
-                            self.connector._sim_daily_pnl = 0.0
                         ok, msg = self.connector.place_order(
                             symbol=sym,
                             action=ord_act,
@@ -1192,10 +1200,48 @@ class PradoTradingService:
             self._log_event("TOKEN_VAULT", msg)
             return ok, msg, list(self.cfg.accounts)
 
+    _ALLOWED_CONFIG_UPDATE_FIELDS = frozenset({
+        "admin_password_hash",
+        "deriv_token",
+        "deriv_app_id",
+        "connection_mode",
+        "active_account_id",
+        "active_account_type",
+        "default_stake_usd",
+        "default_multiplier",
+        "symbol_selection_mode",
+        "custom_categories",
+        "auto_trading_enabled",
+        "allow_real_trading",
+        "operation_mode",
+        "active_symbols",
+        "correlated_basket",
+        "window_ticks",
+        "zscore_threshold",
+        "imbalance_threshold",
+        "revert_sigma",
+        "correlation_block_threshold",
+        "poll_interval_sec",
+        "sl_sigma_mult",
+        "tp_sigma_mult",
+        "max_daily_loss_money",
+        "daily_target_money",
+        "max_stake_per_trade",
+        "max_concurrent_trades",
+        "max_total_exposure_usd",
+        "min_order_interval_sec",
+        "news_bot_enabled",
+        "news_pause_grid_on_high_impact",
+        "news_auto_trade_enabled",
+        "news_stake_usd",
+        "news_multiplier",
+        "news_poll_interval_sec",
+    })
+
     def update_config(self, updates: dict[str, Any]) -> PradoServerConfig:
         with self._lock:
             for key, val in updates.items():
-                if hasattr(self.cfg, key):
+                if key in self._ALLOWED_CONFIG_UPDATE_FIELDS and hasattr(self.cfg, key):
                     setattr(self.cfg, key, val)
             if any(k in updates for k in ("deriv_token", "deriv_app_id", "connection_mode")):
                 ok, msg = self.connector.connect()
@@ -1725,6 +1771,9 @@ class PradoTradingService:
             default_symbol = str(payload.get("default_symbol") or "cryBTCUSD").strip()
             if not url:
                 return list(self.cfg.news_feeds)
+            ok_url, url_err = validate_rss_url(url)
+            if not ok_url:
+                raise ValueError(url_err)
             existing = next((f for f in self.cfg.news_feeds if f.get("feed_id") == feed_id), None)
             rec = {"feed_id": feed_id, "source": source, "url": url, "default_symbol": default_symbol}
             if existing is not None:
@@ -1862,7 +1911,13 @@ class PradoTradingService:
                     or getattr(self.cfg, "news_auto_trade_enabled", False)
                 ) and new_items:
                     positions = self.connector.get_open_positions()
-                    _, just_paused_ids = self._process_news_items(new_items, positions, risk_locked=False)
+                    acc_now = self.connector.get_account_summary()
+                    cur_pnl = float(acc_now.get("profit", 0.0)) + float(acc_now.get("daily_realized", 0.0))
+                    is_risk_locked = (
+                        (self.cfg.max_daily_loss_money > 0 and cur_pnl <= -abs(self.cfg.max_daily_loss_money))
+                        or (self.cfg.daily_target_money > 0 and cur_pnl >= abs(self.cfg.daily_target_money))
+                    )
+                    _, just_paused_ids = self._process_news_items(new_items, positions, risk_locked=is_risk_locked)
                 self._auto_resume_news_paused_bots(skip_bot_ids=just_paused_ids)
                 self._log_event("NEWS_SCOUT", f"Pesquisa de notícias concluída ({len(self.news_scout.items)} manchete(s)).")
             return self._news_snapshot_dict()
@@ -1874,7 +1929,6 @@ class PradoTradingService:
             if (
                 self.cfg.connection_mode.upper() != "SIMULATION"
                 and self.connector._deriv is not None
-                and self.connector._deriv._ws is not None
                 and (now_step - self.connector._last_ping_at) >= 30.0
             ):
                 self.connector._last_ping_at = now_step
@@ -1986,6 +2040,17 @@ class PradoTradingService:
                     bsym = bot.get("symbol", "")
                     if not bsym:
                         raise ValueError("Robô sem símbolo configurado")
+                    if self.cfg.connection_mode.upper() != "SIMULATION":
+                        bot_acc_type = str(bot.get("account_type", "") or "").strip().upper()
+                        active_acc_type = str(acc.get("account_type", "") or "").strip().upper()
+                        if bot_acc_type in ("DEMO", "REAL") and active_acc_type in ("DEMO", "REAL") and bot_acc_type != active_acc_type:
+                            bot["last_signal"] = "ACCOUNT_MISMATCH"
+                            continue
+                        bot_acc_id = str(bot.get("account_id", "") or "").strip()
+                        active_acc_id = str(self.cfg.active_account_id or "").strip()
+                        if bot_acc_id and active_acc_id and bot_acc_id != active_acc_id:
+                            bot["last_signal"] = "ACCOUNT_MISMATCH"
+                            continue
                     bname = str(bot.get("name", ""))
                     bprefix = bname[:14]
                     realized_bot = sum(
@@ -2179,7 +2244,13 @@ class PradoTradingService:
                         getattr(self.cfg, "news_pause_grid_on_high_impact", False)
                         or getattr(self.cfg, "news_auto_trade_enabled", False)
                     ) and new_items:
-                        positions = self._process_news_items(new_items, positions, risk_locked)
+                        positions, just_paused_ids = self._process_news_items(new_items, positions, risk_locked)
+                        self._auto_resume_news_paused_bots(skip_bot_ids=just_paused_ids)
+
+            if len(self.connector._sim_deals_history) > 500:
+                del self.connector._sim_deals_history[500:]
+            if len(self.connector._deriv_deals_history) > 500:
+                del self.connector._deriv_deals_history[500:]
 
             active_deals = (
                 self.connector._sim_deals_history

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import tempfile
 from typing import Any
 
 from prado_linux.auth import hash_password
@@ -258,4 +259,15 @@ def load_config(config_path: Path) -> PradoServerConfig:
 def save_config(cfg: PradoServerConfig, config_path: Path) -> None:
     cfg.accounts = deduplicate_accounts(cfg.accounts)
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(asdict(cfg), indent=2, ensure_ascii=False), encoding="utf-8")
+    payload = json.dumps(asdict(cfg), indent=2, ensure_ascii=False)
+    fd, tmp_name = tempfile.mkstemp(prefix=".cfg_", suffix=".tmp", dir=str(config_path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+        os.replace(tmp_name, config_path)
+    finally:
+        if os.path.exists(tmp_name):
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass

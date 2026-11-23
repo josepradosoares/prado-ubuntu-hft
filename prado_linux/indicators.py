@@ -5,6 +5,7 @@ import contextlib
 import io
 import math
 import statistics
+import sys
 import time
 from typing import Any
 
@@ -437,20 +438,67 @@ def evaluate_indicator_model(
     }
 
 
+_FORBIDDEN_AST_NODES = (
+    ast.Import,
+    ast.ImportFrom,
+    ast.Global,
+    ast.Nonlocal,
+    ast.AsyncFunctionDef,
+    ast.ClassDef,
+    ast.Delete,
+    ast.With,
+    ast.AsyncWith,
+    ast.Yield,
+    ast.YieldFrom,
+    ast.Await,
+    ast.Try,
+    ast.Raise,
+)
+
+_FORBIDDEN_NAMES = frozenset({
+    "eval",
+    "exec",
+    "compile",
+    "open",
+    "getattr",
+    "setattr",
+    "delattr",
+    "globals",
+    "locals",
+    "vars",
+    "dir",
+    "breakpoint",
+    "input",
+    "__import__",
+})
+
+
+def _validate_python_strategy_ast(tree: ast.AST) -> None:
+    """Reject dangerous AST constructs, imports, and dunder/private attribute access."""
+    for node in ast.walk(tree):
+        if isinstance(node, _FORBIDDEN_AST_NODES):
+            raise ValueError(f"Construção Python não permitida na estratégia: {type(node).__name__}")
+        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            raise ValueError(f"Acesso a atributo privado/dunder não permitido: {node.attr}")
+        if isinstance(node, ast.Name) and (node.id.startswith("_") or node.id in _FORBIDDEN_NAMES):
+            raise ValueError(f"Identificador não permitido na estratégia: {node.id}")
+
+
 def evaluate_python_model(
     code: str,
     prices: list[float],
     ticks: list[TickRecord],
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Validate and run user-supplied Python strategy code safely."""
+    """Validate and run user-supplied Python strategy code safely with AST checks and step/time limits."""
     src = str(code or "").strip()
     if not src:
         return {"ok": False, "signal": "WAIT", "elapsed_ms": 0.0, "stdout": "", "error": "Código Python vazio."}
 
     t0 = time.perf_counter()
     try:
-        ast.parse(src)
+        tree = ast.parse(src)
+        _validate_python_strategy_ast(tree)
     except SyntaxError as exc:
         return {
             "ok": False,
@@ -458,6 +506,14 @@ def evaluate_python_model(
             "elapsed_ms": round((time.perf_counter() - t0) * 1000, 2),
             "stdout": "",
             "error": f"Erro de sintaxe na linha {exc.lineno}: {exc.msg}",
+        }
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "signal": "WAIT",
+            "elapsed_ms": round((time.perf_counter() - t0) * 1000, 2),
+            "stdout": "",
+            "error": str(exc),
         }
 
     safe_builtins = {
@@ -490,9 +546,22 @@ def evaluate_python_model(
         "statistics": statistics,
     }
     stdout_buf = io.StringIO()
+    steps = 0
+    deadline = t0 + 0.5
+    prev_trace = sys.gettrace()
+
+    def _trace_guard(frame: Any, event: str, arg: Any) -> Any:
+        nonlocal steps
+        if frame.f_code.co_filename == "<custom_strategy>":
+            steps += 1
+            if steps > 50_000 or time.perf_counter() > deadline:
+                raise TimeoutError("Estratégia Python excedeu o limite de execução (50k passos / 500ms).")
+        return _trace_guard
+
     try:
         with contextlib.redirect_stdout(stdout_buf):
-            exec(compile(src, "<custom_strategy>", "exec"), env, env)
+            sys.settrace(_trace_guard)
+            exec(compile(tree, "<custom_strategy>", "exec"), env, env)
             fn = env.get("evaluate")
             if not callable(fn):
                 return {
@@ -511,6 +580,8 @@ def evaluate_python_model(
             "stdout": stdout_buf.getvalue()[:1000],
             "error": f"{type(exc).__name__}: {exc}",
         }
+    finally:
+        sys.settrace(prev_trace)
 
     norm = str(raw_sig or "WAIT").strip().upper()
     if norm not in ("BUY", "SELL", "WAIT"):

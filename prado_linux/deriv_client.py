@@ -425,7 +425,21 @@ class DerivClient:
                             self.auth_state = "AUTHENTICATED"
 
                     self._ws.send(json.dumps(req_payload))
-                    raw = self._ws.recv()
+                    expected_req_id = req_payload.get("req_id")
+                    resp = None
+                    for _ in range(5):
+                        raw = self._ws.recv()
+                        candidate = json.loads(raw)
+                        if (
+                            expected_req_id is None
+                            or not isinstance(candidate, dict)
+                            or candidate.get("req_id") is None
+                            or candidate.get("req_id") == expected_req_id
+                        ):
+                            resp = candidate
+                            break
+                    if resp is None:
+                        raise RuntimeError("Resposta WebSocket dessincronizada (req_id divergente).")
                     last_transport_exc = None
                     break
                 except (DerivAuthError, DerivRateLimitError):
@@ -440,7 +454,6 @@ class DerivClient:
             if last_transport_exc is not None:
                 raise RuntimeError(f"Conexão WebSocket interrompida: {last_transport_exc}")
 
-            resp = json.loads(raw)
             if resp.get("error"):
                 self._handle_rpc_error(resp["error"])
             self.rate_limiter.record_success()
@@ -493,6 +506,11 @@ class DerivClient:
                 return acc
             if not want_demo and atype == "real":
                 return acc
+        if want_demo:
+            raise DerivAuthError(
+                "NO_DEMO_ACCOUNT",
+                "Nenhuma conta DEMO encontrada para este token; fallback para conta REAL bloqueado por segurança.",
+            )
         return accounts[0]
 
     def list_accounts(self) -> list[dict[str, Any]]:

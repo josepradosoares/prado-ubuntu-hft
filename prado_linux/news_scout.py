@@ -4,9 +4,12 @@ from __future__ import annotations
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 import hashlib
+import ipaddress
 import re
+import socket
 import time
 from typing import Any, Callable
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
@@ -161,6 +164,33 @@ def parse_rss_xml(xml_text: str, source: str, default_symbol: str) -> list[dict[
     return items
 
 
+def validate_rss_url(url: str) -> tuple[bool, str]:
+    """Validate RSS feed URL against SSRF (only public http/https URLs allowed)."""
+    raw = str(url or "").strip()
+    if not raw:
+        return False, "URL de feed vazia."
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
+        return False, "Apenas URLs http:// ou https:// válidas são permitidas."
+    host = parsed.hostname.strip().lower()
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith(".local"):
+        return False, "Hosts locais/internos não são permitidos em feeds RSS."
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            return False, "Endereços IP privados ou reservados não são permitidos."
+    except ValueError:
+        try:
+            for info in socket.getaddrinfo(host, None):
+                ip_str = info[4][0]
+                ip = ipaddress.ip_address(ip_str)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                    return False, "Domínio resolve para endereço IP privado ou reservado."
+        except OSError:
+            pass
+    return True, ""
+
+
 class NewsScout:
     """Periodic RSS news researcher that tracks seen items so each headline acts at most once."""
 
@@ -209,6 +239,8 @@ class NewsScout:
         new_items = [it for it in self.items if it["id"] not in self._seen_ids]
         for it in new_items:
             self._seen_ids.add(it["id"])
+        if len(self._seen_ids) > 2000:
+            self._seen_ids = {it["id"] for it in self.items}
         return self.items, new_items
 
     def summary_by_symbol(self) -> dict[str, dict[str, Any]]:

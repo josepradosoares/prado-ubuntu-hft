@@ -92,7 +92,9 @@ class PradoWebApp:
             return None
         uid = verify_session_token(morsel.value, self.cfg.secret_key)
         if uid and self.supabase.is_enabled and uid != self.cfg.admin_username:
-            if uid not in self._user_tokens and not self.supabase.cfg.service_role_key:
+            with self._services_lock:
+                has_tok = uid in self._user_tokens
+            if not has_tok:
                 return None
         return uid
 
@@ -181,6 +183,9 @@ class PradoWebApp:
                 return served
             return 404, "Not found", {"Content-Type": "text/plain; charset=utf-8"}
 
+        if method == "GET" and clean_path == "/health":
+            return 200, json.dumps({"ok": True, "status": "healthy"}), {"Content-Type": "application/json"}
+
         if method == "GET" and clean_path == "/login":
             return self._serve_index()
 
@@ -234,9 +239,10 @@ class PradoWebApp:
                 ok, res = self.supabase.sign_in(username, password)
                 if ok and res.get("user_id"):
                     uid = res["user_id"]
-                    self._user_tokens[uid] = res["access_token"]
-                    self._user_emails[uid] = str(res.get("email") or username)
-                    old_svc = self._user_services.pop(uid, None)
+                    with self._services_lock:
+                        self._user_tokens[uid] = res["access_token"]
+                        self._user_emails[uid] = str(res.get("email") or username)
+                        old_svc = self._user_services.pop(uid, None)
                     if old_svc is not None:
                         old_svc.stop_background_loop()
                     svc = self._active_service(uid)
@@ -261,6 +267,10 @@ class PradoWebApp:
             return 401, json.dumps({"ok": False, "error": "Credenciais invalidas."}), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/logout":
+            uid = self._extract_session_user(headers)
+            if uid:
+                with self._services_lock:
+                    self._user_tokens.pop(uid, None)
             return (
                 200,
                 json.dumps({"ok": True}),
@@ -448,7 +458,10 @@ class PradoWebApp:
             elif act == "RESET_DEFAULT":
                 feeds = svc.reset_news_feeds()
             else:
-                feeds = svc.save_news_feed(payload)
+                try:
+                    feeds = svc.save_news_feed(payload)
+                except ValueError as exc:
+                    return 400, json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), {"Content-Type": "application/json"}
             self._sync_user(user, svc)
             return 200, json.dumps({"ok": True, "news_feeds": feeds}, ensure_ascii=False), {"Content-Type": "application/json"}
 
@@ -563,7 +576,17 @@ def run_http_server(config_path: Path, host: str = "0.0.0.0", port: int | None =
 
     class _Handler(BaseHTTPRequestHandler):
         def _dispatch(self, method: str) -> None:
-            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw_len = self.headers.get("Content-Length", "0") or "0"
+            try:
+                length = int(raw_len)
+            except ValueError:
+                length = -1
+            if length < 0 or length > 2 * 1024 * 1024:
+                self.send_response(413)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"ok":false,"error":"Payload muito grande ou Content-Length invalido."}')
+                return
             body = self.rfile.read(length) if length > 0 else b""
             hdrs = {k: v for k, v in self.headers.items()}
             code, resp_body, resp_headers = app.handle_request(method, self.path, hdrs, body)
@@ -585,7 +608,6 @@ def run_http_server(config_path: Path, host: str = "0.0.0.0", port: int | None =
 
     server = ThreadingHTTPServer((host, bind_port), _Handler)
     print(f"[PRADO UBUNTU DERIV SERVER] Painel rodando em http://{host}:{bind_port}")
-    print("[PRADO UBUNTU DERIV SERVER] Login padrao: admin / prado2026")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
