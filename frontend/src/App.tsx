@@ -177,6 +177,7 @@ export default function App() {
   const [btSymbol, setBtSymbol] = useState('R_100')
   const [btTemplateId, setBtTemplateId] = useState('WALL_STREET_HYBRID_BOTH')
   const [btTimeframe, setBtTimeframe] = useState('TICKS')
+  const [btPeriod, setBtPeriod] = useState('CUSTOM')
   const [btTicks, setBtTicks] = useState(400)
   const [btCapital, setBtCapital] = useState(10000)
   const [btStake, setBtStake] = useState(10)
@@ -580,6 +581,7 @@ export default function App() {
           symbol: btSymbol,
           template_id: btTemplateId,
           timeframe: btTimeframe,
+          period: btPeriod,
           tick_count: Number(btTicks),
           initial_capital: Number(btCapital),
           lot_size: Number(btStake),
@@ -1938,17 +1940,37 @@ export default function App() {
                         </div>
                         <div>
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
-                            {btTimeframe === 'TICKS' ? 'Ticks (120-5000)' : 'Velas (120-5000)'}
+                            Período
                           </label>
-                          <input
-                            type="number"
-                            min={120}
-                            max={5000}
-                            value={btTicks}
-                            onChange={(e) => setBtTicks(Number(e.target.value))}
+                          <select
+                            value={btPeriod}
+                            onChange={(e) => setBtPeriod(e.target.value)}
                             className={`${inputClass} font-mono`}
-                          />
+                          >
+                            <option value="CUSTOM">Manual (Ticks/Velas)</option>
+                            <option value="1D">1 Dia</option>
+                            <option value="1W">1 Semana</option>
+                            <option value="1M">1 Mês</option>
+                            <option value="1Y">1 Ano</option>
+                            <option value="2Y">2 Anos</option>
+                            <option value="ALL_TIME">Todo Período (5 Anos)</option>
+                          </select>
                         </div>
+                        {btPeriod === 'CUSTOM' && (
+                          <div>
+                            <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
+                              {btTimeframe === 'TICKS' ? 'Ticks (120-5000)' : 'Velas (120-5000)'}
+                            </label>
+                            <input
+                              type="number"
+                              min={120}
+                              max={5000}
+                              value={btTicks}
+                              onChange={(e) => setBtTicks(Number(e.target.value))}
+                              className={`${inputClass} font-mono`}
+                            />
+                          </div>
+                        )}
                         <div>
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
                             Capital (USD)

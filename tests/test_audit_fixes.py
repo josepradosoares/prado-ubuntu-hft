@@ -194,5 +194,15 @@ def test_backtest_generates_trades_and_supports_all_symbols_and_timeframes(tmp_p
     assert len(rep_all["per_symbol"]) == 2
     assert rep_all["total_trades"] > 0
 
+    rep_period = app.service.run_mathematical_backtest({
+        "symbol": "R_100",
+        "template_id": "WALL_STREET_HYBRID_BOTH",
+        "timeframe": "H1",
+        "period": "1Y",
+    })
+    assert rep_period["total_trades"] > 0
+    assert rep_period["timeframe"] == "H1"
+
+
 
 

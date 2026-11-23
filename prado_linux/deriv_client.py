@@ -608,15 +608,24 @@ class DerivClient:
             )
         return out
 
-    def get_ticks_history(self, symbol: str, count: int = 200, granularity: int = 0) -> list[TickRecord]:
+    def get_ticks_history(
+        self,
+        symbol: str,
+        count: int = 200,
+        granularity: int = 0,
+        end: int | str = "latest",
+        start: int | None = None,
+    ) -> list[TickRecord]:
         gran = int(granularity or 0)
         req: dict[str, Any] = {
             "ticks_history": symbol,
             "adjust_start_time": 1,
-            "count": int(count),
-            "end": "latest",
+            "count": min(5000, max(1, int(count))),
+            "end": str(end),
             "style": "candles" if gran > 0 else "ticks",
         }
+        if start is not None:
+            req["start"] = int(start)
         if gran > 0:
             req["granularity"] = gran
         resp = self._send_rpc(req)

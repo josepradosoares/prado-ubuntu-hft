@@ -408,9 +408,64 @@ class DerivUniversalConnector:
         "D1": 86400,
     }
 
-    def fetch_backtest_history(self, symbol: str, count: int, timeframe: str = "TICKS") -> tuple[list[TickRecord], str]:
+    _PERIOD_SECONDS: dict[str, int] = {
+        "1D": 86400,
+        "1W": 7 * 86400,
+        "1M": 30 * 86400,
+        "1Y": 365 * 86400,
+        "2Y": 730 * 86400,
+        "ALL_TIME": 5 * 365 * 86400,
+    }
+
+    def _fetch_paginated_history(
+        self,
+        client: DerivClient,
+        symbol: str,
+        target_count: int,
+        granularity: int,
+    ) -> list[TickRecord]:
+        remaining = min(20000, max(120, int(target_count)))
+        end_cursor: int | str = "latest"
+        chunks: list[list[TickRecord]] = []
+        for _ in range(4):
+            if remaining <= 0:
+                break
+            batch_sz = min(5000, remaining)
+            batch = client.get_ticks_history(symbol, count=batch_sz, granularity=granularity, end=end_cursor)
+            if not batch:
+                break
+            chunks.append(batch)
+            remaining -= len(batch)
+            if len(batch) < batch_sz:
+                break
+            earliest_sec = int(batch[0].time_msc // 1000)
+            if earliest_sec <= 1:
+                break
+            end_cursor = earliest_sec - 1
+        merged: list[TickRecord] = []
+        for ch in reversed(chunks):
+            merged.extend(ch)
+        return merged
+
+    def fetch_backtest_history(
+        self,
+        symbol: str,
+        count: int,
+        timeframe: str = "TICKS",
+        period: str = "CUSTOM",
+    ) -> tuple[list[TickRecord], str]:
         """Fetch real Deriv historical ticks or candles (M1..D1, MN1 aggregated from D1) for backtesting."""
         tf = str(timeframe or "TICKS").strip().upper()
+        per = str(period or "CUSTOM").strip().upper()
+        target_count = max(120, int(count))
+        if per in self._PERIOD_SECONDS:
+            sec = self._PERIOD_SECONDS[per]
+            gran_for_calc = 86400 if tf == "MN1" else self.TIMEFRAME_GRANULARITIES.get(tf, 0)
+            if gran_for_calc > 0:
+                target_count = max(120, min(20000, sec // gran_for_calc))
+            else:
+                target_count = min(20000, max(1000, sec // 2))
+
         if self.cfg.connection_mode.upper() == "SIMULATION":
             return [], "SIMULATION"
         client = self._deriv or self._get_public_deriv()
@@ -418,8 +473,8 @@ class DerivUniversalConnector:
             return [], "SIMULATION_FALLBACK"
         try:
             if tf == "MN1":
-                daily_count = min(5000, max(int(count) * 30, 360))
-                daily = client.get_ticks_history(symbol, count=daily_count, granularity=86400)
+                daily_count = min(5000, max(target_count, 360))
+                daily = self._fetch_paginated_history(client, symbol, daily_count, 86400)
                 if not daily:
                     return [], "SIMULATION_FALLBACK"
                 monthly: dict[tuple[int, int], TickRecord] = {}
@@ -427,9 +482,9 @@ class DerivUniversalConnector:
                     dt = datetime.fromtimestamp(tk.time_msc / 1000.0)
                     monthly[(dt.year, dt.month)] = tk
                 bars = [monthly[k] for k in sorted(monthly.keys())]
-                return (bars, "DERIV_REAL") if len(bars) >= 45 else ([], "SIMULATION_FALLBACK")
+                return (bars, "DERIV_REAL") if len(bars) >= 12 else ([], "SIMULATION_FALLBACK")
             gran = self.TIMEFRAME_GRANULARITIES.get(tf, 0)
-            records = client.get_ticks_history(symbol, count=min(5000, max(120, int(count))), granularity=gran)
+            records = self._fetch_paginated_history(client, symbol, target_count, gran)
             if len(records) >= 45:
                 return records, "DERIV_REAL"
         except Exception as exc:
@@ -1482,6 +1537,7 @@ class PradoTradingService:
         tpl_tp = tpl.get("tp_sigma_mult")
 
         timeframe = str(params.get("timeframe") or "TICKS").strip().upper()
+        period = str(params.get("period") or "CUSTOM").strip().upper()
         tick_count = max(120, min(5000, int(params.get("tick_count") or 800)))
         initial_capital = float(params.get("initial_capital") or 10000.0)
         stake = float(params.get("lot_size") or self.cfg.default_stake_usd)
@@ -1494,9 +1550,10 @@ class PradoTradingService:
         tp_mult = float(params.get("tp_sigma_mult") or (tpl_tp if tpl_tp is not None else 1.8))
         op_mode = str(params.get("operation_mode") or tpl.get("operation_mode") or ("CUSTOM" if tpl.get("is_custom") else "BOTH"))
 
-        ticks, data_source = self.connector.fetch_backtest_history(symbol, tick_count, timeframe=timeframe)
+        ticks, data_source = self.connector.fetch_backtest_history(symbol, tick_count, timeframe=timeframe, period=period)
         if not ticks:
-            ticks = self._build_backtest_tick_series(symbol, tick_count)
+            sim_count = tick_count if period == "CUSTOM" else 1200
+            ticks = self._build_backtest_tick_series(symbol, sim_count)
         balance = initial_capital
         peak_balance = initial_capital
         max_drawdown = 0.0
