@@ -116,8 +116,9 @@ class DerivUniversalConnector:
         self._balance_cache: tuple[float, float] | None = None
         self._positions_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._contract_bot_map: dict[str, str] = {}
+        self._recorded_deal_tickets: set[str] = set()
         self._last_order_ts: dict[str, float] = {}
-        self._last_ping_at: float = 0.0
+        self._last_ping_at: float = time.time()
 
     def connect(self, token: str | None = None, app_id: str | None = None) -> tuple[bool, str]:
         target_token = (token if token is not None else self.cfg.deriv_token).strip()
@@ -145,6 +146,7 @@ class DerivUniversalConnector:
                 self.auth_state = "AUTHENTICATED"
                 self.backend_name = "DERIV_LIVE_API"
                 self.last_error = ""
+                self._last_ping_at = time.time()
                 self._balance_cache = (time.time(), float(auth.get("balance", 0.0)))
                 env_str = "DEMO" if auth.get("is_virtual") else "REAL"
                 return (
@@ -591,12 +593,121 @@ class DerivUniversalConnector:
             self._sim_ticks[symbol] = history[-600:]
         return self._sim_ticks[symbol]
 
+    def _record_deriv_deal(
+        self,
+        ticket: str | int,
+        symbol: str,
+        side: str,
+        volume: float,
+        price_open: float,
+        price_close: float,
+        profit: float,
+        reason: str,
+        bot_name: str,
+        comment: str = "",
+    ) -> bool:
+        tid = str(ticket)
+        if tid and tid in self._recorded_deal_tickets:
+            return False
+        if tid:
+            self._recorded_deal_tickets.add(tid)
+        ts_str = datetime.now().strftime("%H:%M:%S")
+        bname = bot_name or comment or "Deriv"
+        self._deriv_deals_history.insert(
+            0,
+            {
+                "ticket": tid,
+                "time": ts_str,
+                "time_str": ts_str,
+                "symbol": symbol or "--",
+                "type": side or "BUY",
+                "side": side or "BUY",
+                "volume": float(volume or 0.0),
+                "price_open": float(price_open or 0.0),
+                "price_close": float(price_close or 0.0),
+                "profit": round(float(profit or 0.0), 2),
+                "reason": reason,
+                "comment": comment or bname,
+                "bot_name": bname,
+            },
+        )
+        return True
+
+    def sync_closed_contracts(self) -> list[dict[str, Any]]:
+        if self.cfg.connection_mode.upper() == "SIMULATION" or self._deriv is None:
+            return []
+        pop_fn = getattr(self._deriv, "pop_closed_contracts", None)
+        if not callable(pop_fn):
+            return []
+        closed_pocs = pop_fn()
+        if not closed_pocs:
+            return []
+        recorded: list[dict[str, Any]] = []
+        closed_ids: set[str] = set()
+        for poc in closed_pocs:
+            cid = str(poc.get("contract_id") or "")
+            if not cid:
+                continue
+            closed_ids.add(cid)
+            sym = str(poc.get("underlying_symbol") or poc.get("underlying") or "--")
+            ctype = str(poc.get("contract_type") or "MULTUP").upper()
+            side = "BUY" if ("UP" in ctype or "CALL" in ctype) else "SELL"
+            bname = self._contract_bot_map.get(cid) or next(
+                (str(b.get("name", "")) for b in self.cfg.bots if b.get("symbol") == sym and b.get("name")),
+                "Deriv",
+            )
+            entry_p = float(poc.get("entry_spot") or 0.0)
+            exit_p = float(poc.get("exit_spot") or poc.get("current_spot") or entry_p)
+            profit_val = float(poc.get("profit") or 0.0)
+            if self._record_deriv_deal(
+                ticket=cid,
+                symbol=sym,
+                side=side,
+                volume=float(poc.get("buy_price") or 0.0),
+                price_open=entry_p,
+                price_close=exit_p,
+                profit=profit_val,
+                reason=str(poc.get("status") or "DERIV_AUTO_CLOSE").upper(),
+                bot_name=bname,
+                comment=bname,
+            ):
+                recorded.append(self._deriv_deals_history[0])
+        if closed_ids and self._positions_cache is not None:
+            ts_c, cached_list = self._positions_cache
+            self._positions_cache = (
+                ts_c,
+                [p for p in cached_list if str(p.get("ticket")) not in closed_ids],
+            )
+        if recorded:
+            self._balance_cache = None
+        return recorded
+
     def get_open_positions(self) -> list[dict[str, Any]]:
         if self.cfg.connection_mode.upper() != "SIMULATION":
             if self._deriv is None:
                 return []
             now = time.time()
-            if self._positions_cache and (now - self._positions_cache[0]) < 5.0:
+            stream_check = getattr(self._deriv, "has_live_contract_stream", None)
+            has_stream = bool(stream_check()) if callable(stream_check) else False
+            cache_ttl = 15.0 if has_stream else 8.0
+            if self._positions_cache and (now - self._positions_cache[0]) < cache_ttl:
+                if has_stream:
+                    updated: list[dict[str, Any]] = []
+                    for item in self._positions_cache[1]:
+                        sc = self._deriv.get_stream_contract(item.get("ticket", ""))
+                        if sc is None:
+                            updated.append(item)
+                        elif sc.get("_closed"):
+                            continue
+                        else:
+                            merged = dict(item)
+                            merged["price_current"] = sc["price_current"]
+                            merged["profit"] = sc["profit"]
+                            if sc.get("price_open"):
+                                merged["price_open"] = sc["price_open"]
+                            updated.append(merged)
+                    self._positions_cache = (self._positions_cache[0], updated)
+                    return updated
                 return self._positions_cache[1]
             try:
                 pos = self._deriv.get_open_contracts()
@@ -610,6 +721,9 @@ class DerivUniversalConnector:
                     item["comment"] = item.get("comment") or bname
                 self._positions_cache = (now, pos)
                 return pos
+            except DerivRateLimitError as exc:
+                self.last_error = str(exc)
+                return self._positions_cache[1] if self._positions_cache else []
             except Exception as exc:
                 self.last_error = f"Erro lendo posições Deriv: {exc}"
                 return self._positions_cache[1] if self._positions_cache else []
@@ -727,8 +841,29 @@ class DerivUniversalConnector:
             if ok:
                 cid = self._deriv.last_order_lifecycle.get("contract_id")
                 if cid is not None:
-                    self._contract_bot_map[str(cid)] = bot_name
-            self._positions_cache = None
+                    cid_str = str(cid)
+                    self._contract_bot_map[cid_str] = bot_name
+                    side_str = "BUY" if is_buy else "SELL"
+                    new_pos = {
+                        "ticket": cid_str,
+                        "symbol": symbol,
+                        "type": side_str,
+                        "side": side_str,
+                        "volume": float(stake),
+                        "price_open": round(price, 6),
+                        "price_current": round(price, 6),
+                        "sl": sl_usd,
+                        "tp": tp_usd,
+                        "profit": 0.0,
+                        "bot_name": bot_name,
+                        "comment": f"{bot_name[:14]}_{action}",
+                    }
+                    if self._positions_cache is not None:
+                        cache_ts, cached_pos = self._positions_cache
+                        if not any(str(p.get("ticket")) == cid_str for p in cached_pos):
+                            self._positions_cache = (cache_ts, [*cached_pos, new_pos])
+                    else:
+                        self._positions_cache = (now, [new_pos])
             return ok, msg
 
         sl = round(price - sl_points, 6) if is_buy else round(price + sl_points, 6)
@@ -769,28 +904,21 @@ class DerivUniversalConnector:
                     ok, err_msg = False, str(exc)
                 if ok:
                     closed += 1
-                    ts_str = datetime.now().strftime("%H:%M:%S")
-                    self._deriv_deals_history.insert(
-                        0,
-                        {
-                            "ticket": p["ticket"],
-                            "time": ts_str,
-                            "time_str": ts_str,
-                            "symbol": p["symbol"],
-                            "type": p.get("type", p.get("side", "BUY")),
-                            "side": p.get("side", p.get("type", "BUY")),
-                            "volume": p.get("volume", 0.0),
-                            "price_open": p.get("price_open", 0.0),
-                            "price_close": p.get("price_current", 0.0),
-                            "profit": float(p.get("profit", 0.0)),
-                            "reason": reason,
-                            "comment": p.get("comment", ""),
-                            "bot_name": p.get("comment", "Deriv"),
-                        },
+                    self._record_deriv_deal(
+                        ticket=p["ticket"],
+                        symbol=p["symbol"],
+                        side=p.get("side", p.get("type", "BUY")),
+                        volume=float(p.get("volume", 0.0)),
+                        price_open=float(p.get("price_open", 0.0)),
+                        price_close=float(p.get("price_current", 0.0)),
+                        profit=float(p.get("profit", 0.0)),
+                        reason=reason,
+                        bot_name=str(p.get("bot_name") or p.get("comment") or "Deriv"),
+                        comment=str(p.get("comment", "")),
                     )
                 else:
                     errors.append(err_msg)
-            self._positions_cache = None
+            self._positions_cache = (time.time(), []) if not errors else None
             self._balance_cache = None
             if errors and closed == 0:
                 return 0, f"[Deriv] Falha ao zerar posições: {errors[0]}"
@@ -835,28 +963,28 @@ class DerivUniversalConnector:
             except Exception as exc:
                 self._positions_cache = None
                 return False, f"[Deriv] Erro ao encerrar #{ticket}: {exc}"
-            self._positions_cache = None
             self._balance_cache = None
             if ok:
-                ts_str = datetime.now().strftime("%H:%M:%S")
-                self._deriv_deals_history.insert(
-                    0,
-                    {
-                        "ticket": str(ticket),
-                        "time": ts_str,
-                        "time_str": ts_str,
-                        "symbol": matched["symbol"] if matched else "--",
-                        "type": matched.get("type", "BUY") if matched else "BUY",
-                        "side": matched.get("side", "BUY") if matched else "BUY",
-                        "volume": matched.get("volume", 0.0) if matched else 0.0,
-                        "price_open": matched.get("price_open", 0.0) if matched else 0.0,
-                        "price_close": matched.get("price_current", 0.0) if matched else 0.0,
-                        "profit": float(matched.get("profit", 0.0)) if matched else 0.0,
-                        "reason": "FECHAMENTO_MANUAL",
-                        "comment": matched.get("comment", "") if matched else "Deriv",
-                        "bot_name": matched.get("comment", "Deriv") if matched else "Deriv",
-                    },
+                if self._positions_cache is not None:
+                    ts_c, cached_list = self._positions_cache
+                    self._positions_cache = (
+                        ts_c,
+                        [p for p in cached_list if str(p.get("ticket")) != str(ticket)],
+                    )
+                self._record_deriv_deal(
+                    ticket=str(ticket),
+                    symbol=matched["symbol"] if matched else "--",
+                    side=matched.get("side", matched.get("type", "BUY")) if matched else "BUY",
+                    volume=float(matched.get("volume", 0.0)) if matched else 0.0,
+                    price_open=float(matched.get("price_open", 0.0)) if matched else 0.0,
+                    price_close=float(matched.get("price_current", 0.0)) if matched else 0.0,
+                    profit=float(matched.get("profit", 0.0)) if matched else 0.0,
+                    reason="FECHAMENTO_MANUAL",
+                    bot_name=str(matched.get("bot_name") or matched.get("comment") or "Deriv") if matched else "Deriv",
+                    comment=str(matched.get("comment", "")) if matched else "Deriv",
                 )
+            else:
+                self._positions_cache = None
             return ok, msg
 
         for p in list(self._sim_positions):
@@ -1913,8 +2041,15 @@ class PradoTradingService:
                 if ok:
                     bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
                     bot["grid_anchor_price"] = last_price
+                    bot["last_error"] = ""
                     self._log_event("BOT_EXEC", msg)
                     positions = self.connector.get_open_positions()
+                elif "ratelimit" in msg.lower():
+                    signal = "RATE_LIMITED"
+                    bot["last_error"] = msg
+                    self._log_event("BOT_RATE_LIMIT", msg)
+            elif bot.get("status") == "RUNNING" and "ratelimit" in str(bot.get("last_error", "")).lower():
+                bot["last_error"] = ""
 
         bot["last_signal"] = signal
         return positions
@@ -2131,6 +2266,7 @@ class PradoTradingService:
                     corr_scores.append(c_flow.imbalance_ratio)
             corr_bias = round(sum(corr_scores) / len(corr_scores), 4) if corr_scores else 0.0
 
+            self.connector.sync_closed_contracts()
             positions = self.connector.get_open_positions()
             acc = self.connector.get_account_summary()
             current_pnl = float(acc.get("profit", 0.0)) + float(acc.get("daily_realized", 0.0))
@@ -2372,8 +2508,13 @@ class PradoTradingService:
                                 )
                                 if ok:
                                     bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
+                                    bot["last_error"] = ""
                                     self._log_event("BOT_NEWS_EXEC", msg)
                                     positions = self.connector.get_open_positions()
+                                elif "ratelimit" in msg.lower():
+                                    bot["last_signal"] = "RATE_LIMITED"
+                                    bot["last_error"] = msg
+                                    self._log_event("BOT_RATE_LIMIT", msg)
                         continue
 
                     if (
@@ -2398,8 +2539,19 @@ class PradoTradingService:
                             )
                             if ok:
                                 bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
+                                bot["last_error"] = ""
                                 self._log_event("BOT_EXEC", msg)
                                 positions = self.connector.get_open_positions()
+                            elif "ratelimit" in msg.lower():
+                                bot["last_signal"] = "RATE_LIMITED"
+                                bot["last_error"] = msg
+                                self._log_event("BOT_RATE_LIMIT", msg)
+                    elif bot.get("status") == "RUNNING" and "ratelimit" in str(bot.get("last_error", "")).lower():
+                        bot["last_error"] = ""
+                except DerivRateLimitError as rl_exc:
+                    bot["last_signal"] = "RATE_LIMITED"
+                    bot["last_error"] = str(rl_exc)
+                    self._log_event("BOT_RATE_LIMIT", f"Cooldown temporário no robô '{bot.get('name', bot.get('bot_id', '?'))}': {rl_exc}")
                 except Exception as bot_exc:
                     bot["status"] = "ERROR"
                     bot["active"] = False
