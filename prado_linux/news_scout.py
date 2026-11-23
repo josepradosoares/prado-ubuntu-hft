@@ -18,25 +18,25 @@ RSS_FEEDS: list[dict[str, str]] = [
         "feed_id": "yahoo_btc",
         "source": "Yahoo Finance BTC",
         "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=BTC-USD&region=US&lang=en-US",
-        "default_symbol": "cryBTCUSD",
+        "default_symbol": "BTCUSD",
     },
     {
         "feed_id": "yahoo_eurusd",
         "source": "Yahoo Finance EURUSD",
         "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=EURUSD=X&region=US&lang=en-US",
-        "default_symbol": "frxEURUSD",
+        "default_symbol": "EURUSD",
     },
     {
         "feed_id": "yahoo_gold",
         "source": "Yahoo Finance Gold",
         "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=GC=F&region=US&lang=en-US",
-        "default_symbol": "frxXAUUSD",
+        "default_symbol": "XAUUSD",
     },
     {
         "feed_id": "yahoo_sp500",
         "source": "Yahoo Finance S&P500",
         "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC&region=US&lang=en-US",
-        "default_symbol": "OTC_SP500",
+        "default_symbol": "US500",
     },
 ]
 DEFAULT_NEWS_FEEDS = RSS_FEEDS
@@ -61,14 +61,14 @@ BEARISH_KEYWORDS = {
 }
 
 SYMBOL_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
-    ("cryBTCUSD", ("bitcoin", "btc", "crypto", "satoshi")),
-    ("cryETHUSD", ("ethereum", "eth", "ether")),
-    ("frxXAUUSD", ("gold", "xau", "bullion", "ouro")),
-    ("frxEURUSD", ("eurusd", "eur/usd", "euro", "ecb", "lagarde")),
-    ("frxGBPUSD", ("gbpusd", "gbp/usd", "pound", "sterling", "boe")),
-    ("frxUSDJPY", ("usdjpy", "usd/jpy", "yen", "boj")),
-    ("OTC_SP500", ("s&p 500", "sp500", "s&p", "wall street", "fed", "fomc", "cpi", "nfp", "payroll")),
-    ("OTC_NDX", ("nasdaq", "tech stocks", "nvidia", "apple", "ai stocks")),
+    ("BTCUSD", ("bitcoin", "btc", "crypto", "satoshi")),
+    ("ETHUSD", ("ethereum", "eth", "ether")),
+    ("XAUUSD", ("gold", "xau", "bullion", "ouro")),
+    ("EURUSD", ("eurusd", "eur/usd", "euro", "ecb", "lagarde")),
+    ("GBPUSD", ("gbpusd", "gbp/usd", "pound", "sterling", "boe")),
+    ("USDJPY", ("usdjpy", "usd/jpy", "yen", "boj")),
+    ("US500", ("s&p 500", "sp500", "s&p", "wall street", "fed", "fomc", "cpi", "nfp", "payroll")),
+    ("US100", ("nasdaq", "tech stocks", "nvidia", "apple", "ai stocks")),
 ]
 
 
@@ -81,7 +81,7 @@ def _has_keyword(text_lower: str, kw: str) -> bool:
     return bool(re.search(rf"(?<!\w){re.escape(kw)}(?!\w)", text_lower))
 
 
-def infer_symbol(text: str, fallback: str = "cryBTCUSD") -> str:
+def infer_symbol(text: str, fallback: str = "BTCUSD") -> str:
     low = text.lower()
     for sym, kws in SYMBOL_KEYWORDS:
         if any(_has_keyword(low, kw) for kw in kws):
@@ -89,8 +89,8 @@ def infer_symbol(text: str, fallback: str = "cryBTCUSD") -> str:
     return fallback
 
 
-def analyze_headline(title: str, summary: str = "", fallback_symbol: str = "cryBTCUSD") -> dict[str, Any]:
-    """Classify headline impact (HIGH/MEDIUM/LOW), directional bias (BULLISH/BEARISH/NEUTRAL), and Deriv symbol."""
+def analyze_headline(title: str, summary: str = "", fallback_symbol: str = "BTCUSD") -> dict[str, Any]:
+    """Classify headline impact (HIGH/MEDIUM/LOW), directional bias (BULLISH/BEARISH/NEUTRAL), and cTrader symbol."""
     combined = f"{title} {summary}".lower()
     bull_hits = sum(1 for kw in BULLISH_KEYWORDS if _has_keyword(combined, kw))
     bear_hits = sum(1 for kw in BEARISH_KEYWORDS if _has_keyword(combined, kw))

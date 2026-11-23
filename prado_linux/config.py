@@ -1,4 +1,4 @@
-"""Configuration persistence for Prado Institutional HFT Ubuntu Server (Deriv Multipliers & Token Vault)."""
+"""Configuration persistence for Prado Institutional HFT Ubuntu Server (cTrader Open API)."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -13,12 +13,62 @@ from prado_linux.auth import hash_password
 from prado_linux.news_scout import DEFAULT_NEWS_FEEDS
 
 DEFAULT_CATEGORIES: dict[str, list[str]] = {
-    "Índices Sintéticos Volatility (24/7)": ["R_10", "R_25", "R_50", "R_75", "R_100", "1HZ10V", "1HZ50V", "1HZ100V"],
-    "Forex Principais": ["frxEURUSD", "frxGBPUSD", "frxUSDJPY", "frxAUDUSD", "frxUSDCAD"],
-    "Ouro & Commodities": ["frxXAUUSD", "frxXAGUSD"],
-    "Criptomoedas (24/7)": ["cryBTCUSD", "cryETHUSD"],
-    "Índices Crash & Boom": ["BOOM500", "BOOM1000", "CRASH500", "CRASH1000"],
+    "Forex Principais": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF"],
+    "Metais & Commodities": ["XAUUSD", "XAGUSD"],
+    "Índices Globais": ["US500", "US100", "US30", "DE40"],
+    "Criptomoedas (24/7)": ["BTCUSD", "ETHUSD"],
 }
+
+LEGACY_SYMBOL_MAP: dict[str, str] = {
+    "frxEURUSD": "EURUSD",
+    "frxGBPUSD": "GBPUSD",
+    "frxUSDJPY": "USDJPY",
+    "frxAUDUSD": "AUDUSD",
+    "frxUSDCAD": "USDCAD",
+    "frxUSDCHF": "USDCHF",
+    "frxXAUUSD": "XAUUSD",
+    "frxXAGUSD": "XAGUSD",
+    "cryBTCUSD": "BTCUSD",
+    "cryETHUSD": "ETHUSD",
+    "OTC_SP500": "US500",
+    "OTC_SPC": "US500",
+    "OTC_NDX": "US100",
+    "OTC_DJI": "US30",
+    "OTC_GDAXI": "DE40",
+}
+
+LEGACY_SYNTHETIC_SYMBOLS = frozenset({
+    "R_10", "R_25", "R_50", "R_75", "R_100",
+    "1HZ10V", "1HZ25V", "1HZ50V", "1HZ75V", "1HZ100V",
+    "BOOM500", "BOOM1000", "CRASH500", "CRASH1000", "stpRNG",
+    "WIN$N", "WDO$N", "IND$N", "DOL$N", "BTCUSD#", "US100Cash#", "Crypto_10#",
+    "VALE3", "PETR4", "ITUB4", "BBDC4", "BBAS3", "ABEV3", "B3SA3", "MGLU3", "WEGE3",
+})
+
+
+def migrate_legacy_symbol(symbol: str, default: str = "EURUSD") -> str:
+    s = str(symbol or "").strip()
+    if not s:
+        return default
+    if s in LEGACY_SYMBOL_MAP:
+        return LEGACY_SYMBOL_MAP[s]
+    if s in LEGACY_SYNTHETIC_SYMBOLS or "#" in s or "$" in s:
+        return "BTCUSD" if ("BTC" in s or "Crypto" in s) else default
+    if (s.startswith("frx") or s.startswith("cry")) and len(s) == 9:
+        return s[3:].upper()
+    return s
+
+
+def _is_legacy_symbol(sym: str) -> bool:
+    s = str(sym or "").strip()
+    return (
+        s in LEGACY_SYMBOL_MAP
+        or s in LEGACY_SYNTHETIC_SYMBOLS
+        or "#" in s
+        or "$" in s
+        or s.startswith(("frx", "cry", "OTC_", "1HZ", "BOOM", "CRASH"))
+    )
+
 
 MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     {
@@ -39,7 +89,7 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
         "name": "2. Fala 1 — Trem Institucional VWAP (Seguidor Puro de Fluxo de Agressão)",
         "operation_mode": "TREND_ONLY",
         "formula": "Sinal = sign(ΔVol) quando |Z_agressão| ≥ 1.8 ∧ |Imbalance| ≥ 0.35 ∧ sign(P - VWAP) == sign(Z)",
-        "description": "Detecta aceleração de fluxo direcional a favor da VWAP e abre Multiplier na direção da tendência.",
+        "description": "Detecta aceleração de fluxo direcional a favor da VWAP e abre posição em Lotes na direção da tendência.",
         "window_ticks": 100,
         "zscore_threshold": 1.8,
         "imbalance_threshold": 0.35,
@@ -65,7 +115,7 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
         "name": "4. HFT Explosão de Agressão (Scalper Estatístico de Curto Alcance)",
         "operation_mode": "TREND_ONLY",
         "formula": "Janela curta w=50 ticks | Disparo em micro-explosão Z ≥ 2.2 ∧ Imbalance ≥ 0.45 | Alvo rápido 1.2σ",
-        "description": "Focado em explosões súbitas de micro-tendência em Índices Volatility 24/7 com realização rápida.",
+        "description": "Focado em explosões súbitas de micro-tendência em Forex, Ouro e Cripto 24/7 com realização rápida.",
         "window_ticks": 50,
         "zscore_threshold": 2.2,
         "imbalance_threshold": 0.45,
@@ -75,7 +125,7 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     },
     {
         "template_id": "STAT_ARB_CORRELATION_BASKET",
-        "name": "5. Arbitragem Estatística & Correlação de Cesta (Volatility / Forex / Cripto)",
+        "name": "5. Arbitragem Estatística & Correlação de Cesta (Forex / Metais / Cripto)",
         "operation_mode": "BOTH",
         "formula": "Bias_Cesta = (1/N)·Σ Imbalance(Ativo_k) | Opera somente alinhado ao vetor matemático da cesta",
         "description": "Cruza a matemática da cesta correlacionada com o desvio padrão da VWAP do ativo-alvo sem precisar abrir nenhum gráfico.",
@@ -99,8 +149,8 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
         "sl_sigma_mult": 1.5,
         "tp_sigma_mult": 1.0,
         "grid_direction": "BUY_ONLY",
-        "grid_step_points": 1.5,
-        "grid_tp_points": 1.5,
+        "grid_step_points": 0.0020,
+        "grid_tp_points": 0.0020,
         "max_grid_levels": 5,
     },
 ]
@@ -125,16 +175,19 @@ class PradoServerConfig:
     secret_key: str = ""
     web_port: int = 8080
 
-    # Deriv API Credentials & Active Account Selection (DEMO vs REAL)
-    connection_mode: str = "DERIV_CLOUD"  # "DERIV_CLOUD" or "SIMULATION"
+    # cTrader Open API Credentials & Active Account Selection (DEMO vs REAL)
+    connection_mode: str = "CTRADER_CLOUD"  # "CTRADER_CLOUD" or "SIMULATION"
+    ctrader_client_id: str = ""
+    ctrader_client_secret: str = ""
+    ctrader_redirect_uri: str = ""
+    ctrader_access_token: str = ""
+    ctrader_refresh_token: str = ""
+    ctrader_token_expires_at: float = 0.0
     active_account_id: str = ""
     active_account_type: str = "DEMO"
-    deriv_token: str = ""
-    deriv_app_id: str = "1089"
-    default_stake_usd: float = 10.0
-    default_multiplier: int = 100
+    default_lot_size: float = 0.01
 
-    # Saved Deriv Token Accounts (Demo & Real Vault)
+    # Saved cTrader Accounts Vault (Demo & Real)
     accounts: list[dict[str, Any]] = field(default_factory=list)
 
     # Symbol Selection Mode ("PRINCIPAIS" vs "TODOS") and Custom Categories
@@ -153,10 +206,10 @@ class PradoServerConfig:
     allow_real_trading: bool = False
     operation_mode: str = "BOTH"
     active_symbols: list[str] = field(
-        default_factory=lambda: ["R_100", "R_75", "1HZ100V", "frxEURUSD", "cryBTCUSD"]
+        default_factory=lambda: ["EURUSD", "GBPUSD", "XAUUSD", "US100", "BTCUSD"]
     )
     correlated_basket: list[str] = field(
-        default_factory=lambda: ["R_50", "R_25"]
+        default_factory=lambda: ["EURUSD", "GBPUSD"]
     )
 
     # VWAP & Order Flow Aggression Calibration
@@ -172,17 +225,16 @@ class PradoServerConfig:
     tp_sigma_mult: float = 1.8
     max_daily_loss_money: float = 500.0
     daily_target_money: float = 1000.0
-    max_stake_per_trade: float = 100.0
+    max_lot_per_trade: float = 1.0
     max_concurrent_trades: int = 5
-    max_total_exposure_usd: float = 500.0
+    max_total_lots: float = 5.0
     min_order_interval_sec: float = 3.0
 
     # News & Market Research Scout (feeds managed in panel; bots opt-in individually)
     news_bot_enabled: bool = False
     news_pause_grid_on_high_impact: bool = False
     news_auto_trade_enabled: bool = False
-    news_stake_usd: float = 5.0
-    news_multiplier: int = 100
+    news_lot_size: float = 0.01
     news_poll_interval_sec: int = 90
     news_feeds: list[dict[str, str]] = field(default_factory=lambda: [dict(f) for f in DEFAULT_NEWS_FEEDS])
 
@@ -191,20 +243,34 @@ def load_config(config_path: Path) -> PradoServerConfig:
     if config_path.exists():
         raw = json.loads(config_path.read_text(encoding="utf-8"))
         cfg = PradoServerConfig(**{k: v for k, v in raw.items() if k in PradoServerConfig.__dataclass_fields__})
+        if raw.get("connection_mode") == "DERIV_CLOUD":
+            cfg.connection_mode = "CTRADER_CLOUD"
     else:
         cfg = PradoServerConfig()
 
-    env_token = os.environ.get("DERIV_TOKEN", "").strip()
-    if env_token and not cfg.deriv_token:
-        cfg.deriv_token = env_token
-    env_app_id = os.environ.get("DERIV_APP_ID", "").strip()
-    if env_app_id and cfg.deriv_app_id == "1089":
-        cfg.deriv_app_id = env_app_id
+    env_cid = os.environ.get("CTRADER_CLIENT_ID", "").strip()
+    if env_cid and not cfg.ctrader_client_id:
+        cfg.ctrader_client_id = env_cid
+    env_csec = os.environ.get("CTRADER_CLIENT_SECRET", "").strip()
+    if env_csec and not cfg.ctrader_client_secret:
+        cfg.ctrader_client_secret = env_csec
+    env_ruri = os.environ.get("CTRADER_REDIRECT_URI", "").strip()
+    if env_ruri and not cfg.ctrader_redirect_uri:
+        cfg.ctrader_redirect_uri = env_ruri
+    env_tok = os.environ.get("CTRADER_ACCESS_TOKEN", "").strip()
+    if env_tok and not cfg.ctrader_access_token:
+        cfg.ctrader_access_token = env_tok
+    env_rtok = os.environ.get("CTRADER_REFRESH_TOKEN", "").strip()
+    if env_rtok and not cfg.ctrader_refresh_token:
+        cfg.ctrader_refresh_token = env_rtok
     env_allow_real = os.environ.get("ALLOW_REAL_TRADING", "").strip().lower()
     if env_allow_real in ("1", "true", "yes"):
         cfg.allow_real_trading = True
 
     changed = False
+    if cfg.connection_mode == "DERIV_CLOUD":
+        cfg.connection_mode = "CTRADER_CLOUD"
+        changed = True
     if not cfg.admin_password_hash:
         cfg.admin_password_hash = hash_password("prado2026")
         changed = True
@@ -215,32 +281,33 @@ def load_config(config_path: Path) -> PradoServerConfig:
         cfg.custom_categories = dict(DEFAULT_CATEGORIES)
         changed = True
 
-    legacy_mt5 = {
-        "WIN$N", "WDO$N", "IND$N", "DOL$N", "BTCUSD#", "US100Cash#", "EURUSD", "Crypto_10#",
-        "VALE3", "PETR4", "ITUB4", "BBDC4", "BBAS3", "ABEV3", "B3SA3", "MGLU3", "WEGE3",
-    }
-
-    def _is_legacy_mt5(sym: str) -> bool:
-        return sym in legacy_mt5 or "#" in sym or "$" in sym
-
-    if any(_is_legacy_mt5(sym) for sym in cfg.active_symbols):
-        cfg.active_symbols = [s for s in cfg.active_symbols if not _is_legacy_mt5(s)] or [
-            "R_100",
-            "R_75",
-            "1HZ100V",
-            "frxEURUSD",
-            "cryBTCUSD",
-        ]
+    if any(_is_legacy_symbol(sym) for sym in cfg.active_symbols):
+        migrated: list[str] = []
+        for s in cfg.active_symbols:
+            m = migrate_legacy_symbol(s, default="EURUSD") if _is_legacy_symbol(s) else s
+            if m and m not in migrated:
+                migrated.append(m)
+        cfg.active_symbols = migrated or ["EURUSD", "GBPUSD", "XAUUSD", "US100", "BTCUSD"]
         changed = True
-    if any(_is_legacy_mt5(sym) for sym in cfg.correlated_basket):
-        cfg.correlated_basket = [s for s in cfg.correlated_basket if not _is_legacy_mt5(s)] or ["R_50", "R_25"]
+
+    if any(_is_legacy_symbol(sym) for sym in cfg.correlated_basket):
+        migrated_b: list[str] = []
+        for s in cfg.correlated_basket:
+            m = migrate_legacy_symbol(s, default="GBPUSD") if _is_legacy_symbol(s) else s
+            if m and m not in migrated_b:
+                migrated_b.append(m)
+        cfg.correlated_basket = migrated_b or ["EURUSD", "GBPUSD"]
         changed = True
+
     for bot in cfg.bots:
-        if isinstance(bot, dict) and _is_legacy_mt5(str(bot.get("symbol", ""))):
-            bot["symbol"] = "cryBTCUSD" if "Crypto" in str(bot.get("symbol", "")) or "BTC" in str(bot.get("symbol", "")) else "R_100"
-            changed = True
+        if isinstance(bot, dict):
+            bsym = str(bot.get("symbol", ""))
+            if _is_legacy_symbol(bsym):
+                bot["symbol"] = migrate_legacy_symbol(bsym, default="EURUSD")
+                changed = True
+
     if any(
-        "B3 Futuros" in cat_name or any(_is_legacy_mt5(s) for s in syms)
+        "B3 Futuros" in cat_name or "Sintéticos" in cat_name or any(_is_legacy_symbol(s) for s in syms)
         for cat_name, syms in cfg.custom_categories.items()
     ):
         cfg.custom_categories = dict(DEFAULT_CATEGORIES)

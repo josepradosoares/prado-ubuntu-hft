@@ -1,4 +1,4 @@
-"""Zero-dependency HTTP Web Application & REST API for Prado Institutional HFT (Deriv Multipliers)."""
+"""Zero-dependency HTTP Web Application & REST API for Prado Institutional HFT (cTrader Open API)."""
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -9,10 +9,10 @@ import mimetypes
 from pathlib import Path
 import threading
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from prado_linux.auth import create_session_token, hash_password, verify_password, verify_session_token
-from prado_linux.config import MATH_BOT_TEMPLATES, PradoServerConfig, load_config
+from prado_linux.config import PradoServerConfig, load_config
 from prado_linux.engine import PradoTradingService
 from prado_linux.indicators import DEFAULT_PYTHON_STRATEGY_TEMPLATE, INDICATOR_CATALOG
 from prado_linux.supabase_store import SupabaseStore
@@ -21,7 +21,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 class PradoWebApp:
-    """Testable HTTP router for Login, Deriv Token Vault, Symbols, Categories, Robot Fleet, and Backtest."""
+    """Testable HTTP router for Login, cTrader OAuth & Account Vault, Symbols, Robot Fleet, and Backtest."""
 
     def __init__(self, config_path: Path, supabase_store: SupabaseStore | None = None) -> None:
         self.config_path = config_path
@@ -47,10 +47,13 @@ class PradoWebApp:
                     not u_cfg.accounts
                     and not u_cfg.bots
                     and u_email == "sitepixer@gmail.com"
-                    and (self.cfg.accounts or self.cfg.bots or self.cfg.deriv_token)
+                    and (self.cfg.accounts or self.cfg.bots or self.cfg.ctrader_access_token)
                 ):
-                    u_cfg.deriv_token = self.cfg.deriv_token
-                    u_cfg.deriv_app_id = self.cfg.deriv_app_id
+                    u_cfg.ctrader_client_id = self.cfg.ctrader_client_id
+                    u_cfg.ctrader_client_secret = self.cfg.ctrader_client_secret
+                    u_cfg.ctrader_redirect_uri = self.cfg.ctrader_redirect_uri
+                    u_cfg.ctrader_access_token = self.cfg.ctrader_access_token
+                    u_cfg.ctrader_refresh_token = self.cfg.ctrader_refresh_token
                     u_cfg.connection_mode = self.cfg.connection_mode
                     u_cfg.allow_real_trading = self.cfg.allow_real_trading
                     u_cfg.active_account_id = self.cfg.active_account_id
@@ -102,19 +105,26 @@ class PradoWebApp:
         d = asdict(cfg_obj or self.cfg)
         d.pop("admin_password_hash", None)
         d.pop("secret_key", None)
-        if d.get("deriv_token"):
-            d["deriv_token_set"] = True
-            d["deriv_token"] = "********"
-        else:
-            d["deriv_token_set"] = False
+        for sec_field in ("ctrader_client_secret", "ctrader_access_token", "ctrader_refresh_token"):
+            if d.get(sec_field):
+                d[f"{sec_field}_set"] = True
+                d[sec_field] = "********"
+            else:
+                d[f"{sec_field}_set"] = False
         safe_accs = []
         for a in d.get("accounts", []):
             cp = dict(a)
-            if cp.get("deriv_token"):
-                cp["deriv_token"] = "********"
+            for k in ("access_token", "refresh_token", "client_secret"):
+                if cp.get(k):
+                    cp[k] = "********"
             safe_accs.append(cp)
         d["accounts"] = safe_accs
         return d
+
+    def _default_redirect_uri(self, headers: dict[str, str]) -> str:
+        host = headers.get("Host") or headers.get("host") or f"localhost:{self.cfg.web_port}"
+        proto = headers.get("X-Forwarded-Proto") or headers.get("x-forwarded-proto") or "http"
+        return f"{proto}://{host}/api/ctrader/oauth/callback"
 
     def _serve_index(self) -> tuple[int, str, dict[str, str]]:
         idx = STATIC_DIR / "index.html"
@@ -293,7 +303,7 @@ class PradoWebApp:
             return 200, json.dumps(svc.get_snapshot(), ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "GET" and clean_path == "/api/chart":
-            sym = str(query_params.get("symbol", ["R_100"])[0] or "R_100").strip()
+            sym = str(query_params.get("symbol", ["EURUSD"])[0] or "EURUSD").strip()
             tf = str(query_params.get("timeframe", ["TICKS"])[0] or "TICKS").strip().upper()
             points = svc.get_chart_series(sym, timeframe=tf)
             return 200, json.dumps({"ok": True, "symbol": sym, "timeframe": tf, "points": points}, ensure_ascii=False), {"Content-Type": "application/json"}
@@ -313,8 +323,9 @@ class PradoWebApp:
             new_admin_pwd = updates.pop("new_admin_password", None)
             if new_admin_pwd and str(new_admin_pwd).strip():
                 updates["admin_password_hash"] = hash_password(str(new_admin_pwd).strip())
-            if updates.get("deriv_token") == "********":
-                updates.pop("deriv_token", None)
+            for sec_key in ("ctrader_client_secret", "ctrader_access_token", "ctrader_refresh_token"):
+                if updates.get(sec_key) == "********":
+                    updates.pop(sec_key, None)
             svc.update_config(updates)
             svc.step_once()
             self._sync_user(user, svc)
@@ -324,7 +335,32 @@ class PradoWebApp:
                 {"Content-Type": "application/json"},
             )
 
-        # Deriv Tokens & Accounts API
+        # cTrader OAuth 2.0 Routes
+        if method == "GET" and clean_path == "/api/ctrader/oauth/start":
+            ruri = str(query_params.get("redirect_uri", [""])[0] or "").strip() or self._default_redirect_uri(headers)
+            ok, auth_url, used_ruri = svc.start_ctrader_oauth(ruri)
+            if not ok:
+                return 400, json.dumps({"ok": False, "error": used_ruri}, ensure_ascii=False), {"Content-Type": "application/json"}
+            return (
+                200,
+                json.dumps({"ok": True, "auth_url": auth_url, "redirect_uri": used_ruri}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "GET" and clean_path == "/api/ctrader/oauth/callback":
+            code = str(query_params.get("code", [""])[0] or "").strip()
+            err = str(query_params.get("error_description", query_params.get("error", [""]))[0] or "").strip()
+            if err:
+                return 302, "", {"Location": f"/?ctrader_oauth=error&msg={quote(err)}"}
+            if not code:
+                return 400, json.dumps({"ok": False, "error": "Parametro 'code' OAuth ausente."}), {"Content-Type": "application/json"}
+            ok, msg = svc.complete_ctrader_oauth(code, self._default_redirect_uri(headers))
+            svc.step_once()
+            self._sync_user(user, svc)
+            status_flag = "ok" if ok else "error"
+            return 302, "", {"Location": f"/?ctrader_oauth={status_flag}&msg={quote(msg[:180])}"}
+
+        # cTrader Accounts Vault API
         if method == "GET" and clean_path == "/api/accounts":
             return (
                 200,
@@ -347,8 +383,11 @@ class PradoWebApp:
                 self._sync_user(user, svc)
                 return 200, json.dumps({"ok": True, "accounts": []}, ensure_ascii=False), {"Content-Type": "application/json"}
 
-            acc, conn_msg = svc.save_deriv_account(payload)
-            safe_acc = {k: ("********" if k == "deriv_token" and v else v) for k, v in acc.items()}
+            acc, conn_msg = svc.save_ctrader_account(payload)
+            safe_acc = {
+                k: ("********" if k in ("access_token", "refresh_token", "client_secret") and v else v)
+                for k, v in acc.items()
+            }
             svc.step_once()
             self._sync_user(user, svc)
             return (
@@ -366,7 +405,7 @@ class PradoWebApp:
             )
 
         if method == "POST" and clean_path == "/api/accounts/sync":
-            ok, msg, _ = svc.sync_deriv_accounts()
+            ok, msg, _ = svc.sync_ctrader_accounts()
             svc.step_once()
             self._sync_user(user, svc)
             safe_cfg = self._safe_config_dict(cfg)
@@ -391,7 +430,7 @@ class PradoWebApp:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
             selected = svc.select_active_account(str(payload.get("account_id", "")).strip())
             if selected is None:
-                return 404, json.dumps({"ok": False, "error": "Token/conta nao encontrado"}), {"Content-Type": "application/json"}
+                return 404, json.dumps({"ok": False, "error": "Conta cTrader nao encontrada"}), {"Content-Type": "application/json"}
             svc.step_once()
             self._sync_user(user, svc)
             return (
@@ -607,7 +646,7 @@ def run_http_server(config_path: Path, host: str = "0.0.0.0", port: int | None =
             return
 
     server = ThreadingHTTPServer((host, bind_port), _Handler)
-    print(f"[PRADO UBUNTU DERIV SERVER] Painel rodando em http://{host}:{bind_port}")
+    print(f"[PRADO UBUNTU CTRADER SERVER] Painel rodando em http://{host}:{bind_port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

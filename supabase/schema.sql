@@ -1,48 +1,53 @@
--- Prado Ubuntu HFT: Multi-user Supabase schema with RLS (applied via Supabase MCP)
+-- Prado Ubuntu HFT: Multi-user Supabase schema with RLS (cTrader Open API)
 
 create table if not exists public.prado_settings (
   user_id uuid primary key references auth.users(id) on delete cascade,
   email text not null default '',
   role text not null default 'user',
-  connection_mode text not null default 'DERIV_CLOUD',
+  connection_mode text not null default 'CTRADER_CLOUD',
   allow_real_trading boolean not null default false,
   auto_trading_enabled boolean not null default true,
   active_account_id text not null default '',
   active_account_type text not null default 'DEMO',
-  deriv_app_id text not null default '1089',
-  default_stake_usd double precision not null default 10.0,
-  default_multiplier integer not null default 100,
-  active_symbols jsonb not null default '["R_100","R_75","1HZ100V","frxEURUSD","cryBTCUSD"]'::jsonb,
-  correlated_basket jsonb not null default '["R_50","R_25"]'::jsonb,
+  ctrader_client_id text not null default '',
+  ctrader_redirect_uri text not null default '',
+  default_lot_size double precision not null default 0.01,
+  active_symbols jsonb not null default '["EURUSD","GBPUSD","XAUUSD","US100","BTCUSD"]'::jsonb,
+  correlated_basket jsonb not null default '["EURUSD","GBPUSD"]'::jsonb,
   custom_categories jsonb not null default '{}'::jsonb,
   risk_config jsonb not null default '{}'::jsonb,
   news_config jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
 
-create table if not exists public.prado_deriv_accounts (
+create table if not exists public.prado_ctrader_accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   account_id text not null,
+  ctid_account_id text not null default '',
+  trader_login text not null default '',
   account_type text not null default 'DEMO',
-  label text not null default 'Deriv',
-  deriv_token text not null default '',
-  deriv_app_id text not null default '1089',
-  default_stake_usd double precision not null default 10.0,
-  default_multiplier integer not null default 100,
-  connection_mode text not null default 'DERIV_CLOUD',
-  loginid text not null default '',
+  is_live boolean not null default false,
+  broker_name text not null default 'cTrader',
+  label text not null default 'cTrader',
+  access_token text not null default '',
+  refresh_token text not null default '',
+  token_expires_at double precision not null default 0.0,
+  default_lot_size double precision not null default 0.01,
+  connection_mode text not null default 'CTRADER_CLOUD',
+  balance double precision not null default 0.0,
+  currency text not null default 'USD',
   created_at timestamptz not null default now(),
   unique (user_id, account_id)
 );
-create index if not exists idx_prado_deriv_accounts_user on public.prado_deriv_accounts(user_id);
+create index if not exists idx_prado_ctrader_accounts_user on public.prado_ctrader_accounts(user_id);
 
 create table if not exists public.prado_bots (
   bot_id text not null,
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
   account_id text not null default '',
-  symbol text not null,
+  symbol text not null default 'EURUSD',
   template_id text not null,
   operation_mode text not null default 'BOTH',
   timeframe text not null default 'TICKS',
@@ -50,8 +55,7 @@ create table if not exists public.prado_bots (
   loss_guard_enabled boolean not null default false,
   max_loss_usd double precision not null default 20.0,
   status text not null default 'STOPPED',
-  lot_size double precision not null default 10.0,
-  multiplier integer not null default 100,
+  lot_size double precision not null default 0.01,
   realized_pnl double precision not null default 0.0,
   floating_pnl double precision not null default 0.0,
   total_pnl double precision not null default 0.0,
@@ -131,7 +135,7 @@ create table if not exists public.prado_logs (
 create index if not exists idx_prado_logs_user_created on public.prado_logs(user_id, created_at desc);
 
 alter table public.prado_settings enable row level security;
-alter table public.prado_deriv_accounts enable row level security;
+alter table public.prado_ctrader_accounts enable row level security;
 alter table public.prado_bots enable row level security;
 alter table public.prado_custom_templates enable row level security;
 alter table public.prado_news_feeds enable row level security;
@@ -141,7 +145,7 @@ alter table public.prado_logs enable row level security;
 
 create policy "prado_settings_owner" on public.prado_settings
   for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
-create policy "prado_deriv_accounts_owner" on public.prado_deriv_accounts
+create policy "prado_ctrader_accounts_owner" on public.prado_ctrader_accounts
   for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 create policy "prado_bots_owner" on public.prado_bots
   for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);

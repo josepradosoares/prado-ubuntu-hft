@@ -104,7 +104,7 @@ export function BotCardGrid({
       setConfirmState({
         open: true,
         title: `Confirmar ${label} em Conta REAL`,
-        description: `Você está prestes a enviar uma ordem real de ${label} no ativo ${b.symbol} pelo robô "${b.name}" (Stake: $${formatNumber(b.lot_size, 2)} • ${b.multiplier || '--'}x). Deseja continuar?`,
+        description: `Você está prestes a enviar uma ordem real de ${label} no ativo ${b.symbol} pelo robô "${b.name}" (Lote: ${formatNumber(b.lot_size, 2)}). Deseja continuar?`,
         confirmLabel: `Enviar ${side === 'FIRE_BUY' ? 'Buy' : 'Sell'} Real`,
         variant: 'warning',
         onConfirm: () => {
@@ -151,7 +151,7 @@ export function BotCardGrid({
         <div>
           <h2 className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
             <Cpu className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            Frota de Robôs Matemáticos (Deriv Multipliers)
+            Frota de Robôs Matemáticos (cTrader Open API)
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             Cards independentes em tempo real com disparo manual, duplicação, pausa e edição rápida
@@ -179,7 +179,6 @@ export function BotCardGrid({
         </div>
       </div>
 
-      {/* Filters Bar */}
       {bots.length > 0 && (
         <div className="flex flex-wrap items-center gap-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-3">
           <div className="relative flex-1 min-w-[200px]">
@@ -268,7 +267,6 @@ export function BotCardGrid({
                 }`}
               >
                 <div>
-                  {/* Card Header */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
@@ -327,7 +325,6 @@ export function BotCardGrid({
                     </div>
                   </div>
 
-                  {/* Badges Row */}
                   <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
                     <span
                       className={`rounded-md px-2 py-0.5 font-semibold border ${
@@ -336,7 +333,7 @@ export function BotCardGrid({
                           : 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30'
                       }`}
                     >
-                      {isReal ? 'Real' : 'Demo'} • {b.account_label || 'Deriv'}
+                      {isReal ? 'Real' : 'Demo'} • {b.account_label || 'cTrader'}
                     </span>
                     <span className="rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 font-mono text-slate-800 dark:text-white">
                       {formatSymbolDisplay(b.symbol, symbolCatalog)}
@@ -345,7 +342,7 @@ export function BotCardGrid({
                       {b.timeframe && b.timeframe !== 'TICKS' ? b.timeframe : 'Tick a Tick'}
                     </span>
                     <span className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 px-2 py-0.5 font-mono text-slate-600 dark:text-slate-300">
-                      ${formatNumber(b.lot_size, 2)} • {b.multiplier ?? '--'}x
+                      {formatNumber(b.lot_size, 2)} lote
                     </span>
                     <span className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 px-2 py-0.5 font-mono text-slate-500 dark:text-slate-400">
                       {b.trades_executed ?? 0} ordens
@@ -357,7 +354,7 @@ export function BotCardGrid({
                           : b.grid_direction === 'BOTH'
                           ? 'Grid Duplo'
                           : 'Só Compra'}{' '}
-                        • {b.grid_step_points ?? 1.5}pts • Max {b.max_grid_levels ?? 5}
+                        • {b.grid_step_points ?? 0.002} • Max {b.max_grid_levels ?? 5}
                       </span>
                     )}
                     <span
@@ -385,18 +382,17 @@ export function BotCardGrid({
                     )}
                   </div>
 
-                  {/* Live Quant Metrics */}
                   <div className="mt-4 grid grid-cols-2 gap-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950/60 p-3 font-mono text-xs">
                     <div>
                       <div className="text-[10px] uppercase tracking-wider text-slate-500">Preço Atual</div>
                       <div className="mt-0.5 font-semibold text-slate-900 dark:text-white">
-                        {formatPrice(st?.price, 4)}
+                        {formatPrice(st?.price, 5)}
                       </div>
                     </div>
                     <div>
                       <div className="text-[10px] uppercase tracking-wider text-slate-500">VWAP</div>
                       <div className="mt-0.5 font-semibold text-amber-600 dark:text-amber-300">
-                        {formatPrice(st?.vwap, 4)}
+                        {formatPrice(st?.vwap, 5)}
                       </div>
                     </div>
                     <div>
@@ -413,7 +409,6 @@ export function BotCardGrid({
                     </div>
                   </div>
 
-                  {/* Regime, Signal & Last Update */}
                   <div className="mt-3 flex items-center justify-between gap-2 text-[11px]">
                     <span className="truncate rounded-lg bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60">
                       {st?.regime || 'AGUARDANDO'}
@@ -442,12 +437,11 @@ export function BotCardGrid({
                   )}
                 </div>
 
-                {/* Action Controls */}
                 <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-6 gap-1.5">
                   <button
                     type="button"
                     onClick={() => requestOrder(b, 'FIRE_BUY')}
-                    title="Comprar Multiplier"
+                    title="Comprar a Mercado"
                     className="inline-flex items-center justify-center gap-1 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 py-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 transition"
                   >
                     <TrendingUp className="h-3.5 w-3.5" />
@@ -456,7 +450,7 @@ export function BotCardGrid({
                   <button
                     type="button"
                     onClick={() => requestOrder(b, 'FIRE_SELL')}
-                    title="Vender Multiplier"
+                    title="Vender a Mercado"
                     className="inline-flex items-center justify-center gap-1 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 py-2 text-[11px] font-semibold text-rose-700 dark:text-rose-300 transition"
                   >
                     <TrendingDown className="h-3.5 w-3.5" />
@@ -522,7 +516,6 @@ export function BotCardGrid({
         </div>
       )}
 
-      {/* Bot Detail Modal */}
       {detailBot && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] shadow-2xl overflow-hidden">
@@ -549,9 +542,9 @@ export function BotCardGrid({
                 </div>
               </div>
               <div className="rounded-xl bg-slate-50 dark:bg-slate-900/70 p-3 border border-slate-200/70 dark:border-slate-800">
-                <div className="text-[10px] text-slate-500 uppercase">Stake / Mult</div>
+                <div className="text-[10px] text-slate-500 uppercase">Volume (Lotes)</div>
                 <div className="mt-1 font-semibold text-slate-900 dark:text-white">
-                  ${formatNumber(detailBot.lot_size, 2)} • {detailBot.multiplier ?? '--'}x
+                  {formatNumber(detailBot.lot_size, 2)} lote(s)
                 </div>
               </div>
               <div className="rounded-xl bg-slate-50 dark:bg-slate-900/70 p-3 border border-slate-200/70 dark:border-slate-800">

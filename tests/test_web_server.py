@@ -1,10 +1,37 @@
 import json
 from pathlib import Path
-import pytest
 
 from prado_linux.auth import create_session_token, verify_password, verify_session_token
-from prado_linux.config import load_config, save_config
-from prado_linux.engine import PradoTradingService
+from prado_linux.config import PradoServerConfig, load_config, save_config
+from prado_linux.ctrader_client import (
+    PT_ACCOUNT_AUTH_REQ,
+    PT_ACCOUNT_AUTH_RES,
+    PT_APPLICATION_AUTH_REQ,
+    PT_APPLICATION_AUTH_RES,
+    PT_ASSET_LIST_REQ,
+    PT_ASSET_LIST_RES,
+    PT_CLOSE_POSITION_REQ,
+    PT_EXECUTION_EVENT,
+    PT_GET_ACCOUNTS_BY_ACCESS_TOKEN_REQ,
+    PT_GET_ACCOUNTS_BY_ACCESS_TOKEN_RES,
+    PT_GET_POSITION_UNREALIZED_PNL_REQ,
+    PT_GET_POSITION_UNREALIZED_PNL_RES,
+    PT_GET_TICKDATA_REQ,
+    PT_GET_TICKDATA_RES,
+    PT_NEW_ORDER_REQ,
+    PT_RECONCILE_REQ,
+    PT_RECONCILE_RES,
+    PT_SUBSCRIBE_SPOTS_REQ,
+    PT_SUBSCRIBE_SPOTS_RES,
+    PT_SYMBOL_BY_ID_REQ,
+    PT_SYMBOL_BY_ID_RES,
+    PT_SYMBOLS_LIST_REQ,
+    PT_SYMBOLS_LIST_RES,
+    PT_TRADER_REQ,
+    PT_TRADER_RES,
+)
+from prado_linux.engine import CTraderUniversalConnector, PradoTradingService
+from prado_linux.flow_math import TickRecord
 
 
 def test_default_config_and_persistence(tmp_path: Path):
@@ -14,28 +41,32 @@ def test_default_config_and_persistence(tmp_path: Path):
     assert cfg.zscore_threshold == 1.8
     assert cfg.imbalance_threshold == 0.35
     assert cfg.operation_mode == "BOTH"
-    assert cfg.deriv_app_id == "1089"
-    assert cfg.default_stake_usd == 10.0
-    assert cfg.default_multiplier == 100
-    assert cfg.deriv_token == ""
+    assert cfg.connection_mode == "CTRADER_CLOUD"
+    assert cfg.default_lot_size == 0.01
+    assert cfg.ctrader_access_token == ""
 
-    cfg.deriv_token = "pat_test_123"
-    cfg.active_symbols = ["R_100", "R_75", "cryBTCUSD"]
-    cfg.correlated_basket = ["R_50", "R_25"]
+    cfg.ctrader_client_id = "cid_100"
+    cfg.ctrader_access_token = "tok_test_123"
+    cfg.active_symbols = ["EURUSD", "XAUUSD", "BTCUSD"]
+    cfg.correlated_basket = ["EURUSD", "GBPUSD"]
     save_config(cfg, cfg_file)
 
     reloaded = load_config(cfg_file)
-    assert reloaded.deriv_token == "pat_test_123"
-    assert reloaded.active_symbols == ["R_100", "R_75", "cryBTCUSD"]
-    assert reloaded.correlated_basket == ["R_50", "R_25"]
+    assert reloaded.ctrader_client_id == "cid_100"
+    assert reloaded.ctrader_access_token == "tok_test_123"
+    assert reloaded.active_symbols == ["EURUSD", "XAUUSD", "BTCUSD"]
+    assert reloaded.correlated_basket == ["EURUSD", "GBPUSD"]
 
+    # Legacy symbol auto-migration
     raw = json.loads(cfg_file.read_text(encoding="utf-8"))
-    raw["active_symbols"] = ["Crypto_10#", "R_100"]
-    raw["bots"] = [{"bot_id": "b1", "symbol": "Crypto_10#"}]
+    raw["connection_mode"] = "DERIV_CLOUD"
+    raw["active_symbols"] = ["R_100", "frxEURUSD"]
+    raw["bots"] = [{"bot_id": "b1", "symbol": "cryBTCUSD"}]
     cfg_file.write_text(json.dumps(raw), encoding="utf-8")
     cleaned = load_config(cfg_file)
-    assert cleaned.active_symbols == ["R_100"]
-    assert cleaned.bots[0]["symbol"] == "cryBTCUSD"
+    assert cleaned.connection_mode == "CTRADER_CLOUD"
+    assert cleaned.active_symbols == ["EURUSD"]
+    assert cleaned.bots[0]["symbol"] == "BTCUSD"
 
 
 def test_auth_password_and_session_tokens(tmp_path: Path):
@@ -51,20 +82,20 @@ def test_auth_password_and_session_tokens(tmp_path: Path):
 def test_trading_service_snapshot_and_vwap_flow_cycle(tmp_path: Path):
     cfg = load_config(tmp_path / "config.json")
     cfg.connection_mode = "SIMULATION"
-    cfg.active_symbols = ["R_100", "cryBTCUSD"]
-    cfg.correlated_basket = ["R_50", "R_75"]
+    cfg.active_symbols = ["EURUSD", "BTCUSD"]
+    cfg.correlated_basket = ["EURUSD", "GBPUSD"]
     service = PradoTradingService(cfg, config_path=tmp_path / "config.json")
 
     snap = service.step_once()
     assert "account" in snap
     assert "symbols" in snap
-    assert "R_100" in snap["symbols"]
-    assert "cryBTCUSD" in snap["symbols"]
+    assert "EURUSD" in snap["symbols"]
+    assert "BTCUSD" in snap["symbols"]
 
-    r100_state = snap["symbols"]["R_100"]
-    assert r100_state["vwap"] > 0
-    assert r100_state["upper_2"] > r100_state["vwap"] > r100_state["lower_2"]
-    assert r100_state["regime"] in (
+    eur_state = snap["symbols"]["EURUSD"]
+    assert eur_state["vwap"] > 0
+    assert eur_state["upper_2"] > eur_state["vwap"] > eur_state["lower_2"]
+    assert eur_state["regime"] in (
         "NEUTRAL",
         "INSTITUTIONAL_TREND_UP",
         "INSTITUTIONAL_TREND_DOWN",
@@ -72,130 +103,137 @@ def test_trading_service_snapshot_and_vwap_flow_cycle(tmp_path: Path):
     )
 
 
-def test_deriv_client_websocket_rpc_and_multipliers(tmp_path: Path):
-    from prado_linux.deriv_client import DerivClient
+def test_ctrader_client_websocket_rpc_and_orders(tmp_path: Path):
+    from prado_linux.ctrader_client import CTraderClient
 
-    calls: list[dict] = []
-
-    def fake_rpc(payload: dict) -> dict:
-        calls.append(payload)
-        if "authorize" in payload:
+    def fake_rpc(env: dict) -> dict:
+        pt = env["payloadType"]
+        cid = env["clientMsgId"]
+        p = env["payload"]
+        if pt == PT_APPLICATION_AUTH_REQ:
+            return {"clientMsgId": cid, "payloadType": PT_APPLICATION_AUTH_RES, "payload": {}}
+        if pt == PT_GET_ACCOUNTS_BY_ACCESS_TOKEN_REQ:
             return {
-                "authorize": {
-                    "loginid": "VRTC998877",
-                    "currency": "USD",
-                    "balance": 10000.0,
-                    "is_virtual": 1,
-                    "fullname": "Jose Demo Deriv",
-                }
-            }
-        if "active_symbols" in payload:
-            return {
-                "active_symbols": [
-                    {"symbol": "R_100", "display_name": "Volatility 100 Index", "market_display_name": "Derived"},
-                    {"symbol": "frxEURUSD", "display_name": "EUR/USD", "market_display_name": "Forex"},
-                    {"symbol": "cryBTCUSD", "display_name": "BTC/USD", "market_display_name": "Cryptocurrencies"},
-                ]
-            }
-        if "ticks_history" in payload:
-            return {
-                "history": {
-                    "prices": [100.1, 100.2, 100.35, 100.5, 100.4],
-                    "times": [1700000001, 1700000002, 1700000003, 1700000004, 1700000005],
-                }
-            }
-        if "proposal" in payload:
-            return {"proposal": {"id": "prop_12345", "ask_price": 10.0}}
-        if "buy" in payload:
-            return {"buy": {"contract_id": 778899, "buy_price": 10.0}}
-        if "portfolio" in payload:
-            return {
-                "portfolio": {
-                    "contracts": [
-                        {
-                            "contract_id": 778899,
-                            "symbol": "R_100",
-                            "contract_type": "MULTUP",
-                            "buy_price": 10.0,
-                        }
+                "clientMsgId": cid,
+                "payloadType": PT_GET_ACCOUNTS_BY_ACCESS_TOKEN_RES,
+                "payload": {
+                    "ctidTraderAccount": [
+                        {"ctidTraderAccountId": 998877, "isLive": False, "traderLogin": 998877, "brokerTitleShort": "DemoBroker"}
                     ]
-                }
+                },
             }
-        if "proposal_open_contract" in payload:
+        if pt == PT_ACCOUNT_AUTH_REQ:
+            return {"clientMsgId": cid, "payloadType": PT_ACCOUNT_AUTH_RES, "payload": {}}
+        if pt == PT_TRADER_REQ:
             return {
-                "proposal_open_contract": {
-                    "contract_id": 778899,
-                    "underlying": "R_100",
-                    "contract_type": "MULTUP",
-                    "buy_price": 10.0,
-                    "entry_spot": 100.2,
-                    "current_spot": 101.0,
-                    "profit": 4.5,
-                    "limit_order": {"stop_loss": {"order_amount": 5.0}, "take_profit": {"order_amount": 9.0}},
-                }
+                "clientMsgId": cid,
+                "payloadType": PT_TRADER_RES,
+                "payload": {"trader": {"ctidTraderAccountId": 998877, "balance": 1000000, "moneyDigits": 2, "depositAssetId": 1, "traderLogin": 998877, "brokerName": "DemoBroker"}},
             }
-        if "sell" in payload:
-            return {"sell": {"sold_for": 14.5, "transaction_id": 556677}}
-        return {}
+        if pt == PT_ASSET_LIST_REQ:
+            return {"clientMsgId": cid, "payloadType": PT_ASSET_LIST_RES, "payload": {"asset": [{"assetId": 1, "name": "USD"}]}}
+        if pt == PT_SYMBOLS_LIST_REQ:
+            return {
+                "clientMsgId": cid,
+                "payloadType": PT_SYMBOLS_LIST_RES,
+                "payload": {
+                    "symbol": [
+                        {"symbolId": 1, "symbolName": "EURUSD", "enabled": True},
+                        {"symbolId": 2, "symbolName": "BTCUSD", "enabled": True},
+                    ]
+                },
+            }
+        if pt == PT_SYMBOL_BY_ID_REQ:
+            return {"clientMsgId": cid, "payloadType": PT_SYMBOL_BY_ID_RES, "payload": {"symbol": [{"symbolId": 1, "digits": 5, "lotSize": 10_000_000}]}}
+        if pt == PT_SUBSCRIBE_SPOTS_REQ:
+            return {"clientMsgId": cid, "payloadType": PT_SUBSCRIBE_SPOTS_RES, "payload": {}}
+        if pt == PT_GET_TICKDATA_REQ:
+            return {
+                "clientMsgId": cid,
+                "payloadType": PT_GET_TICKDATA_RES,
+                "payload": {
+                    "hasMore": False,
+                    "tickData": [
+                        {"timestamp": 1700000005000, "tick": 108540},
+                        {"timestamp": -1000, "tick": -10},
+                        {"timestamp": -1000, "tick": -10},
+                    ],
+                },
+            }
+        if pt == PT_NEW_ORDER_REQ:
+            return {
+                "clientMsgId": cid,
+                "payloadType": PT_EXECUTION_EVENT,
+                "payload": {"executionType": 3, "position": {"positionId": 778899, "positionStatus": 1, "tradeData": {"symbolId": 1, "volume": p["volume"], "tradeSide": 1}}},
+            }
+        if pt == PT_RECONCILE_REQ:
+            return {
+                "clientMsgId": cid,
+                "payloadType": PT_RECONCILE_RES,
+                "payload": {
+                    "position": [
+                        {"positionId": 778899, "positionStatus": 1, "price": 1.085, "tradeData": {"symbolId": 1, "volume": 100_000, "tradeSide": 1}}
+                    ]
+                },
+            }
+        if pt == PT_GET_POSITION_UNREALIZED_PNL_REQ:
+            return {
+                "clientMsgId": cid,
+                "payloadType": PT_GET_POSITION_UNREALIZED_PNL_RES,
+                "payload": {"moneyDigits": 2, "positionUnrealizedPnL": [{"positionId": 778899, "netUnrealizedPnL": 450}]},
+            }
+        if pt == PT_CLOSE_POSITION_REQ:
+            return {"clientMsgId": cid, "payloadType": PT_EXECUTION_EVENT, "payload": {"executionType": 3}}
+        return {"clientMsgId": cid, "payloadType": 0, "payload": {}}
 
-    client = DerivClient(token="pat_demo_test", app_id="1089", rpc_transport=fake_rpc)
+    client = CTraderClient("cid", "csec", "tok", rpc_transport=fake_rpc)
     auth = client.authorize()
-    assert auth["loginid"] == "VRTC998877"
+    assert auth["loginid"] == "998877"
     assert auth["balance"] == 10000.0
     assert auth["is_virtual"] == 1
 
     syms = client.get_active_symbols()
-    assert len(syms) == 3
-    assert syms[0]["name"] == "R_100"
+    assert len(syms) == 2
 
-    ticks = client.get_ticks_history("R_100", count=5)
-    assert len(ticks) == 5
-    assert ticks[-1].last == 100.4
+    ticks = client.get_ticks_history("EURUSD", count=5)
+    assert len(ticks) == 3
+    assert ticks[-1].last == 1.0854
 
-    ok, msg = client.place_multiplier_order(
-        symbol="R_100",
-        is_buy=True,
-        stake=10.0,
-        multiplier=100,
-        sl_amount=5.0,
-        tp_amount=9.0,
-    )
+    ok, msg = client.place_market_order("EURUSD", is_buy=True, lots=0.01, sl_points=0.0020, tp_points=0.0040)
     assert ok is True
     assert "778899" in msg
 
-    contracts = client.get_open_contracts()
-    assert len(contracts) == 1
-    assert contracts[0]["profit"] == 4.5
+    positions = client.get_open_positions()
+    assert len(positions) == 1
+    assert positions[0]["profit"] == 4.5
 
-    closed_ok, _ = client.close_contract("778899")
+    closed_ok, _ = client.close_position("778899")
     assert closed_ok is True
 
 
-def test_deriv_cloud_disconnected_shows_zero_balance_never_fake_sim(tmp_path: Path):
+def test_ctrader_cloud_disconnected_shows_zero_balance_never_fake_sim(tmp_path: Path):
     cfg = load_config(tmp_path / "config.json")
-    cfg.connection_mode = "DERIV_CLOUD"
-    cfg.deriv_token = ""
+    cfg.connection_mode = "CTRADER_CLOUD"
+    cfg.ctrader_access_token = ""
     service = PradoTradingService(cfg, config_path=tmp_path / "config.json")
 
     snap = service.step_once()
     assert snap["account"]["balance"] == 0.0
     assert snap["account"]["equity"] == 0.0
-    assert snap["account"]["backend"] == "DERIV_DISCONNECTED"
+    assert snap["account"]["backend"] == "CTRADER_DISCONNECTED"
     assert snap["account"]["login"] == "DESCONECTADO"
 
 
-def test_web_app_deriv_token_vault_bots_categories_and_backtester(tmp_path: Path):
+def test_web_app_ctrader_vault_bots_categories_and_backtester(tmp_path: Path):
     from prado_linux.web_app import PradoWebApp
 
     cfg_path = tmp_path / "config.json"
     app = PradoWebApp(config_path=cfg_path)
     app.cfg.connection_mode = "SIMULATION"
 
-    # 1. Unauthenticated request blocked
     code, _, _ = app.handle_request("GET", "/api/status", headers={}, body=b"")
     assert code == 401
 
-    # 2. Login
     login_payload = json.dumps({"username": "admin", "password": "prado2026"}).encode("utf-8")
     code, body, resp_headers = app.handle_request(
         "POST", "/api/login", headers={"Content-Type": "application/json"}, body=login_payload
@@ -203,89 +241,52 @@ def test_web_app_deriv_token_vault_bots_categories_and_backtester(tmp_path: Path
     assert code == 200
     auth_headers = {"Cookie": resp_headers["Set-Cookie"], "Content-Type": "application/json"}
 
-    # 3. Save Deriv Demo & Real Tokens (and verify token is masked in response)
     demo_acc = json.dumps(
         {
-            "account_id": "deriv_demo_1",
+            "account_id": "ct_demo_1",
             "account_type": "DEMO",
-            "label": "Minha Deriv Demo",
-            "deriv_token": "pat_secret_demo_token",
-            "deriv_app_id": "1089",
-            "default_stake_usd": 10.0,
-            "default_multiplier": 100,
+            "label": "Minha cTrader Demo",
+            "access_token": "secret_demo_token",
+            "default_lot_size": 0.02,
         }
     ).encode("utf-8")
     code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=demo_acc)
     assert code == 200
     resp_demo = json.loads(body)
     assert resp_demo["ok"] is True
-    assert resp_demo["account"]["deriv_token"] == "********"
+    assert resp_demo["account"]["access_token"] == "********"
     assert resp_demo["account"]["account_type"] == "DEMO"
 
-    real_acc = json.dumps(
-        {
-            "account_id": "deriv_real_1",
-            "account_type": "REAL",
-            "label": "Minha Deriv Real",
-            "deriv_token": "pat_secret_real_token",
-            "deriv_app_id": "1089",
-            "default_stake_usd": 20.0,
-            "default_multiplier": 50,
-        }
-    ).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=real_acc)
-    assert code == 200
-
-    # 3b. Save default token in Config Deriv and verify new account inherits it automatically
     code, body, _ = app.handle_request(
         "POST",
         "/api/config",
         headers=auth_headers,
-        body=json.dumps({"deriv_token": "classic_default_token_123", "deriv_app_id": "1089"}).encode("utf-8"),
+        body=json.dumps({"ctrader_client_id": "cid_99", "ctrader_client_secret": "sec_99", "ctrader_access_token": "tok_99"}).encode("utf-8"),
     )
     assert code == 200
-    assert json.loads(body)["config"]["deriv_token_set"] is True
+    cfg_resp = json.loads(body)["config"]
+    assert cfg_resp["ctrader_client_secret"] == "********"
+    assert cfg_resp["ctrader_access_token_set"] is True
 
-    inherited_acc = json.dumps(
-        {
-            "account_id": "deriv_inherited_1",
-            "account_type": "REAL",
-            "label": "Real Herdada",
-            "deriv_token": "",
-        }
-    ).encode("utf-8")
-    code, body, _ = app.handle_request("POST", "/api/accounts", headers=auth_headers, body=inherited_acc)
-    assert code == 200
-    assert json.loads(body)["account"]["deriv_token"] == "********"
-
-    # Switch between Demo and Real tokens
     code, body, _ = app.handle_request(
-        "POST", "/api/accounts/select", headers=auth_headers, body=json.dumps({"account_id": "deriv_demo_1"}).encode("utf-8")
+        "POST", "/api/accounts/select", headers=auth_headers, body=json.dumps({"account_id": "ct_demo_1"}).encode("utf-8")
     )
     assert code == 200
     assert json.loads(body)["active_account"]["account_type"] == "DEMO"
 
-    # 4. Symbols Principais vs Todos + Custom Categories
     code, body, _ = app.handle_request("GET", "/api/symbols?mode=PRINCIPAIS", headers=auth_headers, body=b"")
     assert code == 200
-    sym_main = json.loads(body)
-    assert len(sym_main["symbols"]) > 0
-
-    code, body, _ = app.handle_request("GET", "/api/symbols?mode=TODOS", headers=auth_headers, body=b"")
-    assert code == 200
-    sym_all = json.loads(body)
-    assert len(sym_all["symbols"]) >= len(sym_main["symbols"])
+    assert len(json.loads(body)["symbols"]) > 0
 
     code, body, _ = app.handle_request(
         "POST",
         "/api/categories",
         headers=auth_headers,
-        body=json.dumps({"category_name": "Sintéticos 24h", "symbols": ["R_100", "1HZ100V"]}).encode("utf-8"),
+        body=json.dumps({"category_name": "Metais Spot", "symbols": ["XAUUSD", "XAGUSD"]}).encode("utf-8"),
     )
     assert code == 200
-    assert "Sintéticos 24h" in json.loads(body)["categories"]
+    assert "Metais Spot" in json.loads(body)["categories"]
 
-    # 5. Create, Edit, Fire Order (in SIMULATION mode) & Delete Bot
     code, _, _ = app.handle_request(
         "POST",
         "/api/config",
@@ -300,11 +301,10 @@ def test_web_app_deriv_token_vault_bots_categories_and_backtester(tmp_path: Path
         headers=auth_headers,
         body=json.dumps(
             {
-                "name": "Bot Deriv R_100",
-                "account_id": "deriv_demo_1",
-                "symbol": "R_100",
-                "lot_size": 10.0,
-                "multiplier": 100,
+                "name": "Bot cTrader EURUSD",
+                "account_id": "ct_demo_1",
+                "symbol": "EURUSD",
+                "lot_size": 0.02,
                 "auto_start": True,
             }
         ).encode("utf-8"),
@@ -324,20 +324,18 @@ def test_web_app_deriv_token_vault_bots_categories_and_backtester(tmp_path: Path
     snap = json.loads(body)
     assert len(snap["positions"]) >= 1
 
-    # 6. Backtester
     code, body, _ = app.handle_request(
         "POST",
         "/api/backtest",
         headers=auth_headers,
-        body=json.dumps({"symbol": "R_100", "tick_count": 400, "initial_capital": 10000.0, "lot_size": 10.0}).encode("utf-8"),
+        body=json.dumps({"symbol": "EURUSD", "tick_count": 400, "initial_capital": 10000.0, "lot_size": 0.05}).encode("utf-8"),
     )
     assert code == 200
     report = json.loads(body)["report"]
-    assert report["symbol"] == "R_100"
+    assert report["symbol"] == "EURUSD"
     assert "net_profit" in report
 
-    # 7. Lightweight Charts API & React Static Build
-    code, body, _ = app.handle_request("GET", "/api/chart?symbol=R_100", headers=auth_headers, body=b"")
+    code, body, _ = app.handle_request("GET", "/api/chart?symbol=EURUSD", headers=auth_headers, body=b"")
     assert code == 200
     chart_data = json.loads(body)
     assert chart_data["ok"] is True
@@ -348,48 +346,35 @@ def test_web_app_deriv_token_vault_bots_categories_and_backtester(tmp_path: Path
     assert "Prado Institutional HFT" in html_body
 
 
-def test_simulation_mode_ignores_stale_live_tick_cache(tmp_path: Path):
+def test_simulation_mode_ignores_stale_live_tick_cache():
     import time
-    from prado_linux.config import PradoServerConfig
-    from prado_linux.engine import DerivUniversalConnector
-    from prado_linux.flow_math import TickRecord
 
     cfg = PradoServerConfig(connection_mode="SIMULATION")
-    conn = DerivUniversalConnector(cfg)
-    # Seed stale live-style tick cache (far from simulated R_100 base price ~1850)
-    conn._tick_cache["R_100"] = (
+    conn = CTraderUniversalConnector(cfg)
+    conn._tick_cache["XAUUSD"] = (
         time.time(),
         [TickRecord(int(time.time() * 1000), 500.0, 500.0, 500.0, 0.0, 10.0, 0) for _ in range(60)],
     )
-    ticks = conn.fetch_ticks("R_100", count=60)
+    ticks = conn.fetch_ticks("XAUUSD", count=60)
     assert ticks
-    assert ticks[-1].effective_price() > 1000.0
+    assert ticks[-1].effective_price() > 2000.0
 
-    # Switching to SIMULATION via connect() also clears _tick_cache
-    conn._tick_cache["R_100"] = (
-        time.time(),
-        [TickRecord(int(time.time() * 1000), 500.0, 500.0, 500.0, 0.0, 10.0, 0) for _ in range(60)],
-    )
     ok, _ = conn.connect()
     assert ok is True
     assert conn._tick_cache == {}
 
 
-def test_deriv_cloud_disconnected_does_not_leak_sim_positions(tmp_path: Path):
-    from prado_linux.config import PradoServerConfig
-    from prado_linux.engine import DerivUniversalConnector
-
+def test_ctrader_cloud_disconnected_does_not_leak_sim_positions():
     cfg = PradoServerConfig(connection_mode="SIMULATION")
-    conn = DerivUniversalConnector(cfg)
+    conn = CTraderUniversalConnector(cfg)
     conn.connect()
-    ticks = conn.fetch_ticks("R_100", count=60)
+    ticks = conn.fetch_ticks("EURUSD", count=60)
     price = ticks[-1].effective_price()
-    ok, _ = conn.place_order("R_100", "BUY", 10.0, price, price * 0.01, price * 0.01, multiplier=100)
+    ok, _ = conn.place_order("EURUSD", "BUY", 0.01, price, price * 0.01, price * 0.01)
     assert ok is True
     assert len(conn.get_open_positions()) == 1
 
-    # Switch to DERIV_CLOUD without valid token (disconnected)
-    cfg.connection_mode = "DERIV_CLOUD"
+    cfg.connection_mode = "CTRADER_CLOUD"
     conn.connect()
     assert conn.get_open_positions() == []
     closed_count, _ = conn.close_all_positions()
@@ -397,7 +382,6 @@ def test_deriv_cloud_disconnected_does_not_leak_sim_positions(tmp_path: Path):
     ok_single, _ = conn.close_single_position(conn._sim_positions[0]["ticket"])
     assert ok_single is False
 
-    # Switching back to SIMULATION restores access to the open simulated position
     cfg.connection_mode = "SIMULATION"
     conn.connect()
     assert len(conn.get_open_positions()) == 1

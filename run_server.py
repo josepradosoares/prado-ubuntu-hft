@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entrypoint for Prado Institutional HFT Web Dashboard & MT5 Quant Engine (Ubuntu & Windows)."""
+"""Entrypoint for Prado Institutional HFT Web Dashboard & cTrader Quant Engine (Ubuntu & Windows)."""
 from __future__ import annotations
 
 import argparse
@@ -13,7 +13,7 @@ from prado_linux.web_app import run_http_server
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Prado Institutional HFT — Ubuntu Web Server & MT5 Quant Brain")
+    parser = argparse.ArgumentParser(description="Prado Institutional HFT — Ubuntu Web Server & cTrader Quant Brain")
     parser.add_argument("--host", default="0.0.0.0", help="IP de bind do servidor web (padrao: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8080, help="Porta HTTP do painel web (padrao: 8080)")
     parser.add_argument(

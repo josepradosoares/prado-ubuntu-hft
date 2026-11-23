@@ -10,6 +10,8 @@ import {
   Sun,
   Moon,
   Lock,
+  ExternalLink,
+  KeyRound,
 } from 'lucide-react'
 import {
   BacktestReport,
@@ -17,7 +19,7 @@ import {
   BotTemplate,
   BrokerSymbol,
   ChartPoint,
-  DerivAccount,
+  CTraderAccount,
   IndicatorMeta,
   ServerConfig,
   Snapshot,
@@ -28,7 +30,7 @@ import { ModelBuilderPanel } from './components/ModelBuilderPanel'
 import { Sidebar, TabKey } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { MarketIndicatorsBar } from './components/MarketIndicatorsBar'
-import { DerivDiagnosticsCard } from './components/DerivDiagnosticsCard'
+import { CTraderDiagnosticsCard } from './components/CTraderDiagnosticsCard'
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from './components/ui/Card'
 import { ConfirmModal } from './components/ui/ConfirmModal'
 import { DashboardSkeleton } from './components/ui/Skeleton'
@@ -48,11 +50,11 @@ import {
 const PAGE_META: Record<TabKey, { title: string; description: string }> = {
   overview: {
     title: 'Visão geral',
-    description: 'Resumo operacional da conta Deriv, indicadores de mercado e estado da frota HFT',
+    description: 'Resumo operacional da conta cTrader, indicadores de mercado e estado da frota HFT',
   },
   'running-bots': {
     title: 'Mesa de execução',
-    description: 'Terminal gráfico ao vivo, frota de robôs matemáticos e contratos abertos na Deriv',
+    description: 'Terminal gráfico ao vivo, frota de robôs matemáticos e posições abertas na cTrader',
   },
   'my-bots': {
     title: 'Meus robôs',
@@ -60,7 +62,7 @@ const PAGE_META: Record<TabKey, { title: string; description: string }> = {
   },
   'create-bot': {
     title: 'Configurar robô matemático',
-    description: 'Parametrização quantitativa de VWAP, Z-Score, Imbalance e multiplicadores Deriv',
+    description: 'Parametrização quantitativa de VWAP, Z-Score, Imbalance e volume em Lotes cTrader',
   },
   templates: {
     title: 'Modelos Matemáticos',
@@ -80,15 +82,15 @@ const PAGE_META: Record<TabKey, { title: string; description: string }> = {
   },
   categories: {
     title: 'Categorias de ativos',
-    description: 'Catálogo de símbolos Deriv e agrupamentos personalizados para monitoramento',
+    description: 'Catálogo de símbolos da corretora cTrader e agrupamentos personalizados para monitoramento',
   },
-  'deriv-config': {
-    title: 'Configuração Deriv',
-    description: 'Credenciais padrão, App ID, modo de execução e diagnóstico de conexão WebSocket',
+  'ctrader-config': {
+    title: 'Configuração cTrader',
+    description: 'Credenciais do App Open API (openapi.ctrader.com), autorização OAuth 2.0 e diagnóstico WebSocket',
   },
-  'deriv-tokens': {
-    title: 'Tokens e Contas',
-    description: 'Cofre seguro de contas Demo (VRTC) e Real (CR) com alternância rápida',
+  'ctrader-accounts': {
+    title: 'Contas cTrader',
+    description: 'Cofre seguro de contas Demo e Real vinculadas ao seu cTrader ID (cTID) com alternância rápida',
   },
   history: {
     title: 'Histórico',
@@ -124,7 +126,7 @@ export default function App() {
   const [symbols, setSymbols] = useState<BrokerSymbol[]>([])
   const [symbolMode, setSymbolMode] = useState<'PRINCIPAIS' | 'TODOS'>('TODOS')
   const symbolModeRef = useRef<'PRINCIPAIS' | 'TODOS'>('TODOS')
-  const [chartSymbol, setChartSymbol] = useState('R_100')
+  const [chartSymbol, setChartSymbol] = useState('EURUSD')
   const [chartTimeframe, setChartTimeframe] = useState('TICKS')
   const [chartPoints, setChartPoints] = useState<ChartPoint[]>([])
   const [chartLoading, setChartLoading] = useState(false)
@@ -154,33 +156,32 @@ export default function App() {
   const [botName, setBotName] = useState('')
   const [botAccountId, setBotAccountId] = useState('')
   const [botTemplateId, setBotTemplateId] = useState('WALL_STREET_HYBRID_BOTH')
-  const [botSymbol, setBotSymbol] = useState('R_100')
-  const [botStake, setBotStake] = useState(10)
-  const [botMult, setBotMult] = useState(100)
+  const [botSymbol, setBotSymbol] = useState('EURUSD')
+  const [botLotSize, setBotLotSize] = useState(0.01)
   const [botWindow, setBotWindow] = useState(120)
   const [botZscore, setBotZscore] = useState(1.8)
   const [botImb, setBotImb] = useState(0.35)
   const [botRevertSigma, setBotRevertSigma] = useState(2.0)
   const [botGridDir, setBotGridDir] = useState<'BUY_ONLY' | 'SELL_ONLY' | 'BOTH'>('BUY_ONLY')
-  const [botGridStep, setBotGridStep] = useState(1.5)
-  const [botGridTp, setBotGridTp] = useState(1.5)
+  const [botGridStep, setBotGridStep] = useState(0.002)
+  const [botGridTp, setBotGridTp] = useState(0.002)
   const [botGridMaxLevels, setBotGridMaxLevels] = useState(5)
   const [botLossGuardEnabled, setBotLossGuardEnabled] = useState(true)
   const [botMaxLossUsd, setBotMaxLossUsd] = useState(20)
   const [botNewsAssisted, setBotNewsAssisted] = useState(false)
   const [botTimeframe, setBotTimeframe] = useState('TICKS')
-  const [botTpMode, setBotTpMode] = useState<'AUTO' | 'USD' | 'PCT' | 'TICKS'>('AUTO')
-  const [botTpValue, setBotTpValue] = useState(0.5)
+  const [botTpMode, setBotTpMode] = useState<'AUTO' | 'USD' | 'PCT' | 'PIPS' | 'TICKS'>('AUTO')
+  const [botTpValue, setBotTpValue] = useState(10)
   const [botFormDirty, setBotFormDirty] = useState(false)
 
   // Backtest form state
-  const [btSymbol, setBtSymbol] = useState('R_100')
+  const [btSymbol, setBtSymbol] = useState('EURUSD')
   const [btTemplateId, setBtTemplateId] = useState('WALL_STREET_HYBRID_BOTH')
   const [btTimeframe, setBtTimeframe] = useState('TICKS')
   const [btPeriod, setBtPeriod] = useState('CUSTOM')
   const [btTicks, setBtTicks] = useState(400)
   const [btCapital, setBtCapital] = useState(10000)
-  const [btStake, setBtStake] = useState(10)
+  const [btLotSize, setBtLotSize] = useState(0.01)
   const [btResult, setBtResult] = useState<BacktestReport | null>(null)
   const [btRunning, setBtRunning] = useState(false)
 
@@ -189,20 +190,22 @@ export default function App() {
   const [catSymbols, setCatSymbols] = useState('')
   const [symbolSearch, setSymbolSearch] = useState('')
 
-  // Config Deriv state
-  const [cfgToken, setCfgToken] = useState('')
-  const [cfgAppId, setCfgAppId] = useState('1089')
-  const [cfgConnMode, setCfgConnMode] = useState('DERIV_CLOUD')
+  // Config cTrader state
+  const [cfgClientId, setCfgClientId] = useState('')
+  const [cfgClientSecret, setCfgClientSecret] = useState('')
+  const [cfgRedirectUri, setCfgRedirectUri] = useState('')
+  const [cfgAccessToken, setCfgAccessToken] = useState('')
+  const [cfgRefreshToken, setCfgRefreshToken] = useState('')
+  const [cfgConnMode, setCfgConnMode] = useState('CTRADER_CLOUD')
 
   // Account Vault form state
   const [editingAccId, setEditingAccId] = useState('')
   const [accType, setAccType] = useState<'DEMO' | 'REAL'>('DEMO')
   const [accLabel, setAccLabel] = useState('')
+  const [accCtidAccountId, setAccCtidAccountId] = useState('')
   const [accToken, setAccToken] = useState('')
-  const [accAppId, setAccAppId] = useState('1089')
-  const [accStake, setAccStake] = useState(10)
-  const [accMult, setAccMult] = useState(100)
-  const [accConnMode, setAccConnMode] = useState('DERIV_CLOUD')
+  const [accLotSize, setAccLotSize] = useState(0.01)
+  const [accConnMode, setAccConnMode] = useState('CTRADER_CLOUD')
   const [useCustomCreds, setUseCustomCreds] = useState(false)
   const [syncingAccounts, setSyncingAccounts] = useState(false)
   const [newsScanning, setNewsScanning] = useState(false)
@@ -219,6 +222,20 @@ export default function App() {
     setTimeout(() => setToast(null), 4500)
   }, [])
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const oauthState = params.get('ctrader_oauth')
+    if (oauthState) {
+      const oauthMsg = params.get('msg') || ''
+      if (oauthState === 'ok') {
+        showToast(oauthMsg || 'Conta cTrader autorizada via OAuth 2.0!')
+      } else {
+        showToast(oauthMsg || 'Falha na autorização OAuth cTrader.', true)
+      }
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+  }, [showToast])
+
   const fetchChart = useCallback(async (sym: string, tf: string = 'TICKS') => {
     setChartLoading(true)
     try {
@@ -233,7 +250,7 @@ export default function App() {
         setChartError(null)
       }
     } catch {
-      setChartError('Não foi possível obter os pontos do gráfico da Deriv.')
+      setChartError('Não foi possível obter os pontos do gráfico da cTrader.')
     } finally {
       setChartLoading(false)
     }
@@ -276,10 +293,11 @@ export default function App() {
         const cfgData = await cfgRes.json()
         const c: ServerConfig = cfgData.config
         setConfig(c)
-        setCfgAppId(c.deriv_app_id || '1089')
-        setCfgConnMode(c.connection_mode || 'DERIV_CLOUD')
-        setAccAppId(c.deriv_app_id || '1089')
-        setAccConnMode(c.connection_mode || 'DERIV_CLOUD')
+        setCfgClientId(c.ctrader_client_id || '')
+        setCfgRedirectUri(c.ctrader_redirect_uri || `${window.location.origin}/api/ctrader/oauth/callback`)
+        setCfgConnMode(c.connection_mode || 'CTRADER_CLOUD')
+        setAccConnMode(c.connection_mode || 'CTRADER_CLOUD')
+        setAccLotSize(c.default_lot_size || 0.01)
         if (c.accounts?.length) {
           setBotAccountId((prev) => prev || c.active_account_id || c.accounts[0].account_id)
         }
@@ -429,21 +447,22 @@ export default function App() {
     setBotName('')
     setBotAccountId(config?.active_account_id || config?.accounts?.[0]?.account_id || '')
     setBotTemplateId('WALL_STREET_HYBRID_BOTH')
-    setBotSymbol('R_100')
-    setBotStake(10)
-    setBotMult(100)
+    setBotSymbol('EURUSD')
+    setBotLotSize(config?.default_lot_size || 0.01)
     setBotWindow(120)
     setBotZscore(1.8)
     setBotImb(0.35)
     setBotRevertSigma(2.0)
     setBotGridDir('BUY_ONLY')
-    setBotGridStep(1.5)
-    setBotGridTp(1.5)
+    setBotGridStep(0.002)
+    setBotGridTp(0.002)
     setBotGridMaxLevels(5)
     setBotLossGuardEnabled(true)
     setBotMaxLossUsd(20)
     setBotNewsAssisted(false)
     setBotTimeframe('TICKS')
+    setBotTpMode('AUTO')
+    setBotTpValue(10)
     setBotFormDirty(false)
   }
 
@@ -453,23 +472,22 @@ export default function App() {
     setBotAccountId(b.account_id)
     setBotTemplateId(b.template_id)
     setBotSymbol(b.symbol)
-    setBotStake(b.lot_size)
-    setBotMult(b.multiplier)
+    setBotLotSize(b.lot_size || 0.01)
     setBotWindow(b.window_ticks)
     setBotZscore(b.zscore_threshold)
     setBotImb(b.imbalance_threshold)
     setBotRevertSigma(b.revert_sigma)
     setBotGridDir((b.grid_direction as 'BUY_ONLY' | 'SELL_ONLY' | 'BOTH') || 'BUY_ONLY')
-    setBotGridStep(b.grid_step_points ?? 1.5)
-    setBotGridTp(b.grid_tp_points ?? 1.5)
+    setBotGridStep(b.grid_step_points ?? 0.002)
+    setBotGridTp(b.grid_tp_points ?? 0.002)
     setBotGridMaxLevels(b.max_grid_levels ?? 5)
     setBotLossGuardEnabled(Boolean(b.loss_guard_enabled))
     setBotMaxLossUsd(b.max_loss_usd ?? 20)
     setBotNewsAssisted(Boolean(b.news_assisted))
     setBotTimeframe((b.timeframe || 'TICKS').toUpperCase())
-    const loadedTpMode = (String(b.tp_mode || 'AUTO').toUpperCase() as 'AUTO' | 'USD' | 'PCT' | 'TICKS')
-    setBotTpMode(['AUTO', 'USD', 'PCT', 'TICKS'].includes(loadedTpMode) ? loadedTpMode : 'AUTO')
-    setBotTpValue(b.tp_value && b.tp_value > 0 ? b.tp_value : loadedTpMode === 'PCT' ? 10 : loadedTpMode === 'TICKS' ? 2 : 0.5)
+    const loadedTpMode = String(b.tp_mode || 'AUTO').toUpperCase() as 'AUTO' | 'USD' | 'PCT' | 'PIPS' | 'TICKS'
+    setBotTpMode(['AUTO', 'USD', 'PCT', 'PIPS', 'TICKS'].includes(loadedTpMode) ? loadedTpMode : 'AUTO')
+    setBotTpValue(b.tp_value && b.tp_value > 0 ? b.tp_value : loadedTpMode === 'USD' ? 2.0 : loadedTpMode === 'PCT' ? 0.25 : 10)
     setBotFormDirty(false)
     setActiveTab('create-bot')
   }
@@ -480,8 +498,7 @@ export default function App() {
       account_id: b.account_id || config?.active_account_id || '',
       template_id: b.template_id,
       symbol: b.symbol,
-      lot_size: Number(b.lot_size) || 10,
-      multiplier: Number(b.multiplier) || 100,
+      lot_size: Number(b.lot_size) || 0.01,
       window_ticks: Number(b.window_ticks) || 120,
       zscore_threshold: Number(b.zscore_threshold) || 1.8,
       imbalance_threshold: Number(b.imbalance_threshold) || 0.35,
@@ -511,8 +528,8 @@ export default function App() {
 
   async function saveBot(e: FormEvent) {
     e.preventDefault()
-    if (!Number.isFinite(botStake) || botStake <= 0) {
-      showToast('Stake deve ser maior que zero.', true)
+    if (!Number.isFinite(botLotSize) || botLotSize < 0.01) {
+      showToast('O volume mínimo é 0.01 lote.', true)
       return
     }
     if (!Number.isFinite(botWindow) || botWindow < 10) {
@@ -526,8 +543,7 @@ export default function App() {
       bot_template_id: botTemplateId,
       template_id: botTemplateId,
       symbol: botSymbol,
-      lot_size: Number(botStake),
-      multiplier: Number(botMult),
+      lot_size: Number(botLotSize),
       window_ticks: Number(botWindow),
       zscore_threshold: Number(botZscore),
       imbalance_threshold: Number(botImb),
@@ -584,7 +600,7 @@ export default function App() {
           period: btPeriod,
           tick_count: Number(btTicks),
           initial_capital: Number(btCapital),
-          lot_size: Number(btStake),
+          lot_size: Number(btLotSize),
         }),
       })
       const d = await res.json()
@@ -647,13 +663,16 @@ export default function App() {
     }
   }
 
-  async function saveDerivConfig(e: FormEvent) {
+  async function saveCTraderConfig(e: FormEvent) {
     e.preventDefault()
     const payload: Record<string, unknown> = {
-      deriv_app_id: cfgAppId.trim() || '1089',
+      ctrader_client_id: cfgClientId.trim(),
+      ctrader_redirect_uri: cfgRedirectUri.trim() || `${window.location.origin}/api/ctrader/oauth/callback`,
       connection_mode: cfgConnMode,
     }
-    if (cfgToken.trim()) payload.deriv_token = cfgToken.trim()
+    if (cfgClientSecret.trim()) payload.ctrader_client_secret = cfgClientSecret.trim()
+    if (cfgAccessToken.trim()) payload.ctrader_access_token = cfgAccessToken.trim()
+    if (cfgRefreshToken.trim()) payload.ctrader_refresh_token = cfgRefreshToken.trim()
 
     try {
       const res = await fetch('/api/config', {
@@ -664,17 +683,32 @@ export default function App() {
       const d = await res.json()
       if (res.ok && d.ok) {
         setConfig(d.config)
-        setCfgToken('')
-        setAccAppId(d.config.deriv_app_id || '1089')
-        setAccConnMode(d.config.connection_mode || 'DERIV_CLOUD')
-        showToast('Configuração Deriv salva e contas sincronizadas!')
+        setCfgClientSecret('')
+        setCfgAccessToken('')
+        setCfgRefreshToken('')
+        showToast('Configuração cTrader salva!')
         const stRes = await fetch('/api/status')
         if (stRes.ok) setSnapshot(await stRes.json())
       } else {
-        showToast(d.error || 'Falha ao salvar configuração Deriv.', true)
+        showToast(d.error || 'Falha ao salvar configuração cTrader.', true)
       }
     } catch {
-      showToast('Erro de rede ao salvar configuração Deriv.', true)
+      showToast('Erro de rede ao salvar configuração cTrader.', true)
+    }
+  }
+
+  async function startCTraderOAuth() {
+    try {
+      const redirectUri = cfgRedirectUri.trim() || `${window.location.origin}/api/ctrader/oauth/callback`
+      const res = await fetch(`/api/ctrader/oauth/start?redirect_uri=${encodeURIComponent(redirectUri)}`)
+      const d = await res.json()
+      if (res.ok && d.ok && d.auth_url) {
+        window.location.href = d.auth_url
+      } else {
+        showToast(d.error || 'Salve Client ID e Client Secret antes de autorizar.', true)
+      }
+    } catch {
+      showToast('Erro ao iniciar autorização OAuth cTrader.', true)
     }
   }
 
@@ -733,7 +767,7 @@ export default function App() {
           feed_id: feedEditingId || undefined,
           source: feedSource.trim() || 'Fonte Customizada',
           url: feedUrl.trim(),
-          default_symbol: feedSymbol || 'cryBTCUSD',
+          default_symbol: feedSymbol || 'BTCUSD',
         }),
       })
       const d = await res.json()
@@ -741,7 +775,7 @@ export default function App() {
         setFeedEditingId('')
         setFeedSource('')
         setFeedUrl('')
-        setFeedSymbol('cryBTCUSD')
+        setFeedSymbol('BTCUSD')
         showToast('URL de notícia salva com sucesso!')
         const stRes = await fetch('/api/status')
         if (stRes.ok) setSnapshot(await stRes.json())
@@ -823,7 +857,7 @@ export default function App() {
     }
   }
 
-  async function syncDerivAccounts() {
+  async function syncCTraderAccounts() {
     setSyncingAccounts(true)
     try {
       const res = await fetch('/api/accounts/sync', { method: 'POST' })
@@ -832,28 +866,27 @@ export default function App() {
         if (config) {
           setConfig({ ...config, accounts: d.accounts, active_account_id: d.active_account_id || config.active_account_id })
         }
-        showToast(d.message || 'Contas sincronizadas da Deriv!')
+        showToast(d.message || 'Contas sincronizadas da cTrader!')
         const stRes = await fetch('/api/status')
         if (stRes.ok) setSnapshot(await stRes.json())
       } else {
         showToast(d.message || d.error || 'Não foi possível sincronizar as contas.', true)
       }
     } catch {
-      showToast('Erro de rede ao sincronizar contas da Deriv.', true)
+      showToast('Erro de rede ao sincronizar contas da cTrader.', true)
     } finally {
       setSyncingAccounts(false)
     }
   }
 
-  async function saveDerivAccount(e: FormEvent) {
+  async function saveCTraderAccount(e: FormEvent) {
     e.preventDefault()
     const payload: Record<string, unknown> = {
       account_type: accType,
       label: accLabel.trim(),
-      deriv_token: useCustomCreds ? accToken.trim() : '',
-      deriv_app_id: useCustomCreds ? accAppId.trim() || '1089' : '',
-      default_stake_usd: Number(accStake),
-      default_multiplier: Number(accMult),
+      ctid_account_id: accCtidAccountId.trim(),
+      access_token: useCustomCreds ? accToken.trim() : '',
+      default_lot_size: Number(accLotSize),
       connection_mode: accConnMode,
     }
     if (editingAccId) payload.account_id = editingAccId
@@ -868,18 +901,19 @@ export default function App() {
       if (res.ok && d.ok) {
         setEditingAccId('')
         setAccLabel('')
+        setAccCtidAccountId('')
         setAccToken('')
         if (config) {
           setConfig({ ...config, accounts: d.accounts, active_account_id: d.account.account_id })
         }
-        showToast(d.message || 'Conta Deriv salva!')
+        showToast(d.message || 'Conta cTrader salva!')
         const stRes = await fetch('/api/status')
         if (stRes.ok) setSnapshot(await stRes.json())
       } else {
-        showToast(d.error || 'Falha ao salvar conta Deriv.', true)
+        showToast(d.error || 'Falha ao salvar conta cTrader.', true)
       }
     } catch {
-      showToast('Erro de rede ao salvar conta Deriv.', true)
+      showToast('Erro de rede ao salvar conta cTrader.', true)
     }
   }
 
@@ -904,10 +938,10 @@ export default function App() {
     }
   }
 
-  function requestDeleteAccount(account: DerivAccount) {
+  function requestDeleteAccount(account: CTraderAccount) {
     setConfirmModal({
       open: true,
-      title: 'Remover conta Deriv',
+      title: 'Remover conta cTrader',
       description: `Deseja remover a conta "${account.label}" (${account.account_type}) do cofre?`,
       confirmLabel: 'Remover conta',
       variant: 'danger',
@@ -951,11 +985,11 @@ export default function App() {
     const isSingle = ticket !== undefined
     setConfirmModal({
       open: true,
-      title: isSingle ? `Encerrar contrato #${ticket}` : 'Zerar todas as posições abertas',
+      title: isSingle ? `Encerrar posição #${ticket}` : 'Zerar todas as posições abertas',
       description: isSingle
-        ? `Confirmar o encerramento imediato do contrato #${ticket} na Deriv?`
-        : 'Confirmar o fechamento emergencial de todos os contratos abertos na conta ativa?',
-      confirmLabel: isSingle ? 'Encerrar contrato' : 'Zerar tudo agora',
+        ? `Confirmar o encerramento imediato da posição #${ticket} na cTrader?`
+        : 'Confirmar o fechamento emergencial de todas as posições abertas na conta ativa?',
+      confirmLabel: isSingle ? 'Encerrar posição' : 'Zerar tudo agora',
       variant: 'danger',
       onConfirm: async () => {
         setConfirmModal((m) => ({ ...m, open: false }))
@@ -974,7 +1008,7 @@ export default function App() {
             showToast(d.message || d.error || 'Nenhuma posição fechada.', true)
           }
         } catch {
-          showToast('Erro de rede ao encerrar posição na Deriv.', true)
+          showToast('Erro de rede ao encerrar posição na cTrader.', true)
         }
       },
     })
@@ -1020,7 +1054,7 @@ export default function App() {
   }
 
   const monitoredSymbols = useMemo(() => {
-    const set = new Set<string>(['R_100', 'cryBTCUSD', 'frxEURUSD'])
+    const set = new Set<string>(['EURUSD', 'BTCUSD', 'XAUUSD'])
     if (snapshot?.symbols) {
       Object.keys(snapshot.symbols).forEach((s) => {
         if (s) set.add(s)
@@ -1056,7 +1090,7 @@ export default function App() {
               </div>
               <div>
                 <h1 className="text-lg font-bold text-slate-900 dark:text-white">Prado Ubuntu HFT</h1>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Deriv Multipliers • Terminal 24/7</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">cTrader Open API • Terminal 24/7</p>
               </div>
             </div>
             <button
@@ -1162,7 +1196,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-[#0b0f17] text-slate-900 dark:text-slate-100">
-      {/* Toast */}
       {toast && (
         <div
           className={`fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-xl border px-4 py-3 text-xs font-medium shadow-2xl ${
@@ -1180,7 +1213,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Sidebar */}
       <Sidebar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -1191,7 +1223,6 @@ export default function App() {
         totalBots={totalBots}
       />
 
-      {/* Right Shell */}
       <div className="flex-1 min-w-0 flex flex-col">
         <Topbar
           pageTitle={pageInfo.title}
@@ -1215,7 +1246,6 @@ export default function App() {
         />
 
         <main className="flex-1 px-4 sm:px-6 py-5 space-y-5 max-w-[1440px] w-full mx-auto">
-          {/* Page Header */}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">
@@ -1230,7 +1260,6 @@ export default function App() {
             )}
           </div>
 
-          {/* Connection Error Banner */}
           {connectionError && (
             <div className="flex items-center justify-between gap-3 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-xs text-rose-700 dark:text-rose-300">
               <div className="flex items-center gap-2">
@@ -1252,13 +1281,12 @@ export default function App() {
             <DashboardSkeleton />
           ) : (
             <>
-              {/* KPI Strip on Overview & Running Bots */}
               {(activeTab === 'overview' || activeTab === 'running-bots') && (
                 <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <Card hoverable>
                     <CardBody className="p-4">
                       <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                        <span>Conta Deriv conectada</span>
+                        <span>Conta cTrader conectada</span>
                         <span
                           className={`rounded-md px-2 py-0.5 text-[10px] font-semibold border ${
                             acc?.account_type === 'REAL'
@@ -1276,7 +1304,7 @@ export default function App() {
                         className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 truncate"
                         title={acc?.status_note || acc?.server}
                       >
-                        {acc?.status_note || acc?.server || 'Aguardando token'}
+                        {acc?.status_note || acc?.server || 'Aguardando credenciais cTrader'}
                       </div>
                     </CardBody>
                   </Card>
@@ -1329,7 +1357,6 @@ export default function App() {
                 </section>
               )}
 
-              {/* OVERVIEW & RUNNING BOTS */}
               {(activeTab === 'overview' || activeTab === 'running-bots') && (
                 <div className="space-y-6">
                   <MarketIndicatorsBar
@@ -1339,7 +1366,7 @@ export default function App() {
                     connected={isConnected}
                   />
                   {activeTab === 'overview' && (
-                    <DerivDiagnosticsCard account={snapshot?.account} />
+                    <CTraderDiagnosticsCard account={snapshot?.account} />
                   )}
 
                   <LightweightChartPanel
@@ -1372,10 +1399,9 @@ export default function App() {
                     onDeleteAll={handleDeleteAllBots}
                   />
 
-                  {/* Open Positions */}
                   <Card className="overflow-hidden">
                     <CardHeader className="bg-slate-50/70 dark:bg-slate-900/40">
-                      <CardTitle>Contratos abertos na Deriv</CardTitle>
+                      <CardTitle>Posições abertas na cTrader</CardTitle>
                       <CardDescription>
                         Acompanhamento em tempo real com Stop Loss e Take Profit
                       </CardDescription>
@@ -1384,11 +1410,11 @@ export default function App() {
                       <table className="w-full text-left text-xs">
                         <thead className="border-b border-slate-200 dark:border-slate-800 text-[11px] uppercase text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/40">
                           <tr>
-                            <th className="px-4 py-3">Contrato</th>
+                            <th className="px-4 py-3">Posição</th>
                             <th className="px-4 py-3">Robô</th>
                             <th className="px-4 py-3">Ativo</th>
                             <th className="px-4 py-3">Lado</th>
-                            <th className="px-4 py-3 text-right">Stake</th>
+                            <th className="px-4 py-3 text-right">Lotes</th>
                             <th className="px-4 py-3 text-right">Entrada</th>
                             <th className="px-4 py-3 text-right">Atual</th>
                             <th className="px-4 py-3 text-right">Lucro</th>
@@ -1402,7 +1428,7 @@ export default function App() {
                                 colSpan={9}
                                 className="px-4 py-8 text-center text-slate-500 font-sans"
                               >
-                                Nenhum contrato aberto no momento.
+                                Nenhuma posição aberta no momento.
                               </td>
                             </tr>
                           ) : (
@@ -1435,13 +1461,13 @@ export default function App() {
                                     </span>
                                   </td>
                                   <td className="px-4 py-3 text-right">
-                                    ${formatNumber(p.volume, 2)}
+                                    {formatNumber(p.volume, 2)}
                                   </td>
                                   <td className="px-4 py-3 text-right">
-                                    {formatPrice(p.price_open, 4)}
+                                    {formatPrice(p.price_open, 5)}
                                   </td>
                                   <td className="px-4 py-3 text-right">
-                                    {formatPrice(p.price_current, 4)}
+                                    {formatPrice(p.price_current, 5)}
                                   </td>
                                   <td
                                     className={`px-4 py-3 text-right font-semibold ${
@@ -1472,7 +1498,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* MY BOTS DEDICATED VIEW */}
               {activeTab === 'my-bots' && (
                 <BotCardGrid
                   bots={snapshot?.bots || []}
@@ -1484,15 +1509,13 @@ export default function App() {
                   onEdit={startEditBot}
                   onDuplicate={duplicateBot}
                   onNewBot={() => {
-                    setEditingBotId('')
-                    setBotFormDirty(false)
+                    resetBotForm()
                     setActiveTab('create-bot')
                   }}
                   onDeleteAll={handleDeleteAllBots}
                 />
               )}
 
-              {/* CREATE / EDIT BOT */}
               {activeTab === 'create-bot' && (
                 <Card>
                   <CardHeader className="flex flex-wrap items-center justify-between gap-2">
@@ -1501,7 +1524,7 @@ export default function App() {
                         {editingBotId ? 'Editar robô matemático' : 'Configurar novo robô matemático'}
                       </CardTitle>
                       <CardDescription>
-                        Defina a conta Deriv, ativo, modelo quantitativo e gatilhos estatísticos
+                        Defina a conta cTrader, ativo, modelo quantitativo, volume em Lotes e gatilhos estatísticos
                       </CardDescription>
                     </div>
                     {botFormDirty && (
@@ -1525,20 +1548,21 @@ export default function App() {
                             type="text"
                             value={botName}
                             onChange={(e) => setBotName(e.target.value)}
-                            placeholder="Ex: Bot R_100 Reversão"
+                            placeholder="Ex: Bot EURUSD VWAP"
                             className={inputClass}
                             required
                           />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                            Conta Deriv vinculada
+                            Conta cTrader vinculada
                           </label>
                           <select
                             value={botAccountId}
                             onChange={(e) => setBotAccountId(e.target.value)}
                             className={inputClass}
                           >
+                            {!config?.accounts?.length && <option value="default">Conta padrão ativa</option>}
                             {config?.accounts?.map((a) => (
                               <option key={a.account_id} value={a.account_id}>
                                 [{a.account_type}] {a.label}
@@ -1548,7 +1572,7 @@ export default function App() {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                            Ativo Deriv
+                            Ativo cTrader
                           </label>
                           <select
                             value={botSymbol}
@@ -1624,32 +1648,16 @@ export default function App() {
                       <div className="border-t border-slate-100 dark:border-slate-800 pt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div>
                           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                            Stake (USD)
+                            Volume Padrão (Lotes)
                           </label>
                           <input
                             type="number"
-                            step="0.5"
-                            min="1"
-                            value={botStake}
-                            onChange={(e) => setBotStake(Number(e.target.value))}
+                            step="0.01"
+                            min="0.01"
+                            value={botLotSize}
+                            onChange={(e) => setBotLotSize(Number(e.target.value))}
                             className={`${inputClass} font-mono`}
                           />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                            Multiplicador
-                          </label>
-                          <select
-                            value={botMult}
-                            onChange={(e) => setBotMult(Number(e.target.value))}
-                            className={`${inputClass} font-mono`}
-                          >
-                            {[20, 50, 100, 200, 400].map((m) => (
-                              <option key={m} value={m}>
-                                {m}x
-                              </option>
-                            ))}
-                          </select>
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
@@ -1706,17 +1714,18 @@ export default function App() {
                           <select
                             value={botTpMode}
                             onChange={(e) => {
-                              const next = e.target.value as 'AUTO' | 'USD' | 'PCT' | 'TICKS'
+                              const next = e.target.value as 'AUTO' | 'USD' | 'PCT' | 'PIPS' | 'TICKS'
                               setBotTpMode(next)
-                              if (next === 'USD' && botTpValue <= 0) setBotTpValue(0.5)
-                              else if (next === 'PCT' && botTpValue <= 0) setBotTpValue(10)
-                              else if (next === 'TICKS' && botTpValue <= 0) setBotTpValue(2)
+                              if (next === 'USD' && botTpValue <= 0) setBotTpValue(2.0)
+                              else if (next === 'PCT' && botTpValue <= 0) setBotTpValue(0.25)
+                              else if ((next === 'PIPS' || next === 'TICKS') && botTpValue <= 0) setBotTpValue(10)
                             }}
                             className={inputClass}
                           >
-                            <option value="AUTO">Padrão (90% do Stake)</option>
-                            <option value="USD">Valor fixo (USD)</option>
-                            <option value="PCT">% do Stake</option>
+                            <option value="AUTO">Padrão Matemático (1.8σ VWAP)</option>
+                            <option value="USD">Lucro alvo fixo (USD)</option>
+                            <option value="PIPS">Distância em Pips</option>
+                            <option value="PCT">% do Preço</option>
                             <option value="TICKS">Quantidade de Ticks</option>
                           </select>
                         </div>
@@ -1726,13 +1735,15 @@ export default function App() {
                               {botTpMode === 'USD'
                                 ? 'Lucro alvo (USD)'
                                 : botTpMode === 'PCT'
-                                  ? 'Lucro alvo (% do Stake)'
-                                  : 'Alvo em Ticks (a favor)'}
+                                  ? 'Variação alvo (%)'
+                                  : botTpMode === 'PIPS'
+                                    ? 'Alvo em Pips'
+                                    : 'Alvo em Ticks'}
                             </label>
                             <input
                               type="number"
-                              step={botTpMode === 'TICKS' ? '1' : botTpMode === 'PCT' ? '1' : '0.05'}
-                              min={botTpMode === 'TICKS' ? '1' : botTpMode === 'PCT' ? '1' : '0.05'}
+                              step={botTpMode === 'USD' ? '0.5' : botTpMode === 'PCT' ? '0.05' : '1'}
+                              min={botTpMode === 'USD' ? '0.1' : botTpMode === 'PCT' ? '0.01' : '1'}
                               value={botTpValue}
                               onChange={(e) => setBotTpValue(Number(e.target.value))}
                               className={`${inputClass} font-mono`}
@@ -1763,12 +1774,12 @@ export default function App() {
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                                Passo do Grid (pontos)
+                                Passo do Grid (preço)
                               </label>
                               <input
                                 type="number"
-                                step="0.1"
-                                min="0.01"
+                                step="0.0005"
+                                min="0.0001"
                                 value={botGridStep}
                                 onChange={(e) => setBotGridStep(Number(e.target.value))}
                                 className={`${inputClass} font-mono`}
@@ -1776,12 +1787,12 @@ export default function App() {
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                                Alvo por Nível (pontos)
+                                Alvo por Nível (preço)
                               </label>
                               <input
                                 type="number"
-                                step="0.1"
-                                min="0.01"
+                                step="0.0005"
+                                min="0.0001"
                                 value={botGridTp}
                                 onChange={(e) => setBotGridTp(Number(e.target.value))}
                                 className={`${inputClass} font-mono`}
@@ -1870,20 +1881,19 @@ export default function App() {
                 </Card>
               )}
 
-              {/* BACKTEST */}
               {activeTab === 'backtest' && (
                 <div className="space-y-6">
                   <Card>
                     <CardHeader>
                       <CardTitle>Parâmetros do Backtest tick a tick</CardTitle>
                       <CardDescription>
-                        Executa o motor matemático sobre ticks históricos sem alterar os cálculos originais
+                        Executa o motor matemático sobre séries históricas cTrader (ou simulador CFD por Lotes)
                       </CardDescription>
                     </CardHeader>
                     <CardBody className="space-y-6">
                       <form
                         onSubmit={runBacktest}
-                        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4"
+                        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-8 gap-4"
                       >
                         <div>
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
@@ -1934,8 +1944,8 @@ export default function App() {
                             <option value="M30">30 Minutos (M30)</option>
                             <option value="H1">1 Hora (H1)</option>
                             <option value="H4">4 Horas (H4)</option>
-                            <option value="D1">1 Dia (D1 • 365=1 ano)</option>
-                            <option value="MN1">1 Mês (MN1 • Anos)</option>
+                            <option value="D1">1 Dia (D1)</option>
+                            <option value="MN1">1 Mês (MN1)</option>
                           </select>
                         </div>
                         <div>
@@ -1973,6 +1983,19 @@ export default function App() {
                         )}
                         <div>
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
+                            Lotes
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            value={btLotSize}
+                            onChange={(e) => setBtLotSize(Number(e.target.value))}
+                            className={`${inputClass} font-mono`}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
                             Capital (USD)
                           </label>
                           <input
@@ -2001,12 +2024,12 @@ export default function App() {
                             </span>
                             <span
                               className={`rounded-md px-2 py-0.5 font-semibold ${
-                                btResult.data_source === 'DERIV_REAL'
+                                btResult.data_source === 'CTRADER_REAL'
                                   ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
                                   : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
                               }`}
                             >
-                              {btResult.data_source === 'DERIV_REAL' ? 'Dados Reais Deriv' : 'Simulação'}
+                              {btResult.data_source === 'CTRADER_REAL' ? 'Dados Reais cTrader' : 'Simulação'}
                             </span>
                           </div>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-4 font-mono text-xs">
@@ -2074,7 +2097,6 @@ export default function App() {
                     </CardBody>
                   </Card>
 
-                  {/* Backtest History Table */}
                   <Card className="overflow-hidden">
                     <CardHeader>
                       <CardTitle>Histórico de Backtests</CardTitle>
@@ -2128,14 +2150,13 @@ export default function App() {
                 </div>
               )}
 
-              {/* CATEGORIES */}
               {activeTab === 'categories' && (
                 <Card>
                   <CardHeader className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <CardTitle>Categorias e Ativos Deriv</CardTitle>
+                      <CardTitle>Categorias e Ativos cTrader</CardTitle>
                       <CardDescription>
-                        Alterne entre Principais e Todos os pares carregados da Deriv
+                        Alterne entre Principais e Todos os instrumentos carregados da corretora cTrader
                       </CardDescription>
                     </div>
                     <div className="flex gap-2">
@@ -2177,7 +2198,7 @@ export default function App() {
                         type="text"
                         value={catSymbols}
                         onChange={(e) => setCatSymbols(e.target.value)}
-                        placeholder="Ativos separados por vírgula (ex: R_100, cryBTCUSD)"
+                        placeholder="Ativos separados por vírgula (ex: EURUSD, XAUUSD, BTCUSD)"
                         className={`${inputClass} font-mono`}
                         required
                       />
@@ -2226,7 +2247,7 @@ export default function App() {
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                            Catálogo ao vivo da Deriv ({symbols.length} ativos carregados)
+                            Catálogo cTrader ({symbols.length} ativos carregados)
                           </h4>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">
                             Clique em qualquer ativo abaixo para adicioná-lo ao campo de nova categoria acima
@@ -2236,7 +2257,7 @@ export default function App() {
                           type="text"
                           value={symbolSearch}
                           onChange={(e) => setSymbolSearch(e.target.value)}
-                          placeholder="Filtrar ativo (ex: R_100, EUR, BTC)..."
+                          placeholder="Filtrar ativo (ex: EURUSD, XAU, BTC)..."
                           className={`${inputClass} max-w-xs text-xs`}
                         />
                       </div>
@@ -2285,116 +2306,185 @@ export default function App() {
                 </Card>
               )}
 
-              {/* DERIV CONFIG */}
-              {activeTab === 'deriv-config' && (
+              {activeTab === 'ctrader-config' && (
                 <div className="space-y-6">
-                  <DerivDiagnosticsCard account={snapshot?.account} />
-                  <Card>
-                  <CardHeader>
-                    <CardTitle>Configuração Padrão Deriv (Token &amp; App ID)</CardTitle>
-                    <CardDescription>
-                      Salve seu token uma única vez aqui; ele nunca é exibido por completo no painel
-                    </CardDescription>
-                  </CardHeader>
-                  <CardBody className="space-y-6">
-                    <form
-                      onSubmit={saveDerivConfig}
-                      className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl"
-                    >
-                      <div className="md:col-span-2">
-                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                          Deriv API Token padrão
-                        </label>
-                        <input
-                          type="password"
-                          value={cfgToken}
-                          onChange={(e) => setCfgToken(e.target.value)}
-                          placeholder={
-                            config?.deriv_token_set
-                              ? 'Token padrão já salvo (cole outro para substituir)'
-                              : 'Cole seu token de app.deriv.com/account/api-token'
-                          }
-                          className={`${inputClass} font-mono`}
-                        />
-                        <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                          Tokens clássicos funcionam direto com App ID 1089. Tokens pat_... exigem App ID de developers.deriv.com.
-                        </p>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                          Deriv App ID padrão
-                        </label>
-                        <input
-                          type="text"
-                          value={cfgAppId}
-                          onChange={(e) => setCfgAppId(e.target.value)}
-                          className={`${inputClass} font-mono`}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                          Modo de execução padrão
-                        </label>
-                        <select
-                          value={cfgConnMode}
-                          onChange={(e) => setCfgConnMode(e.target.value)}
-                          className={inputClass}
-                        >
-                          <option value="DERIV_CLOUD">
-                            Deriv WebSocket Live (Negociação Real/Demo)
-                          </option>
-                          <option value="SIMULATION">Simulador Quantitativo Interno</option>
-                        </select>
-                      </div>
-                      <div className="md:col-span-2 pt-2">
-                        <button
-                          type="submit"
-                          className="rounded-xl bg-blue-600 hover:bg-blue-500 px-5 py-2.5 text-xs font-semibold text-white"
-                        >
-                          Salvar configuração Deriv
-                        </button>
-                      </div>
-                    </form>
+                  <CTraderDiagnosticsCard account={snapshot?.account} />
 
-                    {/* Diagnostics */}
-                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-4 text-xs font-mono grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <span className="text-slate-500">Estado:</span>{' '}
-                        <strong className={isConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
-                          {isConnected ? 'CONECTADO' : 'DESCONECTADO'}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Backend:</span>{' '}
-                        <strong>{acc?.backend || '--'}</strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Servidor:</span>{' '}
-                        <strong>{acc?.server || '--'}</strong>
-                      </div>
-                    </div>
-                  </CardBody>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Como obter suas credenciais da cTrader Open API</CardTitle>
+                      <CardDescription>
+                        Siga estes 4 passos no portal oficial da Spotware para conectar qualquer corretora cTrader
+                      </CardDescription>
+                    </CardHeader>
+                    <CardBody className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
+                      <ol className="list-decimal pl-5 space-y-1.5">
+                        <li>
+                          Acesse{' '}
+                          <a
+                            href="https://openapi.ctrader.com/apps"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            https://openapi.ctrader.com/apps
+                            <ExternalLink className="h-3 w-3" />
+                          </a>{' '}
+                          e faça login com seu <strong>cTrader ID (cTID)</strong>.
+                        </li>
+                        <li>
+                          Clique em <strong>Add new app</strong>, preencha nome/descrição e cadastre a Redirect URI:{' '}
+                          <code className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 font-mono text-[11px]">
+                            {cfgRedirectUri || `${window.location.origin}/api/ctrader/oauth/callback`}
+                          </code>
+                        </li>
+                        <li>
+                          Após aprovação, copie o <strong>Client ID</strong> e o <strong>Client Secret</strong> e salve abaixo.
+                        </li>
+                        <li>
+                          Clique em <strong>Autorizar com cTrader (OAuth 2.0)</strong> abaixo (ou cole o Access Token gerado no Playground do app).
+                        </li>
+                      </ol>
+                    </CardBody>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Credenciais cTrader Open API (OAuth 2.0 &amp; WebSocket 5036)</CardTitle>
+                      <CardDescription>
+                        Client Secret e tokens nunca são exibidos por completo após salvos
+                      </CardDescription>
+                    </CardHeader>
+                    <CardBody className="space-y-6">
+                      <form
+                        onSubmit={saveCTraderConfig}
+                        className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl"
+                      >
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                            cTrader Client ID
+                          </label>
+                          <input
+                            type="text"
+                            value={cfgClientId}
+                            onChange={(e) => setCfgClientId(e.target.value)}
+                            placeholder="Ex: 12345_abcde..."
+                            className={`${inputClass} font-mono`}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                            cTrader Client Secret
+                          </label>
+                          <input
+                            type="password"
+                            value={cfgClientSecret}
+                            onChange={(e) => setCfgClientSecret(e.target.value)}
+                            placeholder={
+                              config?.ctrader_client_secret_set
+                                ? 'Client Secret salvo (cole outro para substituir)'
+                                : 'Cole seu Client Secret de openapi.ctrader.com/apps'
+                            }
+                            className={`${inputClass} font-mono`}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                            Redirect URI (OAuth Callback)
+                          </label>
+                          <input
+                            type="text"
+                            value={cfgRedirectUri}
+                            onChange={(e) => setCfgRedirectUri(e.target.value)}
+                            className={`${inputClass} font-mono`}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                            Modo de execução padrão
+                          </label>
+                          <select
+                            value={cfgConnMode}
+                            onChange={(e) => setCfgConnMode(e.target.value)}
+                            className={inputClass}
+                          >
+                            <option value="CTRADER_CLOUD">
+                              cTrader Open API Live (wss porta 5036)
+                            </option>
+                            <option value="SIMULATION">Simulador Quantitativo Interno (Lotes CFD)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                            Access Token (Opcional / Playground)
+                          </label>
+                          <input
+                            type="password"
+                            value={cfgAccessToken}
+                            onChange={(e) => setCfgAccessToken(e.target.value)}
+                            placeholder={
+                              config?.ctrader_access_token_set
+                                ? 'Access Token salvo (preenchido via OAuth ou manual)'
+                                : 'Preenchido automaticamente pelo botão OAuth ou cole aqui'
+                            }
+                            className={`${inputClass} font-mono`}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                            Refresh Token (Opcional)
+                          </label>
+                          <input
+                            type="password"
+                            value={cfgRefreshToken}
+                            onChange={(e) => setCfgRefreshToken(e.target.value)}
+                            placeholder={
+                              config?.ctrader_refresh_token_set
+                                ? 'Refresh Token salvo'
+                                : 'Preenchido automaticamente pelo OAuth 2.0'
+                            }
+                            className={`${inputClass} font-mono`}
+                          />
+                        </div>
+                        <div className="md:col-span-2 flex flex-wrap gap-3 pt-2">
+                          <button
+                            type="submit"
+                            className="rounded-xl bg-blue-600 hover:bg-blue-500 px-5 py-2.5 text-xs font-semibold text-white"
+                          >
+                            Salvar configuração cTrader
+                          </button>
+                          <button
+                            type="button"
+                            onClick={startCTraderOAuth}
+                            className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/35 bg-emerald-500/15 hover:bg-emerald-500/25 px-5 py-2.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300"
+                          >
+                            <KeyRound className="h-3.5 w-3.5" />
+                            Autorizar com cTrader (OAuth 2.0)
+                          </button>
+                        </div>
+                      </form>
+                    </CardBody>
                   </Card>
                 </div>
               )}
 
-              {/* DERIV ACCOUNTS VAULT */}
-              {activeTab === 'deriv-tokens' && (
+              {activeTab === 'ctrader-accounts' && (
                 <div className="space-y-6">
                   <Card>
                     <CardHeader className="flex flex-wrap items-center justify-between gap-3">
-                      <CardTitle>
-                        {editingAccId
-                          ? 'Editar conta Deriv'
-                          : 'Cofre de Contas Deriv (Demo e Real)'}
-                      </CardTitle>
+                      <div>
+                        <CardTitle>Cofre de Contas cTrader (Demo &amp; Real)</CardTitle>
+                        <CardDescription>
+                          Gerencie contas Demo e Real sincronizadas do seu cTrader ID (cTID) — conta REAL exige desbloqueio explícito
+                        </CardDescription>
+                      </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={toggleRealTrading}
                           className={`rounded-xl border px-3.5 py-1.5 text-xs font-semibold transition ${
                             config?.allow_real_trading
-                              ? 'border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-300'
+                              ? 'border-amber-500/50 bg-amber-500/15 text-amber-700 dark:text-amber-300'
                               : 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
                           }`}
                         >
@@ -2402,17 +2492,17 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          onClick={syncDerivAccounts}
+                          onClick={syncCTraderAccounts}
                           disabled={syncingAccounts}
                           className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3.5 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-300 disabled:opacity-50"
                         >
-                          {syncingAccounts ? 'Sincronizando...' : 'Sincronizar contas da Deriv'}
+                          {syncingAccounts ? 'Sincronizando...' : 'Sincronizar contas cTrader'}
                         </button>
                       </div>
                     </CardHeader>
                     <CardBody>
                       <form
-                        onSubmit={saveDerivAccount}
+                        onSubmit={saveCTraderAccount}
                         className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
                       >
                         <div>
@@ -2424,11 +2514,11 @@ export default function App() {
                             onChange={(e) => setAccType(e.target.value as 'DEMO' | 'REAL')}
                             className={inputClass}
                           >
-                            <option value="DEMO">Conta Demo Deriv (VRTC)</option>
-                            <option value="REAL">Conta Real Deriv (CR)</option>
+                            <option value="DEMO">Conta Demo cTrader (demo.ctraderapi.com)</option>
+                            <option value="REAL">Conta Real cTrader (live.ctraderapi.com)</option>
                           </select>
                         </div>
-                        <div className="md:col-span-1 lg:col-span-2">
+                        <div>
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
                             Nome de identificação
                           </label>
@@ -2436,94 +2526,74 @@ export default function App() {
                             type="text"
                             value={accLabel}
                             onChange={(e) => setAccLabel(e.target.value)}
-                            placeholder="Ex: Deriv Real Principal"
+                            placeholder="Ex: IC Markets Demo"
                             className={inputClass}
                             required
                           />
                         </div>
+                        <div>
+                          <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
+                            cTID Trader Account ID (opcional)
+                          </label>
+                          <input
+                            type="text"
+                            value={accCtidAccountId}
+                            onChange={(e) => setAccCtidAccountId(e.target.value)}
+                            placeholder="Ex: 12345678 (auto se vazio)"
+                            className={`${inputClass} font-mono`}
+                          />
+                        </div>
 
-                        {config?.deriv_token_set && !useCustomCreds ? (
+                        {config?.ctrader_access_token_set && !useCustomCreds ? (
                           <div className="lg:col-span-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-4 py-2.5 text-xs">
                             <span className="text-emerald-700 dark:text-emerald-300">
-                              Usando Token e App ID (<strong className="font-mono">{config.deriv_app_id}</strong>) salvos em <strong>Configuração Deriv</strong>.
+                              Usando Client ID (<strong className="font-mono">{config.ctrader_client_id || '--'}</strong>) e Access Token salvos em <strong>Configuração cTrader</strong>.
                             </span>
                             <button
                               type="button"
                               onClick={() => setUseCustomCreds(true)}
                               className="text-slate-600 dark:text-slate-300 underline hover:text-blue-500"
                             >
-                              Usar outro token / App ID
+                              Usar outro Access Token
                             </button>
                           </div>
                         ) : (
-                          <>
-                            <div>
-                              <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
-                                Deriv App ID
+                          <div className="lg:col-span-3">
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="block text-xs text-slate-500 dark:text-slate-400">
+                                Access Token cTrader
                               </label>
-                              <input
-                                type="text"
-                                value={accAppId}
-                                onChange={(e) => setAccAppId(e.target.value)}
-                                className={`${inputClass} font-mono`}
-                              />
+                              {config?.ctrader_access_token_set && (
+                                <button
+                                  type="button"
+                                  onClick={() => setUseCustomCreds(false)}
+                                  className="text-[11px] text-blue-500 underline"
+                                >
+                                  Voltar a usar token padrão
+                                </button>
+                              )}
                             </div>
-                            <div className="lg:col-span-2">
-                              <div className="flex items-center justify-between mb-1">
-                                <label className="block text-xs text-slate-500 dark:text-slate-400">
-                                  Deriv API Token
-                                </label>
-                                {config?.deriv_token_set && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setUseCustomCreds(false)}
-                                    className="text-[11px] text-blue-500 underline"
-                                  >
-                                    Voltar a usar o token padrão
-                                  </button>
-                                )}
-                              </div>
-                              <input
-                                type="password"
-                                value={accToken}
-                                onChange={(e) => setAccToken(e.target.value)}
-                                placeholder={
-                                  config?.deriv_token_set
-                                    ? 'Token padrão carregado (deixe em branco para usar o salvo)'
-                                    : 'Cole seu token da Deriv'
-                                }
-                                className={`${inputClass} font-mono`}
-                              />
-                            </div>
-                          </>
+                            <input
+                              type="password"
+                              value={accToken}
+                              onChange={(e) => setAccToken(e.target.value)}
+                              placeholder="Cole o Access Token OAuth da cTrader"
+                              className={`${inputClass} font-mono`}
+                            />
+                          </div>
                         )}
                         <div>
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
-                            Stake padrão (USD)
+                            Volume padrão (Lotes)
                           </label>
                           <input
                             type="number"
-                            step="0.5"
-                            value={accStake}
-                            onChange={(e) => setAccStake(Number(e.target.value))}
+                            step="0.01"
+                            min="0.01"
+                            value={accLotSize}
+                            onChange={(e) => setAccLotSize(Number(e.target.value))}
                             className={`${inputClass} font-mono`}
                           />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
-                            Multiplicador padrão
-                          </label>
-                          <select
-                            value={accMult}
-                            onChange={(e) => setAccMult(Number(e.target.value))}
-                            className={`${inputClass} font-mono`}
-                          >
-                            {[20, 50, 100, 200, 400].map((m) => (
-                              <option key={m} value={m}>
-                                {m}x
-                              </option>
-                            ))}
-                          </select>
                         </div>
                         <div>
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
@@ -2534,8 +2604,8 @@ export default function App() {
                             onChange={(e) => setAccConnMode(e.target.value)}
                             className={inputClass}
                           >
-                            <option value="DERIV_CLOUD">Deriv WebSocket Live</option>
-                            <option value="SIMULATION">Simulador Quant</option>
+                            <option value="CTRADER_CLOUD">cTrader Open API Live</option>
+                            <option value="SIMULATION">Simulador Quant (CFD Lotes)</option>
                           </select>
                         </div>
                         <div className="lg:col-span-3 flex gap-2 pt-2">
@@ -2543,7 +2613,7 @@ export default function App() {
                             type="submit"
                             className="rounded-xl bg-blue-600 hover:bg-blue-500 px-5 py-2.5 text-xs font-semibold text-white"
                           >
-                            Salvar conta e conectar na Deriv
+                            Salvar conta e conectar na cTrader
                           </button>
                           {editingAccId && (
                             <button
@@ -2551,6 +2621,7 @@ export default function App() {
                               onClick={() => {
                                 setEditingAccId('')
                                 setAccLabel('')
+                                setAccCtidAccountId('')
                                 setAccToken('')
                               }}
                               className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-xs text-slate-700 dark:text-slate-300"
@@ -2564,7 +2635,7 @@ export default function App() {
                   </Card>
 
                   <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {config?.accounts?.map((a: DerivAccount) => {
+                    {config?.accounts?.map((a: CTraderAccount) => {
                       const isActive = a.account_id === config.active_account_id
                       return (
                         <Card
@@ -2583,7 +2654,7 @@ export default function App() {
                                 {a.account_type}
                               </span>
                               <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                                {a.loginid || '---'}
+                                {a.trader_login || a.ctid_account_id || '---'}
                               </span>
                             </div>
                             <h3 className="mt-2 text-sm font-bold text-slate-900 dark:text-white">
@@ -2593,8 +2664,7 @@ export default function App() {
                               Saldo: {a.currency || 'USD'} {formatNumber(a.balance ?? 0, 2)}
                             </p>
                             <p className="mt-0.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                              App ID: {a.deriv_app_id} • Stake: ${formatNumber(a.default_stake_usd, 2)} •{' '}
-                              {a.default_multiplier}x
+                              {a.broker_name || 'cTrader'} • Lote padrão: {formatNumber(a.default_lot_size, 2)}
                             </p>
                             <div className="mt-4 flex gap-2">
                               {!isActive ? (
@@ -2616,10 +2686,9 @@ export default function App() {
                                   setEditingAccId(a.account_id)
                                   setAccType((a.account_type as 'DEMO' | 'REAL') || 'DEMO')
                                   setAccLabel(a.label)
-                                  setAccAppId(a.deriv_app_id || '1089')
-                                  setAccStake(a.default_stake_usd || 10)
-                                  setAccMult(a.default_multiplier || 100)
-                                  setAccConnMode(a.connection_mode || 'DERIV_CLOUD')
+                                  setAccCtidAccountId(a.ctid_account_id || '')
+                                  setAccLotSize(a.default_lot_size || 0.01)
+                                  setAccConnMode(a.connection_mode || 'CTRADER_CLOUD')
                                 }}
                                 className="rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                               >
@@ -2641,7 +2710,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* CUSTOM MATH MODELS BUILDER */}
               {activeTab === 'templates' && (
                 <ModelBuilderPanel
                   templates={templates}
@@ -2654,7 +2722,6 @@ export default function App() {
                 />
               )}
 
-              {/* NEWS & MARKET RESEARCH BOT */}
               {activeTab === 'news' && (
                 <div className="space-y-6">
                   <Card>
@@ -2718,7 +2785,7 @@ export default function App() {
                             <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">Nome da fonte</label>
                             <input
                               type="text"
-                              placeholder="Ex: Reuters / X / RSS"
+                              placeholder="Ex: Reuters / RSS"
                               value={feedSource}
                               onChange={(e) => setFeedSource(e.target.value)}
                               className={inputClass}
@@ -2748,7 +2815,7 @@ export default function App() {
                                     if (r.ok) {
                                       const d = await r.json()
                                       setSymbols(Array.isArray(d.symbols) ? d.symbols : [])
-                                      showToast(`Carregados ${(d.symbols || []).length} ativos da Deriv!`)
+                                      showToast(`Carregados ${(d.symbols || []).length} ativos da cTrader!`)
                                     }
                                   } catch {
                                     showToast('Erro ao carregar todos os ativos.', true)
@@ -2817,7 +2884,7 @@ export default function App() {
                                     setFeedEditingId(f.feed_id)
                                     setFeedSource(f.source)
                                     setFeedUrl(f.url)
-                                    setFeedSymbol(f.default_symbol || 'cryBTCUSD')
+                                    setFeedSymbol(f.default_symbol || 'BTCUSD')
                                   }}
                                   className="rounded-lg border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                                 >
@@ -2926,13 +2993,12 @@ export default function App() {
                 </div>
               )}
 
-              {/* MATRIX VWAP & Z-SCORE */}
               {activeTab === 'monitor' && (
                 <Card className="overflow-hidden">
                   <CardHeader>
                     <CardTitle>Matriz matemática — VWAP, Bandas (±2σ) e Z-Score</CardTitle>
                     <CardDescription>
-                      Cálculo contínuo sobre os ativos monitorados na Deriv
+                      Cálculo contínuo sobre os ativos monitorados na cTrader
                     </CardDescription>
                   </CardHeader>
                   <div className="overflow-x-auto">
@@ -2954,7 +3020,7 @@ export default function App() {
                         {!Object.keys(snapshot?.symbols || {}).length ? (
                           <tr>
                             <td colSpan={9} className="px-4 py-8 text-center text-slate-500 font-sans">
-                              Aguardando cotações da Deriv para preencher a matriz.
+                              Aguardando cotações da cTrader para preencher a matriz.
                             </td>
                           </tr>
                         ) : (
@@ -3018,7 +3084,6 @@ export default function App() {
                 </Card>
               )}
 
-              {/* HISTORY & LOGS */}
               {activeTab === 'history' && (
                 <div className="space-y-6">
                   <Card className="overflow-hidden">
@@ -3033,7 +3098,7 @@ export default function App() {
                             <th className="px-4 py-3">Horário</th>
                             <th className="px-4 py-3">Ativo</th>
                             <th className="px-4 py-3">Lado</th>
-                            <th className="px-4 py-3 text-right">Stake</th>
+                            <th className="px-4 py-3 text-right">Lotes</th>
                             <th className="px-4 py-3 text-right">Entrada</th>
                             <th className="px-4 py-3 text-right">Saída</th>
                             <th className="px-4 py-3 text-right">Resultado</th>
@@ -3054,9 +3119,9 @@ export default function App() {
                                   <td className="px-4 py-2.5 text-slate-500">{d.time_str || '--'}</td>
                                   <td className="px-4 py-2.5 font-semibold">{d.symbol || '--'}</td>
                                   <td className="px-4 py-2.5">{d.side || '--'}</td>
-                                  <td className="px-4 py-2.5 text-right">${formatNumber(d.volume, 2)}</td>
-                                  <td className="px-4 py-2.5 text-right">{formatPrice(d.price_open, 4)}</td>
-                                  <td className="px-4 py-2.5 text-right">{formatPrice(d.price_close, 4)}</td>
+                                  <td className="px-4 py-2.5 text-right">{formatNumber(d.volume, 2)}</td>
+                                  <td className="px-4 py-2.5 text-right">{formatPrice(d.price_open, 5)}</td>
+                                  <td className="px-4 py-2.5 text-right">{formatPrice(d.price_close, 5)}</td>
                                   <td
                                     className={`px-4 py-2.5 text-right font-semibold ${
                                       isFiniteNumber(d.profit) && d.profit >= 0
@@ -3103,7 +3168,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* SETTINGS */}
               {activeTab === 'settings' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <Card>

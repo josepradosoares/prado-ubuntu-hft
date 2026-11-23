@@ -28,8 +28,8 @@ export type TabKey =
   | 'monitor'
   | 'news'
   | 'categories'
-  | 'deriv-config'
-  | 'deriv-tokens'
+  | 'ctrader-config'
+  | 'ctrader-accounts'
   | 'history'
   | 'settings'
 
@@ -82,11 +82,11 @@ export function Sidebar({
       ],
     },
     {
-      title: 'Mercado & Deriv',
+      title: 'Mercado & cTrader',
       items: [
         { key: 'categories', label: 'Categorias de ativos', icon: <Layers className="h-4 w-4 shrink-0" /> },
-        { key: 'deriv-config', label: 'Configuração Deriv', icon: <Settings className="h-4 w-4 shrink-0" /> },
-        { key: 'deriv-tokens', label: 'Tokens e Contas', icon: <KeyRound className="h-4 w-4 shrink-0" /> },
+        { key: 'ctrader-config', label: 'Configuração cTrader', icon: <Settings className="h-4 w-4 shrink-0" /> },
+        { key: 'ctrader-accounts', label: 'Contas cTrader', icon: <KeyRound className="h-4 w-4 shrink-0" /> },
       ],
     },
     {
@@ -100,7 +100,6 @@ export function Sidebar({
 
   const sidebarContent = (isMobile: boolean) => (
     <div className="flex h-full flex-col bg-white dark:bg-[#0f1624] border-r border-slate-200 dark:border-slate-800/90">
-      {/* Brand Header */}
       <div className="flex h-16 items-center justify-between gap-2 px-4 border-b border-slate-100 dark:border-slate-800/80">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600/10 dark:bg-blue-500/15 border border-blue-600/20 dark:border-blue-500/30 text-blue-600 dark:text-blue-400">
@@ -112,7 +111,7 @@ export function Sidebar({
                 Prado Ubuntu HFT
               </div>
               <div className="truncate text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                Deriv Multipliers
+                cTrader Open API
               </div>
             </div>
           )}
@@ -140,7 +139,6 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Navigation Groups */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
         {groups.map((group) => (
           <div key={group.title}>
@@ -192,14 +190,13 @@ export function Sidebar({
         ))}
       </nav>
 
-      {/* Footer Version */}
       <div className="border-t border-slate-100 dark:border-slate-800/80 px-4 py-3 text-[11px] font-mono text-slate-400 dark:text-slate-500">
         {collapsed && !isMobile ? (
           <div className="text-center">v2.0</div>
         ) : (
           <div className="flex items-center justify-between">
             <span>Prado HFT</span>
-            <span>v2.0 • Ubuntu</span>
+            <span>v2.0 • cTrader</span>
           </div>
         )}
       </div>
@@ -208,7 +205,6 @@ export function Sidebar({
 
   return (
     <>
-      {/* Desktop Fixed Sidebar */}
       <aside
         className={`hidden lg:block shrink-0 transition-all duration-200 ${
           collapsed ? 'w-[72px]' : 'w-64'
@@ -217,7 +213,6 @@ export function Sidebar({
         <div className="sticky top-0 h-screen">{sidebarContent(false)}</div>
       </aside>
 
-      {/* Mobile Drawer Sidebar */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex">
           <div

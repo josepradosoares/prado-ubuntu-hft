@@ -7,7 +7,17 @@ from pathlib import Path
 import pytest
 
 from prado_linux.config import load_config
-from prado_linux.deriv_client import DerivAuthError, DerivClient
+from prado_linux.ctrader_client import (
+    CTraderAuthError,
+    CTraderClient,
+    PT_EXECUTION_EVENT,
+    PT_GET_POSITION_UNREALIZED_PNL_REQ,
+    PT_GET_POSITION_UNREALIZED_PNL_RES,
+    PT_OA_ERROR_RES,
+    PT_RECONCILE_REQ,
+    PT_RECONCILE_RES,
+    PT_CLOSE_POSITION_REQ,
+)
 from prado_linux.engine import PradoTradingService
 from prado_linux.flow_math import TickRecord
 from prado_linux.indicators import evaluate_python_model
@@ -71,13 +81,13 @@ def test_ssrf_validation_blocks_internal_and_non_http_urls(tmp_path: Path) -> No
     cfg_path = tmp_path / "cfg.json"
     svc = PradoTradingService(load_config(cfg_path), config_path=cfg_path)
     with pytest.raises(ValueError):
-        svc.save_news_feed({"source": "Bad", "url": "http://127.0.0.1:8080/secret", "default_symbol": "R_100"})
+        svc.save_news_feed({"source": "Bad", "url": "http://127.0.0.1:8080/secret", "default_symbol": "EURUSD"})
 
 
 def test_pick_account_never_falls_back_silently_from_demo_to_real() -> None:
-    client = DerivClient(token="pat_test_123", app_id="12345", preferred_account_type="DEMO")
-    with pytest.raises(DerivAuthError) as exc_info:
-        client._pick_account([{"account_id": "CR12345", "account_type": "real", "is_virtual": 0}])
+    client = CTraderClient("cid", "csec", "tok", preferred_account_type="DEMO")
+    with pytest.raises(CTraderAuthError) as exc_info:
+        client._pick_account([{"account_id": "ct_999", "ctid_account_id": "999", "account_type": "REAL", "is_live": True}])
     assert "NO_DEMO_ACCOUNT" in str(exc_info.value) or "DEMO" in str(exc_info.value)
 
 
@@ -110,47 +120,52 @@ def test_health_endpoint_is_public_and_fire_buy_respects_risk_lock(tmp_path: Pat
     app.service.cfg.connection_mode = "SIMULATION"
     app.service.cfg.max_daily_loss_money = 100.0
     app.service.connector._sim_daily_pnl = -150.0
-    bot = app.service.create_bot({"name": "TestBot", "symbol": "R_100"})
+    bot = app.service.create_bot({"name": "TestBot", "symbol": "EURUSD"})
     res = app.service.control_bot(bot["bot_id"], "FIRE_BUY")
     assert res is not None
     assert res["last_signal"] == "RISK_LOCKED"
     assert res["trades_executed"] == 0
 
 
-def test_bet_expired_and_sold_contracts_handled_gracefully() -> None:
-    def _fake_rpc(payload: dict) -> dict:
-        if "portfolio" in payload:
+def test_already_closed_ctrader_positions_handled_gracefully() -> None:
+    def _fake_rpc(env: dict) -> dict:
+        pt = env["payloadType"]
+        cid = env["clientMsgId"]
+        if pt == PT_RECONCILE_REQ:
             return {
-                "portfolio": {
-                    "contracts": [
-                        {"contract_id": "101", "symbol": "R_100", "buy_price": 10.0},
-                        {"contract_id": "102", "symbol": "R_100", "buy_price": 10.0},
+                "clientMsgId": cid,
+                "payloadType": PT_RECONCILE_RES,
+                "payload": {
+                    "position": [
+                        {"positionId": 101, "positionStatus": 2, "tradeData": {"symbolId": 1, "volume": 100_000, "tradeSide": 1}},
+                        {"positionId": 102, "positionStatus": 1, "price": 1.085, "tradeData": {"symbolId": 1, "volume": 100_000, "tradeSide": 1}},
                     ]
-                }
+                },
             }
-        if "proposal_open_contract" in payload:
-            cid = payload["contract_id"]
-            if cid == 101:
-                return {"proposal_open_contract": {"contract_id": 101, "is_sold": 1, "is_expired": 1, "status": "sold"}}
-            return {"proposal_open_contract": {"contract_id": 102, "underlying_symbol": "R_100", "contract_type": "MULTUP", "buy_price": 10.0, "entry_spot": 500.0, "current_spot": 501.0, "profit": 1.2}}
-        if "sell" in payload:
-            return {"error": {"code": "BetExpired", "message": "The contract has expired."}}
-        return {}
+        if pt == PT_GET_POSITION_UNREALIZED_PNL_REQ:
+            return {
+                "clientMsgId": cid,
+                "payloadType": PT_GET_POSITION_UNREALIZED_PNL_RES,
+                "payload": {"moneyDigits": 2, "positionUnrealizedPnL": [{"positionId": 102, "netUnrealizedPnL": 120}]},
+            }
+        if pt == PT_CLOSE_POSITION_REQ:
+            return {"clientMsgId": cid, "payloadType": PT_OA_ERROR_RES, "payload": {"errorCode": "POSITION_NOT_FOUND", "description": "Position already closed"}}
+        return {"clientMsgId": cid, "payloadType": PT_EXECUTION_EVENT, "payload": {}}
 
-    client = DerivClient(token="pat_test_123", app_id="12345", rpc_transport=_fake_rpc)
-    open_contracts = client.get_open_contracts()
-    assert [c["ticket"] for c in open_contracts] == ["102"]
+    client = CTraderClient("cid", "csec", "tok", account_id="55001", rpc_transport=_fake_rpc)
+    open_positions = client.get_open_positions()
+    assert [p["ticket"] for p in open_positions] == ["102"]
 
-    ok, msg = client.close_contract("101")
+    ok, msg = client.close_position("101", volume_raw=100_000)
     assert ok is True
-    assert "expirado" in msg.lower() or "encerrado" in msg.lower()
+    assert "encerrada" in msg.lower()
 
 
 def test_control_bot_pause_resume_stop_updates_snapshot_immediately(tmp_path: Path) -> None:
     cfg_path = tmp_path / "cfg.json"
     app = PradoWebApp(config_path=cfg_path)
     app.service.cfg.connection_mode = "SIMULATION"
-    bot = app.service.create_bot({"name": "BotInstant", "symbol": "R_100"})
+    bot = app.service.create_bot({"name": "BotInstant", "symbol": "EURUSD"})
     app.service.step_once()
 
     res_pause = app.service.control_bot(bot["bot_id"], "PAUSE")
@@ -173,10 +188,10 @@ def test_backtest_generates_trades_and_supports_all_symbols_and_timeframes(tmp_p
     cfg_path = tmp_path / "cfg.json"
     app = PradoWebApp(config_path=cfg_path)
     app.service.cfg.connection_mode = "SIMULATION"
-    app.service.cfg.active_symbols = ["R_100", "R_75"]
+    app.service.cfg.active_symbols = ["EURUSD", "XAUUSD"]
 
     rep_single = app.service.run_mathematical_backtest({
-        "symbol": "R_100",
+        "symbol": "EURUSD",
         "template_id": "WALL_STREET_HYBRID_BOTH",
         "timeframe": "M5",
         "tick_count": 400,
@@ -195,7 +210,7 @@ def test_backtest_generates_trades_and_supports_all_symbols_and_timeframes(tmp_p
     assert rep_all["total_trades"] > 0
 
     rep_period = app.service.run_mathematical_backtest({
-        "symbol": "R_100",
+        "symbol": "EURUSD",
         "template_id": "WALL_STREET_HYBRID_BOTH",
         "timeframe": "H1",
         "period": "1Y",
@@ -204,14 +219,10 @@ def test_backtest_generates_trades_and_supports_all_symbols_and_timeframes(tmp_p
     assert rep_period["timeframe"] == "H1"
 
     rep_grid = app.service.run_mathematical_backtest({
-        "symbol": "R_100",
+        "symbol": "EURUSD",
         "template_id": "GRID_LINEAR_HFT",
         "timeframe": "M15",
         "period": "1Y",
     })
     assert rep_grid["total_trades"] > 0
     assert rep_grid["timeframe"] == "M15"
-
-
-
-

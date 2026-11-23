@@ -46,7 +46,7 @@ export function ModelBuilderPanel({
     { id: 'RSI', params: { period: 14, oversold: 30, overbought: 70 } },
   ])
   const [pythonCode, setPythonCode] = useState(defaultPythonCode)
-  const [testSymbol, setTestSymbol] = useState('R_100')
+  const [testSymbol, setTestSymbol] = useState('EURUSD')
   const [testTimeframe, setTestTimeframe] = useState('TICKS')
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)

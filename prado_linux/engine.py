@@ -1,4 +1,4 @@
-"""Prado Institutional HFT Trading Engine, Deriv WebSocket Multipliers Connector & Robot Fleet."""
+"""Prado Institutional HFT Trading Engine, cTrader Open API Connector & Robot Fleet."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -16,11 +16,13 @@ from prado_linux.config import (
     deduplicate_accounts,
     save_config,
 )
-from prado_linux.deriv_client import (
-    DerivAuthError,
-    DerivClient,
-    DerivRateLimiter,
-    DerivRateLimitError,
+from prado_linux.ctrader_client import (
+    CTraderAuthError,
+    CTraderClient,
+    CTraderRateLimiter,
+    CTraderRateLimitError,
+    build_oauth_authorize_url,
+    exchange_oauth_code,
     mask_secret,
 )
 from prado_linux.flow_math import (
@@ -40,13 +42,13 @@ from prado_linux.news_scout import NewsScout, validate_rss_url
 
 
 def normalize_tp_config(tp_mode: Any, tp_value: Any) -> tuple[str, float]:
-    """Normalize per-bot Take Profit mode ('AUTO', 'USD', 'PCT', 'TICKS') and value."""
+    """Normalize per-bot Take Profit mode ('AUTO', 'USD', 'PCT', 'PIPS', 'TICKS') and value."""
     mode = str(tp_mode or "AUTO").strip().upper()
-    if mode not in ("AUTO", "USD", "PCT", "TICKS"):
+    if mode not in ("AUTO", "USD", "PCT", "PIPS", "TICKS"):
         return "AUTO", 0.0
     if mode == "AUTO":
         return "AUTO", 0.0
-    defaults = {"USD": 0.5, "PCT": 10.0, "TICKS": 2.0}
+    defaults = {"USD": 2.0, "PCT": 0.25, "PIPS": 10.0, "TICKS": 10.0}
     try:
         val = float(tp_value)
     except (TypeError, ValueError):
@@ -56,143 +58,199 @@ def normalize_tp_config(tp_mode: Any, tp_value: Any) -> tuple[str, float]:
     return mode, round(val, 4)
 
 
-MAIN_DERIV_SYMBOLS: list[dict[str, str]] = [
-    {"name": "R_100", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 100 Index (24/7)"},
-    {"name": "R_75", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 75 Index (24/7)"},
-    {"name": "R_50", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 50 Index (24/7)"},
-    {"name": "R_25", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 25 Index (24/7)"},
-    {"name": "R_10", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 10 Index (24/7)"},
-    {"name": "1HZ100V", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 100 (1s) Index"},
-    {"name": "1HZ10V", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 10 (1s) Index"},
-    {"name": "frxEURUSD", "category": "Forex Principais", "description": "EUR/USD Forex"},
-    {"name": "frxGBPUSD", "category": "Forex Principais", "description": "GBP/USD Forex"},
-    {"name": "frxXAUUSD", "category": "Ouro & Commodities", "description": "Ouro Spot (XAU/USD)"},
-    {"name": "cryBTCUSD", "category": "Criptomoedas (24/7)", "description": "Bitcoin vs US Dollar (24/7)"},
-    {"name": "cryETHUSD", "category": "Criptomoedas (24/7)", "description": "Ethereum vs US Dollar (24/7)"},
+MAIN_CTRADER_SYMBOLS: list[dict[str, str]] = [
+    {"name": "EURUSD", "category": "Forex Principais", "description": "EUR/USD Forex"},
+    {"name": "GBPUSD", "category": "Forex Principais", "description": "GBP/USD Forex"},
+    {"name": "USDJPY", "category": "Forex Principais", "description": "USD/JPY Forex"},
+    {"name": "AUDUSD", "category": "Forex Principais", "description": "AUD/USD Forex"},
+    {"name": "USDCAD", "category": "Forex Principais", "description": "USD/CAD Forex"},
+    {"name": "XAUUSD", "category": "Metais & Commodities", "description": "Ouro Spot (XAU/USD)"},
+    {"name": "US100", "category": "Índices Globais", "description": "Nasdaq 100 (US100)"},
+    {"name": "US500", "category": "Índices Globais", "description": "S&P 500 (US500)"},
+    {"name": "BTCUSD", "category": "Criptomoedas (24/7)", "description": "Bitcoin vs US Dollar (24/7)"},
+    {"name": "ETHUSD", "category": "Criptomoedas (24/7)", "description": "Ethereum vs US Dollar (24/7)"},
 ]
 
-EXTENDED_ALL_SYMBOLS: list[dict[str, str]] = MAIN_DERIV_SYMBOLS + [
-    {"name": "1HZ25V", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 25 (1s) Index"},
-    {"name": "1HZ50V", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 50 (1s) Index"},
-    {"name": "1HZ75V", "category": "Índices Sintéticos Volatility (24/7)", "description": "Volatility 75 (1s) Index"},
-    {"name": "frxUSDJPY", "category": "Forex Principais", "description": "USD/JPY Forex"},
-    {"name": "frxAUDUSD", "category": "Forex Principais", "description": "AUD/USD Forex"},
-    {"name": "frxUSDCAD", "category": "Forex Principais", "description": "USD/CAD Forex"},
-    {"name": "frxXAGUSD", "category": "Ouro & Commodities", "description": "Prata Spot (XAG/USD)"},
-    {"name": "BOOM500", "category": "Índices Crash & Boom", "description": "Boom 500 Index"},
-    {"name": "BOOM1000", "category": "Índices Crash & Boom", "description": "Boom 1000 Index"},
-    {"name": "CRASH500", "category": "Índices Crash & Boom", "description": "Crash 500 Index"},
-    {"name": "CRASH1000", "category": "Índices Crash & Boom", "description": "Crash 1000 Index"},
+EXTENDED_CTRADER_SYMBOLS: list[dict[str, str]] = MAIN_CTRADER_SYMBOLS + [
+    {"name": "USDCHF", "category": "Forex Principais", "description": "USD/CHF Forex"},
+    {"name": "NZDUSD", "category": "Forex Principais", "description": "NZD/USD Forex"},
+    {"name": "EURJPY", "category": "Forex Cruzados", "description": "EUR/JPY Forex"},
+    {"name": "GBPJPY", "category": "Forex Cruzados", "description": "GBP/JPY Forex"},
+    {"name": "XAGUSD", "category": "Metais & Commodities", "description": "Prata Spot (XAG/USD)"},
+    {"name": "US30", "category": "Índices Globais", "description": "Dow Jones 30 (US30)"},
+    {"name": "DE40", "category": "Índices Globais", "description": "DAX 40 (DE40)"},
 ]
 
+SYMBOL_SPECS: dict[str, dict[str, float]] = {
+    "EURUSD": {"base": 1.0850, "pip_size": 0.0001, "contract_size": 100_000.0},
+    "GBPUSD": {"base": 1.2650, "pip_size": 0.0001, "contract_size": 100_000.0},
+    "AUDUSD": {"base": 0.6550, "pip_size": 0.0001, "contract_size": 100_000.0},
+    "NZDUSD": {"base": 0.5950, "pip_size": 0.0001, "contract_size": 100_000.0},
+    "USDCAD": {"base": 1.3950, "pip_size": 0.0001, "contract_size": 100_000.0},
+    "USDCHF": {"base": 0.8850, "pip_size": 0.0001, "contract_size": 100_000.0},
+    "USDJPY": {"base": 154.20, "pip_size": 0.01, "contract_size": 100_000.0},
+    "EURJPY": {"base": 167.30, "pip_size": 0.01, "contract_size": 100_000.0},
+    "GBPJPY": {"base": 195.10, "pip_size": 0.01, "contract_size": 100_000.0},
+    "XAUUSD": {"base": 2655.0, "pip_size": 0.1, "contract_size": 100.0},
+    "XAGUSD": {"base": 31.20, "pip_size": 0.01, "contract_size": 5000.0},
+    "US500": {"base": 5950.0, "pip_size": 0.1, "contract_size": 1.0},
+    "US100": {"base": 20850.0, "pip_size": 0.1, "contract_size": 1.0},
+    "US30": {"base": 43800.0, "pip_size": 1.0, "contract_size": 1.0},
+    "DE40": {"base": 19300.0, "pip_size": 0.1, "contract_size": 1.0},
+    "BTCUSD": {"base": 94500.0, "pip_size": 1.0, "contract_size": 1.0},
+    "ETHUSD": {"base": 3350.0, "pip_size": 0.1, "contract_size": 1.0},
+}
 
-class DerivUniversalConnector:
-    """Connects directly to Deriv WebSocket API (100% Python, zero MT5) with Simulation fallback."""
+
+def get_symbol_spec(symbol: str) -> dict[str, float]:
+    sym = str(symbol or "EURUSD").upper()
+    if sym in SYMBOL_SPECS:
+        return SYMBOL_SPECS[sym]
+    if "JPY" in sym:
+        return {"base": 150.0, "pip_size": 0.01, "contract_size": 100_000.0}
+    if "XAU" in sym:
+        return {"base": 2650.0, "pip_size": 0.1, "contract_size": 100.0}
+    if "BTC" in sym:
+        return {"base": 94500.0, "pip_size": 1.0, "contract_size": 1.0}
+    if "ETH" in sym:
+        return {"base": 3350.0, "pip_size": 0.1, "contract_size": 1.0}
+    return {"base": 1.1000, "pip_size": 0.0001, "contract_size": 100_000.0}
+
+
+def estimate_cfd_pnl(symbol: str, is_buy: bool, entry_price: float, exit_price: float, lot_size: float) -> float:
+    spec = get_symbol_spec(symbol)
+    diff = (exit_price - entry_price) if is_buy else (entry_price - exit_price)
+    raw = diff * float(lot_size) * spec["contract_size"]
+    if symbol.upper().endswith("JPY") and exit_price > 0:
+        raw = raw / exit_price
+    elif symbol.upper().endswith("CHF") and exit_price > 0:
+        raw = raw / exit_price
+    elif symbol.upper().endswith("CAD") and exit_price > 0:
+        raw = raw / exit_price
+    return round(raw, 2)
+
+
+class CTraderUniversalConnector:
+    """Connects directly to cTrader Open API (100% Python, port 5036) with Simulation fallback."""
 
     def __init__(self, cfg: PradoServerConfig) -> None:
         self.cfg = cfg
-        self.rate_limiter = DerivRateLimiter()
-        self._deriv: DerivClient | None = None
-        self._public_deriv: DerivClient | None = None
-        self._deriv_auth: dict[str, Any] = {}
+        self.rate_limiter = CTraderRateLimiter()
+        self._client: CTraderClient | None = None
+        self._client_auth: dict[str, Any] = {}
         self.connected: bool = False
         self.connection_state: str = (
             "DISCONNECTED" if cfg.connection_mode.upper() != "SIMULATION" else "CONNECTED"
         )
         self.auth_state: str = "UNAUTHENTICATED"
         self.backend_name: str = (
-            "DERIV_DISCONNECTED" if cfg.connection_mode.upper() != "SIMULATION" else "SIMULATION_FEED"
+            "CTRADER_DISCONNECTED" if cfg.connection_mode.upper() != "SIMULATION" else "SIMULATION_FEED"
         )
         self.last_error: str = ""
         self.last_tick_at: float = 0.0
         self._sim_ticks: dict[str, list[TickRecord]] = {}
         self._sim_positions: list[dict[str, Any]] = []
         self._sim_deals_history: list[dict[str, Any]] = []
-        self._deriv_deals_history: list[dict[str, Any]] = []
+        self._live_deals_history: list[dict[str, Any]] = []
         self._sim_daily_pnl: float = 0.0
         self._sim_balance: float = 10_000.0
         self._tick_cache: dict[str, tuple[float, list[TickRecord]]] = {}
         self._symbols_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._balance_cache: tuple[float, float] | None = None
         self._positions_cache: tuple[float, list[dict[str, Any]]] | None = None
-        self._contract_bot_map: dict[str, str] = {}
+        self._position_bot_map: dict[str, str] = {}
         self._recorded_deal_tickets: set[str] = set()
         self._last_order_ts: dict[str, float] = {}
         self._last_ping_at: float = time.time()
 
-    def connect(self, token: str | None = None, app_id: str | None = None) -> tuple[bool, str]:
-        target_token = (token if token is not None else self.cfg.deriv_token).strip()
-        target_app = (app_id if app_id is not None else self.cfg.deriv_app_id).strip() or "1089"
+    def connect(
+        self,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        access_token: str | None = None,
+        refresh_token: str | None = None,
+        account_id: str | None = None,
+        is_live: bool | None = None,
+    ) -> tuple[bool, str]:
+        cid = (client_id if client_id is not None else self.cfg.ctrader_client_id).strip()
+        csec = (client_secret if client_secret is not None else self.cfg.ctrader_client_secret).strip()
+        tok = (access_token if access_token is not None else self.cfg.ctrader_access_token).strip()
+        rtok = (refresh_token if refresh_token is not None else self.cfg.ctrader_refresh_token).strip()
+        acc_id = (account_id if account_id is not None else self.cfg.active_account_id).strip()
+        if acc_id.startswith("ct_"):
+            acc_id = acc_id[3:]
+        want_live = (
+            bool(is_live)
+            if is_live is not None
+            else (self.cfg.active_account_type.upper() == "REAL")
+        )
         mode = self.cfg.connection_mode.upper()
 
-        if self._deriv is not None:
-            self._deriv.close()
-            self._deriv = None
+        if self._client is not None:
+            self._client.close()
+            self._client = None
 
-        if mode != "SIMULATION" and target_token:
+        if mode != "SIMULATION" and cid and csec and tok:
             self.connection_state = "CONNECTING"
             try:
-                client = DerivClient(
-                    token=target_token,
-                    app_id=target_app,
-                    rate_limiter=self.rate_limiter,
+                client = CTraderClient(
+                    client_id=cid,
+                    client_secret=csec,
+                    access_token=tok,
+                    refresh_token=rtok,
+                    account_id=acc_id,
+                    is_live=want_live,
                     preferred_account_type=self.cfg.active_account_type,
+                    rate_limiter=self.rate_limiter,
                 )
                 auth = client.authorize()
-                self._deriv = client
-                self._deriv_auth = auth
+                self._client = client
+                self._client_auth = auth
                 self.connected = True
                 self.connection_state = "CONNECTED"
                 self.auth_state = "AUTHENTICATED"
-                self.backend_name = "DERIV_LIVE_API"
+                self.backend_name = "CTRADER_LIVE_API"
                 self.last_error = ""
                 self._last_ping_at = time.time()
                 self._balance_cache = (time.time(), float(auth.get("balance", 0.0)))
                 env_str = "DEMO" if auth.get("is_virtual") else "REAL"
                 return (
                     True,
-                    f"Conectado à Deriv [{env_str}] — Conta {auth.get('loginid')} ({auth.get('balance')} {auth.get('currency', 'USD')}).",
+                    f"Conectado à cTrader [{env_str}] — {auth.get('broker_name', 'cTrader')} Conta {auth.get('loginid')} ({auth.get('balance')} {auth.get('currency', 'USD')}).",
                 )
-            except DerivAuthError as exc:
-                self._deriv = None
-                self._deriv_auth = {}
+            except CTraderAuthError as exc:
+                self._client = None
+                self._client_auth = {}
                 self.auth_state = exc.auth_state
                 self.connection_state = "ERROR"
                 self.last_error = str(exc)
                 self.connected = False
-                self.backend_name = "DERIV_DISCONNECTED"
-                return False, f"Erro ao conectar na Deriv: {exc}"
+                self.backend_name = "CTRADER_DISCONNECTED"
+                return False, f"Erro ao conectar na cTrader: {exc}"
             except Exception as exc:
-                self._deriv = None
-                self._deriv_auth = {}
+                self._client = None
+                self._client_auth = {}
                 err_msg = str(exc)
-                if target_token.startswith("pat_") and target_app == "1089":
-                    self.auth_state = "APP_ID_MISMATCH"
-                    err_msg = (
-                        "Token 'pat_...' não é aceito com App ID 1089. "
-                        "Gere um token clássico em app.deriv.com/account/api-token OU use seu App ID de developers.deriv.com."
-                    )
-                elif "RateLimit" in err_msg or "429" in err_msg:
+                if "RateLimit" in err_msg or "FREQUENCY" in err_msg:
                     self.auth_state = "UNAUTHENTICATED"
                 else:
                     self.auth_state = "TOKEN_INVALID"
                 self.connection_state = "ERROR"
                 self.last_error = err_msg
-                if mode != "SIMULATION":
-                    self.connected = False
-                    self.backend_name = "DERIV_DISCONNECTED"
-                    return False, f"Erro ao conectar na Deriv: {err_msg}"
+                self.connected = False
+                self.backend_name = "CTRADER_DISCONNECTED"
+                return False, f"Erro ao conectar na cTrader: {err_msg}"
 
-        self._deriv = None
-        self._deriv_auth = {}
+        self._client = None
+        self._client_auth = {}
         if mode != "SIMULATION":
             self.connected = False
             self.connection_state = "DISCONNECTED"
             self.auth_state = "UNAUTHENTICATED"
-            self.backend_name = "DERIV_DISCONNECTED"
+            self.backend_name = "CTRADER_DISCONNECTED"
             return (
                 False,
-                "Nenhum token Deriv válido conectado. Cole seu token na aba 'Tokens e Contas Deriv'.",
+                "Credenciais cTrader não conectadas. Configure Client ID, Client Secret e autorize via OAuth em 'Configuração cTrader'.",
             )
 
         self.connected = True
@@ -200,25 +258,12 @@ class DerivUniversalConnector:
         self.auth_state = "AUTHENTICATED"
         self.backend_name = "SIMULATION_FEED"
         self._tick_cache.clear()
-        return (
-            True,
-            "Modo Simulação Quant Ativo.",
-        )
-
-    def _get_public_deriv(self) -> DerivClient:
-        app_id = (self.cfg.deriv_app_id or "1089").strip() or "1089"
-        if self._public_deriv is None or self._public_deriv.app_id != app_id:
-            if self._public_deriv is not None:
-                self._public_deriv.close()
-            self._public_deriv = DerivClient(token="", app_id=app_id, rate_limiter=self.rate_limiter)
-        return self._public_deriv
+        return True, "Modo Simulação Quant (CFD Lotes) Ativo."
 
     def discover_broker_symbols(self, mode: str = "PRINCIPAIS") -> list[dict[str, Any]]:
         mode_upper = mode.upper()
-        client = self._deriv
-        if client is None and self.cfg.connection_mode.upper() != "SIMULATION":
-            client = self._get_public_deriv()
-        if client is not None:
+        client = self._client
+        if client is not None and self.cfg.connection_mode.upper() != "SIMULATION":
             now = time.time()
             if self._symbols_cache and (now - self._symbols_cache[0]) < 60.0:
                 syms = self._symbols_cache[1]
@@ -228,17 +273,17 @@ class DerivUniversalConnector:
                     if syms:
                         self._symbols_cache = (now, syms)
                 except Exception as exc:
-                    self.last_error = f"Erro listando ativos Deriv: {exc}"
+                    self.last_error = f"Erro listando ativos cTrader: {exc}"
                     syms = []
             if syms:
                 if mode_upper == "PRINCIPAIS":
-                    main_set = {m["name"] for m in MAIN_DERIV_SYMBOLS}
+                    main_set = {m["name"] for m in MAIN_CTRADER_SYMBOLS}
                     filtered = [s for s in syms if s["name"] in main_set]
                     if filtered:
                         return filtered
                 return syms[:500]
 
-        source = MAIN_DERIV_SYMBOLS if mode_upper == "PRINCIPAIS" else EXTENDED_ALL_SYMBOLS
+        source = MAIN_CTRADER_SYMBOLS if mode_upper == "PRINCIPAIS" else EXTENDED_CTRADER_SYMBOLS
         seen = {item["name"] for item in source}
         result = [dict(item, visible=True) for item in source]
         for cat_name, syms in self.cfg.custom_categories.items():
@@ -280,25 +325,25 @@ class DerivUniversalConnector:
         now = time.time()
         rl_status = self.rate_limiter.status(now)
         data_state = self._compute_data_state(now)
-        masked_app = mask_secret(self.cfg.deriv_app_id or "1089", 2, 2)
+        masked_cid = mask_secret(self.cfg.ctrader_client_id or "", 4, 4)
 
-        if self._deriv is not None:
+        if self._client is not None:
             try:
-                auth = self._deriv_auth
+                auth = self._client_auth
                 if not auth:
-                    auth = self._deriv.authorize()
-                    self._deriv_auth = auth
+                    auth = self._client.authorize()
+                    self._client_auth = auth
 
                 bal = float(auth.get("balance", 0.0))
                 if self._balance_cache is None or (now - self._balance_cache[0]) >= 10.0:
                     try:
-                        fresh_bal = self._deriv.get_balance()
+                        fresh_bal = self._client.get_balance()
                         if fresh_bal is not None:
                             bal = fresh_bal
                             self._balance_cache = (now, bal)
-                    except DerivAuthError:
+                    except CTraderAuthError:
                         raise
-                    except DerivRateLimitError as exc:
+                    except CTraderRateLimitError as exc:
                         self.last_error = str(exc)
                     except Exception:
                         pass
@@ -307,12 +352,13 @@ class DerivUniversalConnector:
 
                 positions = self.get_open_positions()
                 floating = sum(float(p.get("profit", 0.0)) for p in positions)
-                deriv_daily_realized = round(
-                    sum(float(d.get("profit", 0.0)) for d in self._deriv_deals_history), 2
+                realized = round(
+                    sum(float(d.get("profit", 0.0)) for d in self._live_deals_history), 2
                 )
                 is_virt = bool(auth.get("is_virtual", 1))
                 acc_mode = "DEMO" if is_virt else "REAL"
                 trading_state = self._compute_trading_state(acc_mode, rl_status)
+                ws_host = "live.ctraderapi.com:5036" if not is_virt else "demo.ctraderapi.com:5036"
                 return {
                     "backend": self.backend_name,
                     "connected": True,
@@ -323,21 +369,23 @@ class DerivUniversalConnector:
                     "data_state": data_state,
                     "trading_state": trading_state,
                     "rate_limit": rl_status,
-                    "masked_app_id": masked_app,
+                    "masked_client_id": masked_cid,
+                    "broker_name": str(auth.get("broker_name", "cTrader")),
+                    "leverage": int(auth.get("leverage", 100) or 100),
                     "last_tick_at": self.last_tick_at,
                     "active_account_id": self.cfg.active_account_id,
                     "login": str(auth.get("loginid", "---")),
-                    "server": "Deriv API (REST + OTP WS)",
-                    "name": str(auth.get("fullname", "Conta Deriv")),
+                    "server": f"cTrader Open API ({ws_host})",
+                    "name": str(auth.get("fullname", "Conta cTrader")),
                     "currency": str(auth.get("currency", "USD")),
                     "balance": round(bal, 2),
                     "equity": round(bal + floating, 2),
                     "profit": round(floating, 2),
-                    "daily_realized": deriv_daily_realized,
-                    "margin_free": round(bal, 2),
+                    "daily_realized": realized,
+                    "margin_free": round(bal + floating, 2),
                     "status_note": self.last_error,
                 }
-            except DerivAuthError as exc:
+            except CTraderAuthError as exc:
                 self.auth_state = exc.auth_state
                 self.connection_state = "ERROR"
                 self.connected = False
@@ -348,7 +396,7 @@ class DerivUniversalConnector:
         if self.cfg.connection_mode.upper() != "SIMULATION":
             acc_mode = self.cfg.active_account_type.upper() or "DEMO"
             return {
-                "backend": "DERIV_DISCONNECTED",
+                "backend": "CTRADER_DISCONNECTED",
                 "connected": False,
                 "account_type": acc_mode,
                 "account_mode": acc_mode,
@@ -357,12 +405,14 @@ class DerivUniversalConnector:
                 "data_state": data_state,
                 "trading_state": "BLOCKED",
                 "rate_limit": rl_status,
-                "masked_app_id": masked_app,
+                "masked_client_id": masked_cid,
+                "broker_name": "cTrader",
+                "leverage": 0,
                 "last_tick_at": self.last_tick_at,
                 "active_account_id": self.cfg.active_account_id,
                 "login": "DESCONECTADO",
-                "server": self.last_error or "Aguardando token válido da Deriv",
-                "name": "Conta Deriv Desconectada",
+                "server": self.last_error or "Aguardando credenciais/token cTrader Open API",
+                "name": "Conta cTrader Desconectada",
                 "currency": "USD",
                 "balance": 0.0,
                 "equity": 0.0,
@@ -384,12 +434,14 @@ class DerivUniversalConnector:
             "data_state": data_state if data_state != "NO_DATA" else "LIVE",
             "trading_state": "READY",
             "rate_limit": rl_status,
-            "masked_app_id": masked_app,
+            "masked_client_id": masked_cid,
+            "broker_name": "Simulador cTrader",
+            "leverage": 100,
             "last_tick_at": self.last_tick_at or now,
             "active_account_id": self.cfg.active_account_id,
-            "login": "VRTC-SIM" if acc_mode == "DEMO" else "CR-SIM",
-            "server": "Deriv Quant Simulador",
-            "name": f"Mesa Deriv ({acc_mode})",
+            "login": "CT-DEMO-SIM" if acc_mode == "DEMO" else "CT-LIVE-SIM",
+            "server": "cTrader Quant Simulador (Lotes CFD)",
+            "name": f"Mesa cTrader ({acc_mode})",
             "currency": "USD",
             "balance": round(self._sim_balance + self._sim_daily_pnl, 2),
             "equity": round(self._sim_balance + self._sim_daily_pnl + floating, 2),
@@ -419,36 +471,6 @@ class DerivUniversalConnector:
         "ALL_TIME": 5 * 365 * 86400,
     }
 
-    def _fetch_paginated_history(
-        self,
-        client: DerivClient,
-        symbol: str,
-        target_count: int,
-        granularity: int,
-    ) -> list[TickRecord]:
-        remaining = min(20000, max(120, int(target_count)))
-        end_cursor: int | str = "latest"
-        chunks: list[list[TickRecord]] = []
-        for _ in range(4):
-            if remaining <= 0:
-                break
-            batch_sz = min(5000, remaining)
-            batch = client.get_ticks_history(symbol, count=batch_sz, granularity=granularity, end=end_cursor)
-            if not batch:
-                break
-            chunks.append(batch)
-            remaining -= len(batch)
-            if len(batch) < batch_sz:
-                break
-            earliest_sec = int(batch[0].time_msc // 1000)
-            if earliest_sec <= 1:
-                break
-            end_cursor = earliest_sec - 1
-        merged: list[TickRecord] = []
-        for ch in reversed(chunks):
-            merged.extend(ch)
-        return merged
-
     def fetch_backtest_history(
         self,
         symbol: str,
@@ -456,7 +478,7 @@ class DerivUniversalConnector:
         timeframe: str = "TICKS",
         period: str = "CUSTOM",
     ) -> tuple[list[TickRecord], str]:
-        """Fetch real Deriv historical ticks or candles (M1..D1, MN1 aggregated from D1) for backtesting."""
+        """Fetch real cTrader historical ticks or trendbars for backtesting."""
         tf = str(timeframe or "TICKS").strip().upper()
         per = str(period or "CUSTOM").strip().upper()
         target_count = max(120, int(count))
@@ -464,19 +486,18 @@ class DerivUniversalConnector:
             sec = self._PERIOD_SECONDS[per]
             gran_for_calc = 86400 if tf == "MN1" else self.TIMEFRAME_GRANULARITIES.get(tf, 0)
             if gran_for_calc > 0:
-                target_count = max(120, min(20000, sec // gran_for_calc))
+                target_count = max(120, min(5000, sec // gran_for_calc))
             else:
-                target_count = min(20000, max(1000, sec // 2))
+                target_count = min(5000, max(400, sec // 2))
 
         if self.cfg.connection_mode.upper() == "SIMULATION":
             return [], "SIMULATION"
-        client = self._deriv or self._get_public_deriv()
+        client = self._client
         if client is None:
             return [], "SIMULATION_FALLBACK"
         try:
             if tf == "MN1":
-                daily_count = min(5000, max(target_count, 360))
-                daily = self._fetch_paginated_history(client, symbol, daily_count, 86400)
+                daily = client.get_ticks_history(symbol, count=min(5000, max(target_count, 360)), granularity=86400)
                 if not daily:
                     return [], "SIMULATION_FALLBACK"
                 monthly: dict[tuple[int, int], TickRecord] = {}
@@ -484,11 +505,11 @@ class DerivUniversalConnector:
                     dt = datetime.fromtimestamp(tk.time_msc / 1000.0)
                     monthly[(dt.year, dt.month)] = tk
                 bars = [monthly[k] for k in sorted(monthly.keys())]
-                return (bars, "DERIV_REAL") if len(bars) >= 12 else ([], "SIMULATION_FALLBACK")
+                return (bars, "CTRADER_REAL") if len(bars) >= 12 else ([], "SIMULATION_FALLBACK")
             gran = self.TIMEFRAME_GRANULARITIES.get(tf, 0)
-            records = self._fetch_paginated_history(client, symbol, target_count, gran)
+            records = client.get_ticks_history(symbol, count=target_count, granularity=gran)
             if len(records) >= 45:
-                return records, "DERIV_REAL"
+                return records, "CTRADER_REAL"
         except Exception as exc:
             self.last_error = f"Aviso backtest histórico ({symbol}/{tf}): {exc}"
         return [], "SIMULATION_FALLBACK"
@@ -504,11 +525,9 @@ class DerivUniversalConnector:
 
         cache_key = symbol if gran <= 0 else f"{symbol}:{gran}"
         cached = self._tick_cache.get(cache_key)
-        if cached and (now - cached[0]) < 8.0 and len(cached[1]) >= min(count, 40):
+        if cached and (now - cached[0]) < 4.0 and len(cached[1]) >= min(count, 40):
             return cached[1]
-        client = self._deriv
-        if client is None:
-            client = self._get_public_deriv()
+        client = self._client
         if client is not None:
             try:
                 ticks = client.get_ticks_history(symbol, count=min(500, count), granularity=gran)
@@ -519,29 +538,13 @@ class DerivUniversalConnector:
             except Exception as exc:
                 if cached:
                     return cached[1]
-                if self._deriv is not None:
-                    self.last_error = f"Erro lendo ticks Deriv ({symbol}): {exc}"
-        ticks_sim = self._generate_sim_ticks(symbol)
-        if ticks_sim and self.cfg.connection_mode.upper() == "SIMULATION":
-            self.last_tick_at = now
-        return ticks_sim
+                self.last_error = f"Erro lendo cotações cTrader ({symbol}): {exc}"
+        return cached[1] if cached else []
 
     def _generate_sim_ticks(self, symbol: str) -> list[TickRecord]:
-        base_map = {
-            "R_100": 1850.0,
-            "R_75": 42500.0,
-            "R_50": 145.0,
-            "R_25": 2350.0,
-            "R_10": 6500.0,
-            "1HZ100V": 1240.0,
-            "1HZ10V": 9100.0,
-            "frxEURUSD": 1.0540,
-            "frxGBPUSD": 1.2620,
-            "frxXAUUSD": 2655.0,
-            "cryBTCUSD": 94500.0,
-            "cryETHUSD": 3350.0,
-        }
-        base_price = base_map.get(symbol, 100.0)
+        spec = get_symbol_spec(symbol)
+        base_price = spec["base"]
+        spread = spec["pip_size"] * 1.2
         step_scale = base_price * 0.00025
         history = self._sim_ticks.get(symbol)
         now_msc = int(time.time() * 1000)
@@ -558,8 +561,8 @@ class DerivUniversalConnector:
                 history.append(
                     TickRecord(
                         time_msc=now_msc - (240 - i) * 1000,
-                        bid=round(p, 6),
-                        ask=round(p, 6),
+                        bid=round(p - spread * 0.5, 6),
+                        ask=round(p + spread * 0.5, 6),
                         last=round(p, 6),
                         volume_real=0.0,
                         tick_volume=float(vol),
@@ -579,8 +582,8 @@ class DerivUniversalConnector:
             history.append(
                 TickRecord(
                     time_msc=int(time.time() * 1000),
-                    bid=round(new_p, 6),
-                    ask=round(new_p, 6),
+                    bid=round(new_p - spread * 0.5, 6),
+                    ask=round(new_p + spread * 0.5, 6),
                     last=round(new_p, 6),
                     volume_real=0.0,
                     tick_volume=float(vol),
@@ -593,7 +596,7 @@ class DerivUniversalConnector:
             self._sim_ticks[symbol] = history[-600:]
         return self._sim_ticks[symbol]
 
-    def _record_deriv_deal(
+    def _record_live_deal(
         self,
         ticket: str | int,
         symbol: str,
@@ -612,8 +615,8 @@ class DerivUniversalConnector:
         if tid:
             self._recorded_deal_tickets.add(tid)
         ts_str = datetime.now().strftime("%H:%M:%S")
-        bname = bot_name or comment or "Deriv"
-        self._deriv_deals_history.insert(
+        bname = bot_name or comment or "cTrader"
+        self._live_deals_history.insert(
             0,
             {
                 "ticket": tid,
@@ -633,45 +636,40 @@ class DerivUniversalConnector:
         )
         return True
 
-    def sync_closed_contracts(self) -> list[dict[str, Any]]:
-        if self.cfg.connection_mode.upper() == "SIMULATION" or self._deriv is None:
+    def sync_closed_deals(self) -> list[dict[str, Any]]:
+        if self.cfg.connection_mode.upper() == "SIMULATION" or self._client is None:
             return []
-        pop_fn = getattr(self._deriv, "pop_closed_contracts", None)
+        pop_fn = getattr(self._client, "pop_closed_deals", None)
         if not callable(pop_fn):
             return []
-        closed_pocs = pop_fn()
-        if not closed_pocs:
+        closed_deals = pop_fn()
+        if not closed_deals:
             return []
         recorded: list[dict[str, Any]] = []
         closed_ids: set[str] = set()
-        for poc in closed_pocs:
-            cid = str(poc.get("contract_id") or "")
-            if not cid:
+        for deal in closed_deals:
+            pid = str(deal.get("ticket") or "")
+            if not pid:
                 continue
-            closed_ids.add(cid)
-            sym = str(poc.get("underlying_symbol") or poc.get("underlying") or "--")
-            ctype = str(poc.get("contract_type") or "MULTUP").upper()
-            side = "BUY" if ("UP" in ctype or "CALL" in ctype) else "SELL"
-            bname = self._contract_bot_map.get(cid) or next(
+            closed_ids.add(pid)
+            sym = str(deal.get("symbol") or "--")
+            bname = self._position_bot_map.get(pid) or str(deal.get("bot_name") or "") or next(
                 (str(b.get("name", "")) for b in self.cfg.bots if b.get("symbol") == sym and b.get("name")),
-                "Deriv",
+                "cTrader",
             )
-            entry_p = float(poc.get("entry_spot") or 0.0)
-            exit_p = float(poc.get("exit_spot") or poc.get("current_spot") or entry_p)
-            profit_val = float(poc.get("profit") or 0.0)
-            if self._record_deriv_deal(
-                ticket=cid,
+            if self._record_live_deal(
+                ticket=pid,
                 symbol=sym,
-                side=side,
-                volume=float(poc.get("buy_price") or 0.0),
-                price_open=entry_p,
-                price_close=exit_p,
-                profit=profit_val,
-                reason=str(poc.get("status") or "DERIV_AUTO_CLOSE").upper(),
+                side=str(deal.get("side") or "BUY"),
+                volume=float(deal.get("volume") or 0.0),
+                price_open=float(deal.get("price_open") or 0.0),
+                price_close=float(deal.get("price_close") or 0.0),
+                profit=float(deal.get("profit") or 0.0),
+                reason=str(deal.get("reason") or "CTRADER_AUTO_CLOSE"),
                 bot_name=bname,
                 comment=bname,
             ):
-                recorded.append(self._deriv_deals_history[0])
+                recorded.append(self._live_deals_history[0])
         if closed_ids and self._positions_cache is not None:
             ts_c, cached_list = self._positions_cache
             self._positions_cache = (
@@ -684,48 +682,29 @@ class DerivUniversalConnector:
 
     def get_open_positions(self) -> list[dict[str, Any]]:
         if self.cfg.connection_mode.upper() != "SIMULATION":
-            if self._deriv is None:
+            if self._client is None:
                 return []
             now = time.time()
-            stream_check = getattr(self._deriv, "has_live_contract_stream", None)
-            has_stream = bool(stream_check()) if callable(stream_check) else False
-            cache_ttl = 15.0 if has_stream else 8.0
+            cache_ttl = 4.0
             if self._positions_cache and (now - self._positions_cache[0]) < cache_ttl:
-                if has_stream:
-                    updated: list[dict[str, Any]] = []
-                    for item in self._positions_cache[1]:
-                        sc = self._deriv.get_stream_contract(item.get("ticket", ""))
-                        if sc is None:
-                            updated.append(item)
-                        elif sc.get("_closed"):
-                            continue
-                        else:
-                            merged = dict(item)
-                            merged["price_current"] = sc["price_current"]
-                            merged["profit"] = sc["profit"]
-                            if sc.get("price_open"):
-                                merged["price_open"] = sc["price_open"]
-                            updated.append(merged)
-                    self._positions_cache = (self._positions_cache[0], updated)
-                    return updated
                 return self._positions_cache[1]
             try:
-                pos = self._deriv.get_open_contracts()
+                pos = self._client.get_open_positions()
                 for item in pos:
-                    cid_str = str(item.get("ticket", ""))
-                    bname = self._contract_bot_map.get(cid_str) or next(
+                    pid_str = str(item.get("ticket", ""))
+                    bname = self._position_bot_map.get(pid_str) or item.get("bot_name") or next(
                         (str(b.get("name", "")) for b in self.cfg.bots if b.get("symbol") == item.get("symbol") and b.get("name")),
-                        "Deriv",
+                        "cTrader",
                     )
                     item["bot_name"] = bname
                     item["comment"] = item.get("comment") or bname
                 self._positions_cache = (now, pos)
                 return pos
-            except DerivRateLimitError as exc:
+            except CTraderRateLimitError as exc:
                 self.last_error = str(exc)
                 return self._positions_cache[1] if self._positions_cache else []
             except Exception as exc:
-                self.last_error = f"Erro lendo posições Deriv: {exc}"
+                self.last_error = f"Erro lendo posições cTrader: {exc}"
                 return self._positions_cache[1] if self._positions_cache else []
 
         for pos in list(self._sim_positions):
@@ -735,9 +714,7 @@ class DerivUniversalConnector:
                 curr = ticks[-1].effective_price()
                 pos["price_current"] = round(curr, 6)
                 is_buy = pos["type"] == "BUY"
-                pct_move = ((curr - pos["price_open"]) / max(pos["price_open"], 1e-6)) if is_buy else ((pos["price_open"] - curr) / max(pos["price_open"], 1e-6))
-                mult = int(pos.get("multiplier", 100))
-                pos["profit"] = round(pct_move * float(pos["volume"]) * mult, 2)
+                pos["profit"] = estimate_cfd_pnl(sym, is_buy, pos["price_open"], curr, float(pos["volume"]))
 
                 hit_tp = (curr >= pos["tp"]) if is_buy else (curr <= pos["tp"])
                 hit_sl = (curr <= pos["sl"]) if is_buy else (curr >= pos["sl"])
@@ -758,7 +735,7 @@ class DerivUniversalConnector:
                             "profit": pos["profit"],
                             "reason": "TAKE_PROFIT" if hit_tp else "STOP_LOSS",
                             "comment": pos.get("comment", ""),
-                            "bot_name": pos.get("comment", ""),
+                            "bot_name": pos.get("bot_name") or pos.get("comment", ""),
                         },
                     )
                     self._sim_positions.remove(pos)
@@ -768,22 +745,21 @@ class DerivUniversalConnector:
         self,
         symbol: str,
         action: str,
-        stake: float,
+        lot_size: float,
         price: float,
         sl_points: float,
         tp_points: float,
-        multiplier: int = 100,
         bot_name: str = "PradoBot",
         allow_multi_same_symbol: bool = False,
         max_levels_override: int = 0,
-        tp_usd_mult: float = 0.9,
         tp_mode: str = "AUTO",
         tp_value: float = 0.0,
     ) -> tuple[bool, str]:
         now = time.time()
-        max_stake = float(getattr(self.cfg, "max_stake_per_trade", 100.0) or 100.0)
-        if float(stake) > max_stake:
-            return False, f"Stake ${stake:.2f} excede o limite máximo por operação (${max_stake:.2f})."
+        lots = max(0.01, round(float(lot_size or 0.01), 4))
+        max_lot = float(getattr(self.cfg, "max_lot_per_trade", 1.0) or 1.0)
+        if lots > max_lot:
+            return False, f"Volume {lots:.2f} lote(s) excede o limite máximo por operação ({max_lot:.2f})."
 
         raw_interval = getattr(self.cfg, "min_order_interval_sec", 3.0)
         min_interval = 3.0 if raw_interval is None else float(raw_interval)
@@ -792,9 +768,9 @@ class DerivUniversalConnector:
             return False, f"Intervalo mínimo entre operações ativo para {symbol}"
 
         if self.cfg.connection_mode.upper() != "SIMULATION":
-            if self._deriv is None or not self.connected or self.auth_state != "AUTHENTICATED":
-                return False, f"Negociação bloqueada: Deriv desconectada ou não autenticada ({self.auth_state})"
-            is_virt = bool(self._deriv_auth.get("is_virtual", 1))
+            if self._client is None or not self.connected or self.auth_state != "AUTHENTICATED":
+                return False, f"Negociação bloqueada: cTrader desconectada ou não autenticada ({self.auth_state})"
+            is_virt = bool(self._client_auth.get("is_virtual", 1))
             if not is_virt and not getattr(self.cfg, "allow_real_trading", False):
                 return False, "Negociação em conta REAL bloqueada por padrão de segurança."
             rl = self.rate_limiter.status(now)
@@ -802,7 +778,7 @@ class DerivUniversalConnector:
                 return False, f"Negociação bloqueada por RateLimit ({rl.get('cooldown_seconds')}s)"
             data_state = self._compute_data_state(now)
             if data_state != "LIVE":
-                return False, f"Negociação bloqueada: dados de mercado indisponíveis/desatualizados ({data_state}) para {symbol}."
+                return False, f"Negociação bloqueada: cotações indisponíveis/desatualizadas ({data_state}) para {symbol}."
 
         open_positions = self.get_open_positions()
         max_concurrent = int(getattr(self.cfg, "max_concurrent_trades", 5) or 5)
@@ -811,63 +787,79 @@ class DerivUniversalConnector:
         if len(open_positions) >= max_concurrent:
             return False, f"Limite de operações simultâneas atingido ({len(open_positions)}/{max_concurrent})."
 
-        max_exposure = float(getattr(self.cfg, "max_total_exposure_usd", 500.0) or 500.0)
-        current_exposure = sum(float(p.get("volume", 0.0)) for p in open_positions)
-        if (current_exposure + float(stake)) > max_exposure:
-            return False, f"Exposição total (${current_exposure + float(stake):.2f}) excede o limite (${max_exposure:.2f})."
+        max_total_lots = float(getattr(self.cfg, "max_total_lots", 5.0) or 5.0)
+        current_lots = sum(float(p.get("volume", 0.0)) for p in open_positions)
+        if (current_lots + lots) > max_total_lots:
+            return False, f"Exposição total ({current_lots + lots:.2f} lotes) excede o limite ({max_total_lots:.2f} lotes)."
 
         if not allow_multi_same_symbol and any(p.get("symbol") == symbol for p in open_positions):
             return False, f"Posição já aberta em {symbol} (bloqueio de ordem duplicada)."
 
         self._last_order_ts[symbol] = now
         is_buy = action.startswith("BUY")
-        if self._deriv is not None:
-            norm_tp_mode, norm_tp_val = normalize_tp_config(tp_mode, tp_value)
-            sl_usd = round(max(1.0, stake * 0.5), 2)
-            if norm_tp_mode == "USD":
-                tp_usd = round(max(0.05, norm_tp_val), 2)
-            elif norm_tp_mode == "PCT":
-                tp_usd = round(max(0.05, float(stake) * (norm_tp_val / 100.0)), 2)
-            else:
-                tp_usd = round(max(1.5, stake * tp_usd_mult), 2)
-            ok, msg = self._deriv.place_multiplier_order(
+        spec = get_symbol_spec(symbol)
+        # Mandatory SL guard for CFD margin protection
+        eff_sl_pts = float(sl_points or 0.0)
+        if eff_sl_pts <= 0.0:
+            eff_sl_pts = max(price * 0.0020, spec["pip_size"] * 20.0)
+
+        norm_tp_mode, norm_tp_val = normalize_tp_config(tp_mode, tp_value)
+        eff_tp_pts = float(tp_points or 0.0)
+        if norm_tp_mode == "USD":
+            denom = max(1e-6, lots * spec["contract_size"])
+            usd_dist = norm_tp_val / denom
+            if symbol.upper().endswith(("JPY", "CHF", "CAD")) and price > 0:
+                usd_dist *= price
+            eff_tp_pts = max(spec["pip_size"], usd_dist)
+        elif norm_tp_mode == "PCT":
+            eff_tp_pts = max(spec["pip_size"], price * (norm_tp_val / 100.0))
+        elif norm_tp_mode in ("PIPS", "TICKS"):
+            eff_tp_pts = max(spec["pip_size"], norm_tp_val * spec["pip_size"])
+        elif eff_tp_pts <= 0.0:
+            eff_tp_pts = eff_sl_pts * 1.8
+
+        if self._client is not None:
+            ok, msg = self._client.place_market_order(
                 symbol=symbol,
                 is_buy=is_buy,
-                stake=stake,
-                multiplier=multiplier,
-                sl_amount=sl_usd,
-                tp_amount=tp_usd,
+                lots=lots,
+                sl_points=eff_sl_pts,
+                tp_points=eff_tp_pts,
+                label=bot_name,
+                comment=f"{bot_name[:14]}_{action}",
             )
             if ok:
-                cid = self._deriv.last_order_lifecycle.get("contract_id")
-                if cid is not None:
-                    cid_str = str(cid)
-                    self._contract_bot_map[cid_str] = bot_name
+                pid = self._client.last_order_lifecycle.get("position_id") or self._client.last_order_lifecycle.get("order_id")
+                if pid is not None:
+                    pid_str = str(pid)
+                    self._position_bot_map[pid_str] = bot_name
                     side_str = "BUY" if is_buy else "SELL"
+                    sl_price = round(price - eff_sl_pts, 6) if is_buy else round(price + eff_sl_pts, 6)
+                    tp_price = round(price + eff_tp_pts, 6) if is_buy else round(price - eff_tp_pts, 6)
                     new_pos = {
-                        "ticket": cid_str,
+                        "ticket": pid_str,
                         "symbol": symbol,
                         "type": side_str,
                         "side": side_str,
-                        "volume": float(stake),
+                        "volume": lots,
                         "price_open": round(price, 6),
                         "price_current": round(price, 6),
-                        "sl": sl_usd,
-                        "tp": tp_usd,
+                        "sl": sl_price,
+                        "tp": tp_price,
                         "profit": 0.0,
                         "bot_name": bot_name,
                         "comment": f"{bot_name[:14]}_{action}",
                     }
                     if self._positions_cache is not None:
                         cache_ts, cached_pos = self._positions_cache
-                        if not any(str(p.get("ticket")) == cid_str for p in cached_pos):
+                        if not any(str(p.get("ticket")) == pid_str for p in cached_pos):
                             self._positions_cache = (cache_ts, [*cached_pos, new_pos])
                     else:
                         self._positions_cache = (now, [new_pos])
             return ok, msg
 
-        sl = round(price - sl_points, 6) if is_buy else round(price + sl_points, 6)
-        tp = round(price + tp_points, 6) if is_buy else round(price - tp_points, 6)
+        sl = round(price - eff_sl_pts, 6) if is_buy else round(price + eff_sl_pts, 6)
+        tp = round(price + eff_tp_pts, 6) if is_buy else round(price - eff_tp_pts, 6)
         ticket = int(time.time() * 1000) % 100_000_000
         side_str = "BUY" if is_buy else "SELL"
         self._sim_positions.append(
@@ -876,8 +868,7 @@ class DerivUniversalConnector:
                 "symbol": symbol,
                 "type": side_str,
                 "side": side_str,
-                "volume": float(stake),
-                "multiplier": int(multiplier),
+                "volume": lots,
                 "price_open": round(price, 6),
                 "price_current": round(price, 6),
                 "sl": sl,
@@ -887,24 +878,24 @@ class DerivUniversalConnector:
                 "comment": f"{bot_name[:14]}_{action}",
             }
         )
-        return True, f"[{bot_name}] Multiplier {action} ({multiplier}x) aberto em {symbol} (Stake=${stake})"
+        return True, f"[{bot_name}] Ordem {action} ({lots:.2f} lote) aberta em {symbol}"
 
     def close_all_positions(self, reason: str = "MANUAL_PANIC_FLATTEN") -> tuple[int, str]:
         if self.cfg.connection_mode.upper() != "SIMULATION":
-            if self._deriv is None:
-                return 0, "Deriv desconectada: nenhuma posição ativa para encerrar."
+            if self._client is None:
+                return 0, "cTrader desconectada: nenhuma posição ativa para encerrar."
             self._positions_cache = None
             positions = self.get_open_positions()
             closed = 0
             errors: list[str] = []
             for p in positions:
                 try:
-                    ok, err_msg = self._deriv.close_contract(str(p["ticket"]))
+                    ok, err_msg = self._client.close_position(str(p["ticket"]), volume_raw=p.get("volume_raw"))
                 except Exception as exc:
                     ok, err_msg = False, str(exc)
                 if ok:
                     closed += 1
-                    self._record_deriv_deal(
+                    self._record_live_deal(
                         ticket=p["ticket"],
                         symbol=p["symbol"],
                         side=p.get("side", p.get("type", "BUY")),
@@ -913,7 +904,7 @@ class DerivUniversalConnector:
                         price_close=float(p.get("price_current", 0.0)),
                         profit=float(p.get("profit", 0.0)),
                         reason=reason,
-                        bot_name=str(p.get("bot_name") or p.get("comment") or "Deriv"),
+                        bot_name=str(p.get("bot_name") or p.get("comment") or "cTrader"),
                         comment=str(p.get("comment", "")),
                     )
                 else:
@@ -921,9 +912,9 @@ class DerivUniversalConnector:
             self._positions_cache = (time.time(), []) if not errors else None
             self._balance_cache = None
             if errors and closed == 0:
-                return 0, f"[Deriv] Falha ao zerar posições: {errors[0]}"
+                return 0, f"[cTrader] Falha ao zerar posições: {errors[0]}"
             suffix = f" ({len(errors)} erro(s))" if errors else ""
-            return closed, f"[Deriv] {closed} contrato(s) encerrado(s) ({reason}){suffix}."
+            return closed, f"[cTrader] {closed} posição(ões) encerrada(s) ({reason}){suffix}."
 
         count = len(self._sim_positions)
         for p in self._sim_positions:
@@ -945,7 +936,7 @@ class DerivUniversalConnector:
                     "profit": pnl,
                     "reason": reason,
                     "comment": p.get("comment", ""),
-                    "bot_name": p.get("comment", ""),
+                    "bot_name": p.get("bot_name") or p.get("comment", ""),
                 },
             )
         self._sim_positions.clear()
@@ -953,16 +944,19 @@ class DerivUniversalConnector:
 
     def close_single_position(self, ticket: int | str) -> tuple[bool, str]:
         if self.cfg.connection_mode.upper() != "SIMULATION":
-            if self._deriv is None:
-                return False, "Deriv desconectada: não é possível encerrar contrato."
+            if self._client is None:
+                return False, "cTrader desconectada: não é possível encerrar posição."
             self._positions_cache = None
             positions = self.get_open_positions()
             matched = next((p for p in positions if str(p.get("ticket")) == str(ticket)), None)
             try:
-                ok, msg = self._deriv.close_contract(str(ticket))
+                ok, msg = self._client.close_position(
+                    str(ticket),
+                    volume_raw=matched.get("volume_raw") if matched else None,
+                )
             except Exception as exc:
                 self._positions_cache = None
-                return False, f"[Deriv] Erro ao encerrar #{ticket}: {exc}"
+                return False, f"[cTrader] Erro ao encerrar #{ticket}: {exc}"
             self._balance_cache = None
             if ok:
                 if self._positions_cache is not None:
@@ -971,7 +965,7 @@ class DerivUniversalConnector:
                         ts_c,
                         [p for p in cached_list if str(p.get("ticket")) != str(ticket)],
                     )
-                self._record_deriv_deal(
+                self._record_live_deal(
                     ticket=str(ticket),
                     symbol=matched["symbol"] if matched else "--",
                     side=matched.get("side", matched.get("type", "BUY")) if matched else "BUY",
@@ -980,8 +974,8 @@ class DerivUniversalConnector:
                     price_close=float(matched.get("price_current", 0.0)) if matched else 0.0,
                     profit=float(matched.get("profit", 0.0)) if matched else 0.0,
                     reason="FECHAMENTO_MANUAL",
-                    bot_name=str(matched.get("bot_name") or matched.get("comment") or "Deriv") if matched else "Deriv",
-                    comment=str(matched.get("comment", "")) if matched else "Deriv",
+                    bot_name=str(matched.get("bot_name") or matched.get("comment") or "cTrader") if matched else "cTrader",
+                    comment=str(matched.get("comment", "")) if matched else "cTrader",
                 )
             else:
                 self._positions_cache = None
@@ -1007,21 +1001,21 @@ class DerivUniversalConnector:
                         "profit": pnl,
                         "reason": "FECHAMENTO_MANUAL",
                         "comment": p.get("comment", ""),
-                        "bot_name": p.get("comment", ""),
+                        "bot_name": p.get("bot_name") or p.get("comment", ""),
                     },
                 )
                 self._sim_positions.remove(p)
-                return True, f"Contrato #{ticket} ({p['symbol']}) encerrado com resultado {pnl:+.2f}."
-        return False, f"Contrato #{ticket} não encontrado."
+                return True, f"Posição #{ticket} ({p['symbol']}) encerrada com resultado {pnl:+.2f}."
+        return False, f"Posição #{ticket} não encontrada."
 
 
 class PradoTradingService:
-    """Background daemon that manages Deriv Tokens, Symbols/Categories, and the Running Robot Fleet."""
+    """Background daemon that manages cTrader Accounts/OAuth, Symbols/Categories, and the Running Robot Fleet."""
 
     def __init__(self, cfg: PradoServerConfig, config_path: Path) -> None:
         self.cfg = cfg
         self.config_path = config_path
-        self.connector = DerivUniversalConnector(cfg)
+        self.connector = CTraderUniversalConnector(cfg)
         self.connector.connect()
         self.news_scout = NewsScout()
         self._lock = threading.Lock()
@@ -1029,7 +1023,7 @@ class PradoTradingService:
         self._thread: threading.Thread | None = None
         self._latest_snapshot: dict[str, Any] = {}
         self._event_log: list[dict[str, str]] = []
-        self._log_event("SYSTEM", "Motor Prado Institutional HFT (Deriv Multipliers) inicializado.")
+        self._log_event("SYSTEM", "Motor Prado Institutional HFT (cTrader Open API) inicializado.")
 
     def _log_event(self, category: str, message: str) -> None:
         entry = {
@@ -1045,40 +1039,104 @@ class PradoTradingService:
         with self._lock:
             self.connector.cfg = self.cfg
             ok, msg = self.connector.connect()
-            self._log_event("DERIV_CONNECT", msg)
+            self._log_event("CTRADER_CONNECT", msg)
             return ok, msg
 
-    def save_deriv_account(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    def start_ctrader_oauth(self, default_redirect_uri: str) -> tuple[bool, str, str]:
+        with self._lock:
+            cid = (self.cfg.ctrader_client_id or "").strip()
+            csec = (self.cfg.ctrader_client_secret or "").strip()
+            if not cid or not csec:
+                return False, "", "Salve primeiro o Client ID e o Client Secret obtidos em https://openapi.ctrader.com/apps."
+            ruri = (self.cfg.ctrader_redirect_uri or default_redirect_uri).strip()
+            if not self.cfg.ctrader_redirect_uri and ruri:
+                self.cfg.ctrader_redirect_uri = ruri
+                save_config(self.cfg, self.config_path)
+            auth_url = build_oauth_authorize_url(cid, ruri)
+            return True, auth_url, ruri
+
+    def complete_ctrader_oauth(
+        self,
+        code: str,
+        redirect_uri: str,
+        http_transport: Any = None,
+    ) -> tuple[bool, str]:
+        with self._lock:
+            cid = (self.cfg.ctrader_client_id or "").strip()
+            csec = (self.cfg.ctrader_client_secret or "").strip()
+            ruri = (self.cfg.ctrader_redirect_uri or redirect_uri).strip()
+            if not cid or not csec:
+                return False, "Client ID e Client Secret cTrader não configurados."
+            try:
+                tok_data = exchange_oauth_code(cid, csec, code, ruri, http_transport=http_transport)
+            except Exception as exc:
+                self._log_event("CTRADER_OAUTH", f"Falha OAuth: {exc}")
+                return False, str(exc)
+
+            self.cfg.ctrader_access_token = tok_data["access_token"]
+            self.cfg.ctrader_refresh_token = tok_data["refresh_token"]
+            self.cfg.ctrader_token_expires_at = time.time() + float(tok_data.get("expires_in", 2592000))
+            self.cfg.connection_mode = "CTRADER_CLOUD"
+
+            ok, conn_msg = self.connector.connect(
+                client_id=cid,
+                client_secret=csec,
+                access_token=self.cfg.ctrader_access_token,
+                refresh_token=self.cfg.ctrader_refresh_token,
+            )
+            if ok and self.connector._client is not None:
+                self._sync_ctrader_accounts_locked()
+            save_config(self.cfg, self.config_path)
+            self._log_event("CTRADER_OAUTH", f"Autorização OAuth concluída. {conn_msg}")
+            return ok, conn_msg
+
+    def save_ctrader_account(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
         with self._lock:
             req_id = str(payload.get("account_id") or "").strip()
             existing = next((a for a in self.cfg.accounts if req_id and a.get("account_id") == req_id), None)
-            acc_id = existing["account_id"] if existing else (req_id or f"deriv_{uuid.uuid4().hex[:8]}")
+            acc_id = existing["account_id"] if existing else (req_id or f"ct_{uuid.uuid4().hex[:8]}")
 
-            token_in = str(payload.get("deriv_token", "")).strip()
-            if token_in == "********" or not token_in:
-                token = str(existing.get("deriv_token", "")) if existing else str(self.cfg.deriv_token or "")
+            tok_in = str(payload.get("access_token", "")).strip()
+            if tok_in == "********" or not tok_in:
+                access_tok = str(existing.get("access_token", "")) if existing else str(self.cfg.ctrader_access_token or "")
             else:
-                token = token_in
+                access_tok = tok_in
 
-            app_id = str(payload.get("deriv_app_id") or (existing.get("deriv_app_id", "") if existing else "") or self.cfg.deriv_app_id or "1089").strip()
+            rtok_in = str(payload.get("refresh_token", "")).strip()
+            if rtok_in == "********" or not rtok_in:
+                refresh_tok = str(existing.get("refresh_token", "")) if existing else str(self.cfg.ctrader_refresh_token or "")
+            else:
+                refresh_tok = rtok_in
+
+            cid = str(payload.get("client_id") or (existing.get("client_id", "") if existing else "") or self.cfg.ctrader_client_id or "").strip()
+            csec_in = str(payload.get("client_secret") or "").strip()
+            csec = (
+                str(existing.get("client_secret", "")) if existing else str(self.cfg.ctrader_client_secret or "")
+            ) if (csec_in == "********" or not csec_in) else csec_in
+
             acc_type = str(payload.get("account_type") or (existing.get("account_type", "DEMO") if existing else "DEMO")).upper()
             if acc_type not in ("DEMO", "REAL"):
                 acc_type = "DEMO"
-            label = str(payload.get("label") or (existing.get("label") if existing else f"Deriv {acc_type}")).strip()
-            stake = float(payload.get("default_stake_usd") or self.cfg.default_stake_usd)
-            mult = int(payload.get("default_multiplier") or self.cfg.default_multiplier)
-            conn_mode = str(payload.get("connection_mode") or "DERIV_CLOUD").upper()
+            is_live = acc_type == "REAL"
+            label = str(payload.get("label") or (existing.get("label") if existing else f"cTrader {acc_type}")).strip()
+            lot_sz = max(0.01, float(payload.get("default_lot_size") or self.cfg.default_lot_size or 0.01))
+            conn_mode = str(payload.get("connection_mode") or "CTRADER_CLOUD").upper()
+            ctid_acc = str(payload.get("ctid_account_id") or (existing.get("ctid_account_id", "") if existing else "")).strip()
 
             acc_record: dict[str, Any] = {
                 "account_id": acc_id,
+                "ctid_account_id": ctid_acc,
+                "trader_login": str(payload.get("trader_login") or (existing.get("trader_login", "---") if existing else "---")),
                 "account_type": acc_type,
+                "is_live": is_live,
+                "broker_name": str(payload.get("broker_name") or (existing.get("broker_name", "cTrader") if existing else "cTrader")),
                 "label": label,
-                "deriv_token": token,
-                "deriv_app_id": app_id,
-                "default_stake_usd": stake,
-                "default_multiplier": mult,
+                "client_id": cid,
+                "client_secret": csec,
+                "access_token": access_tok,
+                "refresh_token": refresh_tok,
+                "default_lot_size": lot_sz,
                 "connection_mode": conn_mode,
-                "loginid": existing.get("loginid", "---") if existing else "---",
                 "created_at": existing.get("created_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")) if existing else datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
             if existing:
@@ -1089,21 +1147,38 @@ class PradoTradingService:
             self.cfg.accounts = deduplicate_accounts(self.cfg.accounts)
             self.cfg.active_account_id = acc_id
             self.cfg.active_account_type = acc_type
-            self.cfg.deriv_token = token
-            self.cfg.deriv_app_id = app_id
-            self.cfg.default_stake_usd = stake
-            self.cfg.default_multiplier = mult
+            if cid:
+                self.cfg.ctrader_client_id = cid
+            if csec:
+                self.cfg.ctrader_client_secret = csec
+            if access_tok:
+                self.cfg.ctrader_access_token = access_tok
+            if refresh_tok:
+                self.cfg.ctrader_refresh_token = refresh_tok
+            self.cfg.default_lot_size = lot_sz
             self.cfg.connection_mode = conn_mode
 
-            ok, conn_msg = self.connector.connect(token=token, app_id=app_id)
-            if ok and self.connector._deriv_auth:
-                auth = self.connector._deriv_auth
-                acc_record["loginid"] = str(auth.get("loginid", "---"))
+            ok, conn_msg = self.connector.connect(
+                client_id=cid or self.cfg.ctrader_client_id,
+                client_secret=csec or self.cfg.ctrader_client_secret,
+                access_token=access_tok,
+                refresh_token=refresh_tok,
+                account_id=ctid_acc or acc_id,
+                is_live=is_live,
+            )
+            if ok and self.connector._client_auth:
+                auth = self.connector._client_auth
+                acc_record["ctid_account_id"] = str(auth.get("ctid_account_id", ctid_acc))
+                acc_record["trader_login"] = str(auth.get("loginid", "---"))
+                acc_record["broker_name"] = str(auth.get("broker_name", "cTrader"))
                 acc_record["account_type"] = "DEMO" if auth.get("is_virtual") else "REAL"
+                acc_record["is_live"] = not bool(auth.get("is_virtual"))
+                acc_record["balance"] = float(auth.get("balance", 0.0))
+                acc_record["currency"] = str(auth.get("currency", "USD"))
                 self.cfg.active_account_type = acc_record["account_type"]
 
             save_config(self.cfg, self.config_path)
-            self._log_event("TOKEN_VAULT", f"Token '{label}' salvo. {conn_msg}")
+            self._log_event("CTRADER_VAULT", f"Conta '{label}' salva. {conn_msg}")
             return acc_record, conn_msg
 
     def select_active_account(self, account_id: str) -> dict[str, Any] | None:
@@ -1113,37 +1188,52 @@ class PradoTradingService:
                 return None
             self.cfg.active_account_id = str(target["account_id"])
             self.cfg.active_account_type = str(target.get("account_type", "DEMO"))
-            self.cfg.deriv_token = str(target.get("deriv_token", ""))
-            self.cfg.deriv_app_id = str(target.get("deriv_app_id", "1089"))
-            self.cfg.default_stake_usd = float(target.get("default_stake_usd", 10.0))
-            self.cfg.default_multiplier = int(target.get("default_multiplier", 100))
-            self.cfg.connection_mode = str(target.get("connection_mode", "DERIV_CLOUD"))
+            if target.get("client_id"):
+                self.cfg.ctrader_client_id = str(target["client_id"])
+            if target.get("client_secret"):
+                self.cfg.ctrader_client_secret = str(target["client_secret"])
+            if target.get("access_token"):
+                self.cfg.ctrader_access_token = str(target["access_token"])
+            if target.get("refresh_token"):
+                self.cfg.ctrader_refresh_token = str(target["refresh_token"])
+            self.cfg.default_lot_size = float(target.get("default_lot_size", 0.01))
+            self.cfg.connection_mode = str(target.get("connection_mode", "CTRADER_CLOUD"))
             self.connector._balance_cache = None
             self.connector._positions_cache = None
             save_config(self.cfg, self.config_path)
-            ok, msg = self.connector.connect(token=self.cfg.deriv_token, app_id=self.cfg.deriv_app_id)
-            self._log_event("ACCOUNT_SWITCH", f"Token ativo alterado para [{self.cfg.active_account_type}] {target.get('label')} — {msg}")
-            return {k: ("********" if k == "deriv_token" and v else v) for k, v in target.items()}
+            ok, msg = self.connector.connect(
+                client_id=self.cfg.ctrader_client_id,
+                client_secret=self.cfg.ctrader_client_secret,
+                access_token=self.cfg.ctrader_access_token,
+                refresh_token=self.cfg.ctrader_refresh_token,
+                account_id=str(target.get("ctid_account_id") or target["account_id"]),
+                is_live=bool(target.get("is_live", self.cfg.active_account_type == "REAL")),
+            )
+            self._log_event("ACCOUNT_SWITCH", f"Conta ativa alterada para [{self.cfg.active_account_type}] {target.get('label')} — {msg}")
+            return {
+                k: ("********" if k in ("access_token", "refresh_token", "client_secret") and v else v)
+                for k, v in target.items()
+            }
 
     def delete_account(self, account_id: str) -> list[dict[str, Any]]:
         with self._lock:
             self.cfg.accounts = [a for a in self.cfg.accounts if a.get("account_id") != account_id]
             if self.cfg.active_account_id == account_id:
                 self.cfg.active_account_id = ""
-                self.cfg.deriv_token = ""
-                self.connector.connect(token="")
+                self.cfg.ctrader_access_token = ""
+                self.connector.connect(access_token="")
             save_config(self.cfg, self.config_path)
-            self._log_event("TOKEN_VAULT", f"Token/Conta '{account_id}' removido.")
+            self._log_event("CTRADER_VAULT", f"Conta '{account_id}' removida.")
             return self.cfg.accounts
 
     def clear_all_accounts(self) -> list[dict[str, Any]]:
         with self._lock:
             self.cfg.accounts.clear()
             self.cfg.active_account_id = ""
-            self.cfg.deriv_token = ""
-            self.connector.connect(token="")
+            self.cfg.ctrader_access_token = ""
+            self.connector.connect(access_token="")
             save_config(self.cfg, self.config_path)
-            self._log_event("TOKEN_VAULT", "Todos os tokens/contas foram removidos.")
+            self._log_event("CTRADER_VAULT", "Todas as contas cTrader foram removidas.")
             return self.cfg.accounts
 
     def save_custom_category(self, category_name: str, symbols: list[str]) -> dict[str, list[str]]:
@@ -1173,11 +1263,11 @@ class PradoTradingService:
             existing_bot = next((b for b in self.cfg.bots if req_bot_id and b.get("bot_id") == req_bot_id), None)
             bot_id = existing_bot["bot_id"] if existing_bot else (req_bot_id or f"bot_{uuid.uuid4().hex[:8]}")
 
-            symbol = str(payload.get("symbol", existing_bot.get("symbol", "R_100") if existing_bot else "R_100")).strip()
+            symbol = str(payload.get("symbol", existing_bot.get("symbol", "EURUSD") if existing_bot else "EURUSD")).strip()
             account_id = str(payload.get("account_id", self.cfg.active_account_id or "default")).strip()
             acc_obj = next((a for a in self.cfg.accounts if a.get("account_id") == account_id), None)
             account_type = str(acc_obj.get("account_type", self.cfg.active_account_type)) if acc_obj else self.cfg.active_account_type
-            account_label = acc_obj["label"] if acc_obj else f"Deriv {account_type}"
+            account_label = acc_obj["label"] if acc_obj else f"cTrader {account_type}"
 
             template_id = str(
                 payload.get("bot_template_id")
@@ -1205,6 +1295,9 @@ class PradoTradingService:
             raw_tp_val = payload.get("tp_value", existing_bot.get("tp_value", 0.0) if existing_bot else 0.0)
             norm_tp_mode, norm_tp_val = normalize_tp_config(raw_tp_mode, raw_tp_val)
 
+            lot_val = float(payload.get("lot_size") if payload.get("lot_size") is not None else self.cfg.default_lot_size)
+            lot_val = max(0.01, round(lot_val, 4))
+
             bot_record: dict[str, Any] = {
                 "bot_id": bot_id,
                 "name": str(payload.get("name") or (existing_bot.get("name") if existing_bot else f"{tpl_name.split('—')[0].strip()} ({symbol})")).strip(),
@@ -1217,10 +1310,9 @@ class PradoTradingService:
                 "account_type": account_type,
                 "account_label": account_label,
                 "symbol": symbol,
-                "category": str(payload.get("category") or (existing_bot.get("category") if existing_bot else "Deriv")).strip(),
+                "category": str(payload.get("category") or (existing_bot.get("category") if existing_bot else "cTrader")).strip(),
                 "operation_mode": str(payload.get("operation_mode") or tpl_op_mode),
-                "lot_size": float(payload.get("lot_size") if payload.get("lot_size") is not None else self.cfg.default_stake_usd),
-                "multiplier": int(payload.get("multiplier") if payload.get("multiplier") is not None else self.cfg.default_multiplier),
+                "lot_size": lot_val,
                 "window_ticks": int(payload.get("window_ticks") or (tpl_window if tpl_window is not None else 120)),
                 "zscore_threshold": float(payload.get("zscore_threshold") if payload.get("zscore_threshold") is not None else (tpl_z if tpl_z is not None else 1.8)),
                 "imbalance_threshold": float(payload.get("imbalance_threshold") if payload.get("imbalance_threshold") is not None else (tpl_imb if tpl_imb is not None else 0.35)),
@@ -1230,8 +1322,8 @@ class PradoTradingService:
                 "tp_mode": norm_tp_mode,
                 "tp_value": norm_tp_val,
                 "grid_direction": str(payload.get("grid_direction") or (existing_bot.get("grid_direction") if existing_bot else tpl.get("grid_direction", "BUY_ONLY"))).upper(),
-                "grid_step_points": max(0.0001, float(payload.get("grid_step_points") or (existing_bot.get("grid_step_points") if existing_bot else tpl.get("grid_step_points", 1.5)))),
-                "grid_tp_points": max(0.0001, float(payload.get("grid_tp_points") or (existing_bot.get("grid_tp_points") if existing_bot else tpl.get("grid_tp_points", 1.5)))),
+                "grid_step_points": max(0.00001, float(payload.get("grid_step_points") or (existing_bot.get("grid_step_points") if existing_bot else tpl.get("grid_step_points", 0.0020)))),
+                "grid_tp_points": max(0.00001, float(payload.get("grid_tp_points") or (existing_bot.get("grid_tp_points") if existing_bot else tpl.get("grid_tp_points", 0.0020)))),
                 "max_grid_levels": max(1, min(20, int(payload.get("max_grid_levels") or (existing_bot.get("max_grid_levels") if existing_bot else tpl.get("max_grid_levels", 5))))),
                 "grid_anchor_price": float(existing_bot.get("grid_anchor_price", 0.0)) if existing_bot else 0.0,
                 "loss_guard_enabled": bool(payload["loss_guard_enabled"]) if "loss_guard_enabled" in payload else bool(existing_bot.get("loss_guard_enabled", False) if existing_bot else False),
@@ -1266,7 +1358,7 @@ class PradoTradingService:
             if symbol not in self.cfg.active_symbols:
                 self.cfg.active_symbols.append(symbol)
             save_config(self.cfg, self.config_path)
-            self._log_event("BOT_FLEET", f"Robô '{bot_record['name']}' ({symbol} | Stake ${bot_record['lot_size']} | {bot_record['multiplier']}x) salvo.")
+            self._log_event("BOT_FLEET", f"Robô '{bot_record['name']}' ({symbol} | {bot_record['lot_size']} lote) salvo.")
             return bot_record
 
     def control_bot(self, bot_id: str, action: str) -> dict[str, Any] | None:
@@ -1283,7 +1375,7 @@ class PradoTradingService:
                         b["status"] = "PAUSED"
                         b["active"] = False
                         b["last_signal"] = "PAUSED_MANUAL"
-                        self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) pausado (contratos existentes mantidos).")
+                        self._log_event("BOT_FLEET", f"Robô '{b['name']}' ({b['symbol']}) pausado (posições existentes mantidas).")
                     elif act == "RESUME":
                         b["status"] = "RUNNING"
                         b["active"] = True
@@ -1305,20 +1397,19 @@ class PradoTradingService:
                             b["last_signal"] = "RISK_LOCKED"
                             self._log_event("RISK_GUARD", f"Ordem manual bloqueada em '{b.get('name')}': trava de perda diária atingida ({cur_pnl:.2f}).")
                             return b
-                        sym = str(b.get("symbol", "R_100"))
+                        sym = str(b.get("symbol", "EURUSD"))
                         ticks = self.connector.fetch_ticks(sym, count=120)
                         vwap_b = compute_intraday_vwap(ticks)
-                        last_p = ticks[-1].effective_price() if ticks else 100.0
+                        last_p = ticks[-1].effective_price() if ticks else get_symbol_spec(sym)["base"]
                         bw = max(vwap_b.std_dev, abs(last_p) * 0.0020, 1e-4)
                         ord_act = "BUY_FLOW" if act == "FIRE_BUY" else "SELL_FLOW"
                         ok, msg = self.connector.place_order(
                             symbol=sym,
                             action=ord_act,
-                            stake=float(b.get("lot_size", self.cfg.default_stake_usd)),
+                            lot_size=float(b.get("lot_size", self.cfg.default_lot_size)),
                             price=last_p,
                             sl_points=round(bw * float(b.get("sl_sigma_mult", 1.0)), 6),
                             tp_points=round(bw * float(b.get("tp_sigma_mult", 1.8)), 6),
-                            multiplier=int(b.get("multiplier", self.cfg.default_multiplier)),
                             bot_name=str(b.get("name", "PradoBot")),
                             tp_mode=str(b.get("tp_mode", "AUTO")),
                             tp_value=float(b.get("tp_value", 0.0) or 0.0),
@@ -1348,46 +1439,57 @@ class PradoTradingService:
             self._log_event("BOT_FLEET", "Frota de robôs limpa.")
             return self.cfg.bots
 
-    def _sync_deriv_accounts_locked(self) -> tuple[bool, str]:
-        if self.connector._deriv is None:
-            return False, "Conecte um Token e App ID válidos primeiro em Configuração Deriv."
+    def _sync_ctrader_accounts_locked(self) -> tuple[bool, str]:
+        if self.connector._client is None:
+            return False, "Conecte Client ID, Client Secret e autorize via OAuth primeiro em Configuração cTrader."
         try:
-            remote_accounts = self.connector._deriv.list_accounts()
+            remote_accounts = self.connector._client.list_accounts()
         except Exception as exc:
-            return False, f"Erro ao sincronizar contas da Deriv: {exc}"
+            return False, f"Erro ao sincronizar contas da cTrader: {exc}"
         if not remote_accounts:
-            return False, "Nenhuma conta retornada pela Deriv para este token."
+            return False, "Nenhuma conta cTrader retornada para este Access Token."
 
         synced_count = 0
         for acc in remote_accounts:
-            loginid = str(acc.get("account_id") or acc.get("loginid") or "").strip()
-            if not loginid or loginid == "---":
+            ctid = str(acc.get("ctid_account_id") or "").strip()
+            acc_id = str(acc.get("account_id") or (f"ct_{ctid}" if ctid else "")).strip()
+            if not acc_id:
                 continue
-            raw_type = str(acc.get("account_type", "")).lower()
-            acc_type = "DEMO" if (raw_type == "demo" or acc.get("is_virtual") in (1, True)) else "REAL"
+            acc_type = str(acc.get("account_type", "DEMO")).upper()
+            is_live = bool(acc.get("is_live", acc_type == "REAL"))
             existing = next(
-                (a for a in self.cfg.accounts if str(a.get("loginid", "")) == loginid or a.get("account_id") == f"deriv_{loginid}"),
+                (
+                    a for a in self.cfg.accounts
+                    if a.get("account_id") == acc_id or (ctid and str(a.get("ctid_account_id", "")) == ctid)
+                ),
                 None,
             )
             if existing is not None:
                 existing["account_type"] = acc_type
-                existing["deriv_token"] = self.cfg.deriv_token
-                existing["deriv_app_id"] = self.cfg.deriv_app_id
-                existing["loginid"] = loginid
-                existing["balance"] = float(acc.get("balance", existing.get("balance", 0.0)))
-                existing["currency"] = str(acc.get("currency", existing.get("currency", "USD")))
+                existing["is_live"] = is_live
+                existing["ctid_account_id"] = ctid
+                existing["trader_login"] = str(acc.get("trader_login", existing.get("trader_login", ctid)))
+                existing["broker_name"] = str(acc.get("broker_name", existing.get("broker_name", "cTrader")))
+                existing["client_id"] = self.cfg.ctrader_client_id
+                existing["client_secret"] = self.cfg.ctrader_client_secret
+                existing["access_token"] = self.cfg.ctrader_access_token
+                existing["refresh_token"] = self.cfg.ctrader_refresh_token
             else:
                 self.cfg.accounts.append(
                     {
-                        "account_id": f"deriv_{loginid}",
+                        "account_id": acc_id,
+                        "ctid_account_id": ctid,
+                        "trader_login": str(acc.get("trader_login", ctid)),
                         "account_type": acc_type,
-                        "label": f"Deriv {acc_type.title()} ({loginid})",
-                        "deriv_token": self.cfg.deriv_token,
-                        "deriv_app_id": self.cfg.deriv_app_id,
-                        "default_stake_usd": self.cfg.default_stake_usd,
-                        "default_multiplier": self.cfg.default_multiplier,
-                        "connection_mode": "DERIV_CLOUD",
-                        "loginid": loginid,
+                        "is_live": is_live,
+                        "broker_name": str(acc.get("broker_name", "cTrader")),
+                        "label": str(acc.get("label") or f"cTrader {acc_type} ({ctid})"),
+                        "client_id": self.cfg.ctrader_client_id,
+                        "client_secret": self.cfg.ctrader_client_secret,
+                        "access_token": self.cfg.ctrader_access_token,
+                        "refresh_token": self.cfg.ctrader_refresh_token,
+                        "default_lot_size": self.cfg.default_lot_size,
+                        "connection_mode": "CTRADER_CLOUD",
                         "balance": float(acc.get("balance", 0.0)),
                         "currency": str(acc.get("currency", "USD")),
                         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -1400,37 +1502,37 @@ class PradoTradingService:
             demo = next((a for a in self.cfg.accounts if a.get("account_type") == "DEMO"), self.cfg.accounts[0])
             self.cfg.active_account_id = demo["account_id"]
             self.cfg.active_account_type = demo["account_type"]
-        return True, f"{synced_count} conta(s) Deriv sincronizada(s) com sucesso."
+        return True, f"{synced_count} conta(s) cTrader sincronizada(s) com sucesso."
 
-    def sync_deriv_accounts(self) -> tuple[bool, str, list[dict[str, Any]]]:
+    def sync_ctrader_accounts(self) -> tuple[bool, str, list[dict[str, Any]]]:
         with self._lock:
-            if not self.cfg.deriv_token:
-                msg = "Nenhum token salvo em Configuração Deriv."
-                self._log_event("TOKEN_VAULT", msg)
+            if not self.cfg.ctrader_access_token:
+                msg = "Nenhum Access Token cTrader salvo em Configuração cTrader."
+                self._log_event("CTRADER_VAULT", msg)
                 return False, msg, list(self.cfg.accounts)
-            if self.connector._deriv is None:
-                ok_conn, msg_conn = self.connector.connect(
-                    token=self.cfg.deriv_token,
-                    app_id=self.cfg.deriv_app_id,
-                )
-                if not ok_conn and self.connector._deriv is None:
-                    self._log_event("TOKEN_VAULT", msg_conn)
+            if self.connector._client is None:
+                ok_conn, msg_conn = self.connector.connect()
+                if not ok_conn and self.connector._client is None:
+                    self._log_event("CTRADER_VAULT", msg_conn)
                     return False, msg_conn, list(self.cfg.accounts)
-            ok, msg = self._sync_deriv_accounts_locked()
+            ok, msg = self._sync_ctrader_accounts_locked()
             if ok:
                 save_config(self.cfg, self.config_path)
-            self._log_event("TOKEN_VAULT", msg)
+            self._log_event("CTRADER_VAULT", msg)
             return ok, msg, list(self.cfg.accounts)
 
     _ALLOWED_CONFIG_UPDATE_FIELDS = frozenset({
         "admin_password_hash",
-        "deriv_token",
-        "deriv_app_id",
+        "ctrader_client_id",
+        "ctrader_client_secret",
+        "ctrader_redirect_uri",
+        "ctrader_access_token",
+        "ctrader_refresh_token",
+        "ctrader_token_expires_at",
         "connection_mode",
         "active_account_id",
         "active_account_type",
-        "default_stake_usd",
-        "default_multiplier",
+        "default_lot_size",
         "symbol_selection_mode",
         "custom_categories",
         "auto_trading_enabled",
@@ -1448,15 +1550,14 @@ class PradoTradingService:
         "tp_sigma_mult",
         "max_daily_loss_money",
         "daily_target_money",
-        "max_stake_per_trade",
+        "max_lot_per_trade",
         "max_concurrent_trades",
-        "max_total_exposure_usd",
+        "max_total_lots",
         "min_order_interval_sec",
         "news_bot_enabled",
         "news_pause_grid_on_high_impact",
         "news_auto_trade_enabled",
-        "news_stake_usd",
-        "news_multiplier",
+        "news_lot_size",
         "news_poll_interval_sec",
     })
 
@@ -1465,13 +1566,22 @@ class PradoTradingService:
             for key, val in updates.items():
                 if key in self._ALLOWED_CONFIG_UPDATE_FIELDS and hasattr(self.cfg, key):
                     setattr(self.cfg, key, val)
-            if any(k in updates for k in ("deriv_token", "deriv_app_id", "connection_mode")):
+            if any(
+                k in updates
+                for k in (
+                    "ctrader_client_id",
+                    "ctrader_client_secret",
+                    "ctrader_access_token",
+                    "ctrader_refresh_token",
+                    "connection_mode",
+                )
+            ):
                 ok, msg = self.connector.connect()
-                self._log_event("DERIV_CONFIG", msg)
-                if ok and self.connector._deriv is not None:
-                    s_ok, s_msg = self._sync_deriv_accounts_locked()
+                self._log_event("CTRADER_CONFIG", msg)
+                if ok and self.connector._client is not None:
+                    s_ok, s_msg = self._sync_ctrader_accounts_locked()
                     if s_ok:
-                        self._log_event("TOKEN_VAULT", s_msg)
+                        self._log_event("CTRADER_VAULT", s_msg)
             save_config(self.cfg, self.config_path)
             self._log_event("CONFIG", "Configurações operacionais atualizadas.")
             return self.cfg
@@ -1561,10 +1671,12 @@ class PradoTradingService:
             return removed
 
     def test_custom_template(self, payload: dict[str, Any]) -> dict[str, Any]:
-        symbol = str(payload.get("symbol") or "R_100").strip()
+        symbol = str(payload.get("symbol") or "EURUSD").strip()
         timeframe = str(payload.get("timeframe") or "TICKS").strip().upper()
         gran = self.connector.TIMEFRAME_GRANULARITIES.get(timeframe, 0)
         ticks = self.connector.fetch_ticks(symbol, count=200, granularity=gran)
+        if not ticks:
+            ticks = self.connector._generate_sim_ticks(symbol)
         prices = [float(t.effective_price()) for t in ticks]
         mode = str(payload.get("custom_mode") or "INDICATORS").strip().upper()
         if mode == "PYTHON":
@@ -1668,8 +1780,7 @@ class PradoTradingService:
         period = str(params.get("period") or "CUSTOM").strip().upper()
         tick_count = max(120, min(5000, int(params.get("tick_count") or 800)))
         initial_capital = float(params.get("initial_capital") or 10000.0)
-        stake = float(params.get("lot_size") or self.cfg.default_stake_usd)
-        multiplier = int(params.get("multiplier") or self.cfg.default_multiplier)
+        lot_size = max(0.01, float(params.get("lot_size") or self.cfg.default_lot_size or 0.01))
         window_ticks = int(params.get("window_ticks") or (tpl_window if tpl_window is not None else 120))
         z_thresh = float(params.get("zscore_threshold") if params.get("zscore_threshold") is not None else (tpl_z if tpl_z is not None else 1.8))
         imb_thresh = float(params.get("imbalance_threshold") if params.get("imbalance_threshold") is not None else (tpl_imb if tpl_imb is not None else 0.35))
@@ -1699,8 +1810,7 @@ class PradoTradingService:
                 hit_tp = (curr_price >= open_pos["tp"]) if is_buy else (curr_price <= open_pos["tp"])
                 hit_sl = (curr_price <= open_pos["sl"]) if is_buy else (curr_price >= open_pos["sl"])
                 if hit_tp or hit_sl or idx >= len(ticks) - step_stride:
-                    pct = ((curr_price - open_pos["entry"]) / open_pos["entry"]) if is_buy else ((open_pos["entry"] - curr_price) / open_pos["entry"])
-                    pnl = round(pct * stake * multiplier, 2)
+                    pnl = estimate_cfd_pnl(symbol, is_buy, open_pos["entry"], curr_price, lot_size)
                     balance = round(balance + pnl, 2)
                     peak_balance = max(peak_balance, balance)
                     max_drawdown = max(max_drawdown, round(peak_balance - balance, 2))
@@ -1737,7 +1847,7 @@ class PradoTradingService:
                     if custom_act:
                         act = custom_act
                 elif op_mode == "GRID_LINEAR" or template_id == "GRID_LINEAR_HFT":
-                    step_pts = max(float(params.get("grid_step_points") or tpl.get("grid_step_points") or 1.5), curr_price * 0.0005)
+                    step_pts = max(float(params.get("grid_step_points") or tpl.get("grid_step_points") or 0.0020), curr_price * 0.0005)
                     grid_dir = str(params.get("grid_direction") or tpl.get("grid_direction") or "BUY_ONLY").upper()
                     if grid_anchor <= 0.0:
                         grid_anchor = curr_price
@@ -1805,14 +1915,14 @@ class PradoTradingService:
 
     def run_mathematical_backtest(self, params: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            raw_symbol = str(params.get("symbol") or "R_100").strip()
+            raw_symbol = str(params.get("symbol") or "EURUSD").strip()
             if raw_symbol.upper() == "ALL":
                 targets: list[str] = []
                 for s in list(self.cfg.active_symbols) + [str(b.get("symbol") or "") for b in self.cfg.bots]:
                     if s and s not in targets:
                         targets.append(s)
                 if not targets:
-                    targets = ["R_100"]
+                    targets = ["EURUSD"]
                 reports = [self._run_single_backtest_locked(sym, params) for sym in targets]
                 save_config(self.cfg, self.config_path)
                 total_trades = sum(r["total_trades"] for r in reports)
@@ -1826,7 +1936,7 @@ class PradoTradingService:
                 summary = {
                     "symbol": f"TODOS ({len(reports)})",
                     "timeframe": reports[0]["timeframe"] if reports else "TICKS",
-                    "data_source": "DERIV_REAL" if sources == {"DERIV_REAL"} else ("SIMULATION" if "DERIV_REAL" not in sources else "MISTO"),
+                    "data_source": "CTRADER_REAL" if sources == {"CTRADER_REAL"} else ("SIMULATION" if "CTRADER_REAL" not in sources else "MISTO"),
                     "bot_template_id": reports[0]["bot_template_id"],
                     "bot_template_name": reports[0]["bot_template_name"],
                     "template_name": reports[0]["template_name"],
@@ -1861,7 +1971,7 @@ class PradoTradingService:
             return report
 
     def _build_backtest_tick_series(self, symbol: str, count: int) -> list[TickRecord]:
-        base_price = 1850.0 if symbol == "R_100" else 1000.0
+        base_price = get_symbol_spec(symbol)["base"]
         step = base_price * 0.0005
         rng = random.Random(42 + (hash(symbol) & 0xFFFF))
         out: list[TickRecord] = []
@@ -1886,14 +1996,14 @@ class PradoTradingService:
         return out
 
     @staticmethod
-    def _estimate_tick_step(ticks: list[TickRecord]) -> float:
-        """Estimate the minimum non-zero price increment from recent ticks."""
+    def _estimate_tick_step(symbol: str, ticks: list[TickRecord]) -> float:
+        spec = get_symbol_spec(symbol)
         if len(ticks) < 2:
-            return 0.0
+            return spec["pip_size"]
         prices = [float(t.effective_price()) for t in ticks[-40:]]
         deltas = [abs(prices[i] - prices[i - 1]) for i in range(1, len(prices))]
         non_zero = [d for d in deltas if d > 1e-9]
-        return min(non_zero) if non_zero else 0.0
+        return min(non_zero) if non_zero else spec["pip_size"]
 
     def _check_bot_tick_take_profit(
         self,
@@ -1901,17 +2011,17 @@ class PradoTradingService:
         ticks: list[TickRecord],
         positions: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Close open positions for a bot in TICKS mode when price moves >= tp_value ticks in profit."""
+        """Close open positions for a bot in TICKS/PIPS mode when price moves >= target distance in profit."""
         norm_mode, norm_val = normalize_tp_config(bot.get("tp_mode", "AUTO"), bot.get("tp_value", 0.0))
-        if norm_mode != "TICKS" or norm_val <= 0.0 or not ticks:
+        if norm_mode not in ("TICKS", "PIPS") or norm_val <= 0.0 or not ticks:
             return positions
-        tick_step = self._estimate_tick_step(ticks)
-        if tick_step <= 0.0:
+        bsym = str(bot.get("symbol", "EURUSD"))
+        unit = get_symbol_spec(bsym)["pip_size"] if norm_mode == "PIPS" else self._estimate_tick_step(bsym, ticks)
+        if unit <= 0.0:
             return positions
 
         last_price = float(ticks[-1].effective_price())
-        target_dist = norm_val * tick_step
-        bsym = str(bot.get("symbol", "R_100"))
+        target_dist = norm_val * unit
         bname = str(bot.get("name", ""))
         bprefix = bname[:14]
 
@@ -1951,12 +2061,12 @@ class PradoTradingService:
         positions: list[dict[str, Any]],
         risk_locked: bool,
     ) -> list[dict[str, Any]]:
-        bsym = str(bot.get("symbol", "R_100"))
+        bsym = str(bot.get("symbol", "EURUSD"))
         grid_dir = str(bot.get("grid_direction", "BUY_ONLY")).upper()
         if grid_dir not in ("BUY_ONLY", "SELL_ONLY", "BOTH"):
             grid_dir = "BUY_ONLY"
-        grid_step = max(0.0001, float(bot.get("grid_step_points", 1.5) or 1.5))
-        grid_tp = max(0.0001, float(bot.get("grid_tp_points", 1.5) or 1.5))
+        grid_step = max(0.00001, float(bot.get("grid_step_points", 0.0020) or 0.0020))
+        grid_tp = max(0.00001, float(bot.get("grid_tp_points", 0.0020) or 0.0020))
         max_levels = max(1, min(20, int(bot.get("max_grid_levels", 5) or 5)))
         bot_name = str(bot.get("name", "PradoBot"))
 
@@ -1966,7 +2076,6 @@ class PradoTradingService:
             and (not p.get("comment") or str(p.get("comment", "")).startswith(bot_name[:14]))
         ]
 
-        # 1. Close individual grid levels that reached take-profit distance (only when running & auto-trading active)
         closed_any = False
         if bot.get("status") == "RUNNING" and self.cfg.auto_trading_enabled and not risk_locked:
             for p in list(bot_positions):
@@ -1993,7 +2102,6 @@ class PradoTradingService:
         bot["last_regime"] = f"GRID_{grid_dir} ({len(bot_positions)}/{max_levels})"
         signal = "GRID_WAIT" if (bot.get("status") == "RUNNING" and self.cfg.auto_trading_enabled) else "PAUSED"
 
-        # 2. Open new grid level if bot is active and below max_levels
         if (
             bot.get("status") == "RUNNING"
             and self.cfg.auto_trading_enabled
@@ -2032,11 +2140,10 @@ class PradoTradingService:
                     ok, msg = self.connector.place_order(
                         symbol=bsym,
                         action=action,
-                        stake=float(bot.get("lot_size", self.cfg.default_stake_usd)),
+                        lot_size=float(bot.get("lot_size", self.cfg.default_lot_size)),
                         price=last_price,
                         sl_points=grid_step * max_levels,
                         tp_points=grid_tp,
-                        multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
                         bot_name=bot_name,
                         allow_multi_same_symbol=True,
                         max_levels_override=max_levels,
@@ -2052,15 +2159,15 @@ class PradoTradingService:
                         signal = "RATE_LIMITED"
                         bot["last_error"] = msg
                         self._log_event("BOT_RATE_LIMIT", msg)
-                    elif self._is_contract_unavailable_msg(msg):
+                    elif self._is_symbol_unavailable_msg(msg):
                         signal = "UNAVAILABLE"
                         bot["last_error"] = msg
                         bot["_unavailable_until"] = time.time() + 60.0
-                        self._log_event("BOT_CONTRACT_UNAVAILABLE", msg)
+                        self._log_event("BOT_SYMBOL_UNAVAILABLE", msg)
             elif bot.get("status") == "RUNNING" and (
                 "ratelimit" in str(bot.get("last_error", "")).lower()
                 or (
-                    self._is_contract_unavailable_msg(str(bot.get("last_error", "")))
+                    self._is_symbol_unavailable_msg(str(bot.get("last_error", "")))
                     and time.time() >= float(bot.get("_unavailable_until", 0.0) or 0.0)
                 )
             ):
@@ -2074,8 +2181,7 @@ class PradoTradingService:
             "enabled": bool(getattr(self.cfg, "news_bot_enabled", False)),
             "pause_grid_on_high_impact": bool(getattr(self.cfg, "news_pause_grid_on_high_impact", False)),
             "auto_trade_enabled": bool(getattr(self.cfg, "news_auto_trade_enabled", False)),
-            "stake_usd": float(getattr(self.cfg, "news_stake_usd", 5.0)),
-            "multiplier": int(getattr(self.cfg, "news_multiplier", 100)),
+            "lot_size": float(getattr(self.cfg, "news_lot_size", 0.01)),
             "last_scan_at": self.news_scout.last_scan_at,
             "last_error": self.news_scout.last_error,
             "feeds": list(getattr(self.cfg, "news_feeds", [])),
@@ -2088,7 +2194,7 @@ class PradoTradingService:
             feed_id = str(payload.get("feed_id") or "").strip() or f"feed_{uuid.uuid4().hex[:8]}"
             source = str(payload.get("source") or "Feed Personalizado").strip()
             url = str(payload.get("url") or "").strip()
-            default_symbol = str(payload.get("default_symbol") or "cryBTCUSD").strip()
+            default_symbol = str(payload.get("default_symbol") or "BTCUSD").strip()
             if not url:
                 return list(self.cfg.news_feeds)
             ok_url, url_err = validate_rss_url(url)
@@ -2131,18 +2237,16 @@ class PradoTradingService:
             return positions, just_paused_ids
         pause_grid = bool(getattr(self.cfg, "news_pause_grid_on_high_impact", True))
         auto_trade = bool(getattr(self.cfg, "news_auto_trade_enabled", False))
-        stake = float(getattr(self.cfg, "news_stake_usd", 5.0) or 5.0)
-        mult = int(getattr(self.cfg, "news_multiplier", 100) or 100)
+        lot_sz = float(getattr(self.cfg, "news_lot_size", 0.01) or 0.01)
         config_dirty = False
 
         for item in new_items:
             if item.get("impact") != "HIGH":
                 continue
-            sym = str(item.get("symbol", "cryBTCUSD"))
+            sym = str(item.get("symbol", "BTCUSD"))
             is_macro = bool(item.get("is_macro_usd", False))
             title = str(item.get("title", ""))
 
-            # 1. Pause active Grid Linear bots on high-impact news to avoid range breakout losses
             if pause_grid:
                 for b in self.cfg.bots:
                     is_grid = b.get("template_id") == "GRID_LINEAR_HFT" or str(b.get("operation_mode", "")).upper() == "GRID_LINEAR"
@@ -2159,7 +2263,6 @@ class PradoTradingService:
                             f"Robô Grid '{b.get('name')}' pausado por notícia de alto impacto ({sym}): {title[:90]}",
                         )
 
-            # 2. Open directional order in favor of high-impact bullish/bearish news
             bias = str(item.get("bias", "NEUTRAL"))
             if (
                 auto_trade
@@ -2169,16 +2272,15 @@ class PradoTradingService:
             ):
                 if not any(p.get("symbol") == sym for p in positions):
                     ticks = self.connector.fetch_ticks(sym, count=20)
-                    last_p = ticks[-1].effective_price() if ticks else 100.0
+                    last_p = ticks[-1].effective_price() if ticks else get_symbol_spec(sym)["base"]
                     action = "BUY_NEWS" if bias == "BULLISH" else "SELL_NEWS"
                     ok, msg = self.connector.place_order(
                         symbol=sym,
                         action=action,
-                        stake=stake,
+                        lot_size=lot_sz,
                         price=last_p,
-                        sl_points=max(last_p * 0.002, 0.5),
-                        tp_points=max(last_p * 0.004, 1.0),
-                        multiplier=mult,
+                        sl_points=max(last_p * 0.002, get_symbol_spec(sym)["pip_size"] * 15),
+                        tp_points=max(last_p * 0.004, get_symbol_spec(sym)["pip_size"] * 30),
                         bot_name="NewsScout",
                     )
                     self._log_event("NEWS_EXEC", f"[{sym} | {bias}] {msg}")
@@ -2243,42 +2345,42 @@ class PradoTradingService:
             return self._news_snapshot_dict()
 
     @staticmethod
-    def _is_contract_unavailable_msg(msg: str) -> bool:
+    def _is_symbol_unavailable_msg(msg: str) -> bool:
         low = (msg or "").lower()
         return any(
             marker in low
             for marker in (
                 "indisponível",
-                "tradingdurationnotallowed",
-                "trading is not offered for this duration",
-                "marketisclosed",
-                "contractcreationsuspended",
+                "market_closed",
+                "trading_disabled",
+                "symbol_not_found",
+                "não encontrado",
             )
         )
 
     def step_once(self) -> dict[str, Any]:
         with self._lock:
             now_step = time.time()
-            # Controlled heartbeat ping & reconnection for live Deriv WebSocket
+            # Controlled heartbeat ping & reconnection for live cTrader WebSocket
             if (
                 self.cfg.connection_mode.upper() != "SIMULATION"
-                and self.connector._deriv is not None
-                and (now_step - self.connector._last_ping_at) >= 30.0
+                and self.connector._client is not None
+                and (now_step - self.connector._last_ping_at) >= 20.0
             ):
                 self.connector._last_ping_at = now_step
-                if not self.connector._deriv.ping():
+                if not self.connector._client.ping():
                     self.connector.connection_state = "RECONNECTING"
                     self.connector.connected = False
-                    self._log_event("DERIV_WS", "Conexão WebSocket interrompida. Iniciando reconexão controlada...")
-                    if self.connector._deriv.reconnect():
+                    self._log_event("CTRADER_WS", "Conexão WebSocket interrompida. Iniciando reconexão controlada...")
+                    if self.connector._client.reconnect():
                         self.connector.connection_state = "CONNECTED"
                         self.connector.connected = True
-                        self._log_event("DERIV_WS", "Reconexão WebSocket Deriv concluída.")
+                        self._log_event("CTRADER_WS", "Reconexão WebSocket cTrader concluída.")
                     else:
                         self.connector.connection_state = "DISCONNECTED"
-                        self.connector.auth_state = self.connector._deriv.auth_state
-                        self.connector.backend_name = "DERIV_DISCONNECTED"
-                        self._log_event("DERIV_WS", f"Falha na reconexão Deriv: {self.connector._deriv.last_error}")
+                        self.connector.auth_state = self.connector._client.auth_state
+                        self.connector.backend_name = "CTRADER_DISCONNECTED"
+                        self._log_event("CTRADER_WS", f"Falha na reconexão cTrader: {self.connector._client.last_error}")
 
             corr_scores: list[float] = []
             for corr_sym in self.cfg.correlated_basket:
@@ -2295,7 +2397,7 @@ class PradoTradingService:
                     corr_scores.append(c_flow.imbalance_ratio)
             corr_bias = round(sum(corr_scores) / len(corr_scores), 4) if corr_scores else 0.0
 
-            self.connector.sync_closed_contracts()
+            self.connector.sync_closed_deals()
             positions = self.connector.get_open_positions()
             acc = self.connector.get_account_summary()
             current_pnl = float(acc.get("profit", 0.0)) + float(acc.get("daily_realized", 0.0))
@@ -2368,7 +2470,7 @@ class PradoTradingService:
             active_deals = (
                 self.connector._sim_deals_history
                 if self.cfg.connection_mode.upper() == "SIMULATION"
-                else self.connector._deriv_deals_history
+                else self.connector._live_deals_history
             )
             for bot in self.cfg.bots:
                 try:
@@ -2470,7 +2572,6 @@ class PradoTradingService:
                     if bot.get("status") == "RUNNING":
                         bot["last_signal"] = bot_action if self.cfg.auto_trading_enabled else "AUTO_PAUSED"
 
-                    # Per-bot News + Technical hybrid decision (only when enabled on THIS bot)
                     if bot.get("news_assisted"):
                         if not is_bot_active:
                             continue
@@ -2528,13 +2629,11 @@ class PradoTradingService:
                                 ok, msg = self.connector.place_order(
                                     symbol=bsym,
                                     action=chosen_action,
-                                    stake=float(bot.get("lot_size", self.cfg.default_stake_usd)),
+                                    lot_size=float(bot.get("lot_size", self.cfg.default_lot_size)),
                                     price=last_price,
                                     sl_points=bot_flow.sl_points,
-                                    tp_points=bot_flow.tp_points * 3.0,
-                                    multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
+                                    tp_points=bot_flow.tp_points * 2.5,
                                     bot_name=bname or "PradoBot",
-                                    tp_usd_mult=2.5,
                                     tp_mode=str(bot.get("tp_mode", "AUTO")),
                                     tp_value=float(bot.get("tp_value", 0.0) or 0.0),
                                 )
@@ -2548,11 +2647,11 @@ class PradoTradingService:
                                     bot["last_signal"] = "RATE_LIMITED"
                                     bot["last_error"] = msg
                                     self._log_event("BOT_RATE_LIMIT", msg)
-                                elif self._is_contract_unavailable_msg(msg):
+                                elif self._is_symbol_unavailable_msg(msg):
                                     bot["last_signal"] = "UNAVAILABLE"
                                     bot["last_error"] = msg
                                     bot["_unavailable_until"] = time.time() + 60.0
-                                    self._log_event("BOT_CONTRACT_UNAVAILABLE", msg)
+                                    self._log_event("BOT_SYMBOL_UNAVAILABLE", msg)
                         continue
 
                     if (
@@ -2569,11 +2668,10 @@ class PradoTradingService:
                             ok, msg = self.connector.place_order(
                                 symbol=bsym,
                                 action=bot_action,
-                                stake=float(bot.get("lot_size", self.cfg.default_stake_usd)),
+                                lot_size=float(bot.get("lot_size", self.cfg.default_lot_size)),
                                 price=last_price,
                                 sl_points=bot_flow.sl_points,
                                 tp_points=bot_flow.tp_points,
-                                multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
                                 bot_name=str(bot.get("name", "PradoBot")),
                                 tp_mode=str(bot.get("tp_mode", "AUTO")),
                                 tp_value=float(bot.get("tp_value", 0.0) or 0.0),
@@ -2588,20 +2686,20 @@ class PradoTradingService:
                                 bot["last_signal"] = "RATE_LIMITED"
                                 bot["last_error"] = msg
                                 self._log_event("BOT_RATE_LIMIT", msg)
-                            elif self._is_contract_unavailable_msg(msg):
+                            elif self._is_symbol_unavailable_msg(msg):
                                 bot["last_signal"] = "UNAVAILABLE"
                                 bot["last_error"] = msg
                                 bot["_unavailable_until"] = time.time() + 60.0
-                                self._log_event("BOT_CONTRACT_UNAVAILABLE", msg)
+                                self._log_event("BOT_SYMBOL_UNAVAILABLE", msg)
                     elif bot.get("status") == "RUNNING" and (
                         "ratelimit" in str(bot.get("last_error", "")).lower()
                         or (
-                            self._is_contract_unavailable_msg(str(bot.get("last_error", "")))
+                            self._is_symbol_unavailable_msg(str(bot.get("last_error", "")))
                             and time.time() >= float(bot.get("_unavailable_until", 0.0) or 0.0)
                         )
                     ):
                         bot["last_error"] = ""
-                except DerivRateLimitError as rl_exc:
+                except CTraderRateLimitError as rl_exc:
                     bot["last_signal"] = "RATE_LIMITED"
                     bot["last_error"] = str(rl_exc)
                     self._log_event("BOT_RATE_LIMIT", f"Cooldown temporário no robô '{bot.get('name', bot.get('bot_id', '?'))}': {rl_exc}")
@@ -2624,19 +2722,22 @@ class PradoTradingService:
 
             if len(self.connector._sim_deals_history) > 500:
                 del self.connector._sim_deals_history[500:]
-            if len(self.connector._deriv_deals_history) > 500:
-                del self.connector._deriv_deals_history[500:]
+            if len(self.connector._live_deals_history) > 500:
+                del self.connector._live_deals_history[500:]
 
             active_deals = (
                 self.connector._sim_deals_history
                 if self.cfg.connection_mode.upper() == "SIMULATION"
-                else self.connector._deriv_deals_history
+                else self.connector._live_deals_history
             )
             self._latest_snapshot = {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "account": acc,
                 "accounts": [
-                    {k: ("********" if k == "deriv_token" and v else v) for k, v in a.items()}
+                    {
+                        k: ("********" if k in ("access_token", "refresh_token", "client_secret") and v else v)
+                        for k, v in a.items()
+                    }
                     for a in self.cfg.accounts
                 ],
                 "categories": self.cfg.custom_categories,

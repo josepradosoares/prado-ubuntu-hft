@@ -9,7 +9,7 @@ import {
   LogOut,
   Settings,
 } from 'lucide-react'
-import { AccountSummary, BrokerSymbol, DerivAccount, LogEvent } from '../types'
+import { AccountSummary, BrokerSymbol, CTraderAccount, LogEvent } from '../types'
 import { ThemeMode } from '../hooks/useTheme'
 import { formatSymbolDisplay } from '../utils/formatters'
 
@@ -20,7 +20,7 @@ interface TopbarProps {
   symbolCatalog?: BrokerSymbol[]
   onSelectSymbol: (sym: string) => void
   account?: AccountSummary
-  accounts: DerivAccount[]
+  accounts: CTraderAccount[]
   activeAccountId: string
   onSelectAccount: (id: string) => void
   autoTradingEnabled: boolean
@@ -56,13 +56,13 @@ export function Topbar({
 }: TopbarProps) {
   const [notifOpen, setNotifOpen] = useState(false)
   const connState = account?.connection_state || (account?.connected ? 'CONNECTED' : 'DISCONNECTED')
-  const isConnected = Boolean(account?.connected) && account?.backend !== 'DERIV_DISCONNECTED' && connState === 'CONNECTED'
+  const isConnected = Boolean(account?.connected) && account?.backend !== 'CTRADER_DISCONNECTED' && connState === 'CONNECTED'
   const isReal = (account?.account_mode || account?.account_type) === 'REAL'
   const authLabel =
     account?.auth_state === 'AUTHENTICATED'
       ? 'VALIDADA'
-      : account?.auth_state === 'APP_ID_MISMATCH'
-        ? 'ERRO APP ID'
+      : account?.auth_state === 'APP_CREDENTIALS_INVALID'
+        ? 'ERRO CLIENT ID'
         : account?.auth_state === 'INSUFFICIENT_SCOPE'
           ? 'ESCOPO INSUFICIENTE'
           : account?.auth_state === 'TOKEN_INVALID' || account?.auth_state === 'TOKEN_EXPIRED'
@@ -72,7 +72,6 @@ export function Topbar({
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-[#0b0f17]/90 backdrop-blur-md">
       <div className="px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-        {/* Left: Mobile Menu + Current Page + Connection Status */}
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
@@ -111,9 +110,7 @@ export function Topbar({
           </div>
         </div>
 
-        {/* Right Controls */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Asset Selector */}
           <select
             aria-label="Ativo principal"
             value={chartSymbol}
@@ -127,22 +124,20 @@ export function Topbar({
             ))}
           </select>
 
-          {/* Account Selector */}
           <select
-            aria-label="Conta Deriv ativa"
+            aria-label="Conta cTrader ativa"
             value={activeAccountId}
             onChange={(e) => onSelectAccount(e.target.value)}
             className="hidden md:block max-w-[210px] rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
           >
-            {!accounts.length && <option value="">Sem token salvo</option>}
+            {!accounts.length && <option value="">Sem conta conectada</option>}
             {accounts.map((a) => (
               <option key={a.account_id} value={a.account_id}>
-                [{a.account_type}] {a.label} ({a.loginid || 'Deriv'})
+                [{a.account_type}] {a.label} ({a.trader_login || a.ctid_account_id || 'cTrader'})
               </option>
             ))}
           </select>
 
-          {/* Auto Trading Toggle */}
           <button
             type="button"
             onClick={onToggleAutoTrading}
@@ -156,7 +151,6 @@ export function Topbar({
             <span className="hidden sm:inline">{autoTradingEnabled ? 'Auto: Ativo' : 'Auto: Pausado'}</span>
           </button>
 
-          {/* Panic Flatten */}
           <button
             type="button"
             onClick={onPanicFlatten}
@@ -166,7 +160,6 @@ export function Topbar({
             <span className="hidden sm:inline">Zerar tudo</span>
           </button>
 
-          {/* Notifications */}
           <div className="relative">
             <button
               type="button"
@@ -217,7 +210,6 @@ export function Topbar({
             )}
           </div>
 
-          {/* Theme Toggle */}
           <button
             type="button"
             onClick={onToggleTheme}
@@ -228,7 +220,6 @@ export function Topbar({
             {theme === 'dark' ? <Sun className="h-3.5 w-3.5 text-amber-400" /> : <Moon className="h-3.5 w-3.5 text-slate-700" />}
           </button>
 
-          {/* Settings Shortcut */}
           <button
             type="button"
             onClick={onOpenSettings}
@@ -239,7 +230,6 @@ export function Topbar({
             <Settings className="h-3.5 w-3.5" />
           </button>
 
-          {/* Logout */}
           <button
             type="button"
             onClick={onLogout}

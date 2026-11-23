@@ -63,11 +63,11 @@ def test_chart_and_status_endpoints_return_valid_json(tmp_path: Path):
     assert "symbols" in snap
     assert "bots" in snap
 
-    code_ch, body_ch, _ = app.handle_request("GET", "/api/chart?symbol=R_100", headers)
+    code_ch, body_ch, _ = app.handle_request("GET", "/api/chart?symbol=EURUSD", headers)
     assert code_ch == 200
     chart = json.loads(body_ch)
     assert chart["ok"] is True
-    assert chart["symbol"] == "R_100"
+    assert chart["symbol"] == "EURUSD"
     assert isinstance(chart["points"], list)
 
 

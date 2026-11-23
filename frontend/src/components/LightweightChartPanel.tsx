@@ -107,24 +107,24 @@ export function LightweightChartPanel({
       topColor: 'rgba(56, 189, 248, 0.25)',
       bottomColor: 'rgba(56, 189, 248, 0.01)',
       lineWidth: 2,
-      priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+      priceFormat: { type: 'price', precision: 5, minMove: 0.00001 },
     })
     const vwapSeries = chart.addLineSeries({
       color: '#f59e0b',
       lineWidth: 2,
-      priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+      priceFormat: { type: 'price', precision: 5, minMove: 0.00001 },
     })
     const upperSeries = chart.addLineSeries({
       color: '#f43f5e',
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
-      priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+      priceFormat: { type: 'price', precision: 5, minMove: 0.00001 },
     })
     const lowerSeries = chart.addLineSeries({
       color: '#10b981',
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
-      priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+      priceFormat: { type: 'price', precision: 5, minMove: 0.00001 },
     })
 
     chartRef.current = chart
@@ -195,7 +195,7 @@ export function LightweightChartPanel({
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Cotações em tempo real da Deriv com VWAP ponderada por volume e bandas de desvio padrão
+              Cotações em tempo real da cTrader Open API com VWAP ponderada por volume e bandas de desvio padrão
             </p>
           </div>
         </div>
@@ -203,10 +203,10 @@ export function LightweightChartPanel({
         <div className="flex flex-wrap items-center gap-3">
           <div className="hidden md:flex items-center gap-3 text-xs font-mono">
             <span className="text-slate-500 dark:text-slate-400">
-              P: <strong className="text-sky-600 dark:text-sky-300">{formatPrice(symbolState?.price, 4)}</strong>
+              P: <strong className="text-sky-600 dark:text-sky-300">{formatPrice(symbolState?.price, 5)}</strong>
             </span>
             <span className="text-slate-500 dark:text-slate-400">
-              VWAP: <strong className="text-amber-600 dark:text-amber-300">{formatPrice(symbolState?.vwap, 4)}</strong>
+              VWAP: <strong className="text-amber-600 dark:text-amber-300">{formatPrice(symbolState?.vwap, 5)}</strong>
             </span>
             <span className="text-slate-500 dark:text-slate-400">
               Z: <strong className={zColor}>{formatNumber(symbolState?.zscore, 2)}</strong>
@@ -259,7 +259,7 @@ export function LightweightChartPanel({
         )}
         {loading && cleanPoints.length === 0 && (
           <div className="h-[320px] flex items-center justify-center text-xs font-mono text-slate-400">
-            Carregando série de ticks da Deriv...
+            Carregando cotações da cTrader...
           </div>
         )}
         <div
@@ -268,12 +268,12 @@ export function LightweightChartPanel({
         />
         {!loading && cleanPoints.length === 0 && !error && (
           <div className="h-[120px] flex items-center justify-center text-xs text-slate-500 dark:text-slate-400">
-            Aguardando ticks de {symbol} para plotar VWAP e Bandas ±2σ.
+            Conecte sua conta cTrader (ou ative o Simulador) para plotar VWAP e Bandas ±2σ de {symbol}.
           </div>
         )}
         <div className="flex flex-wrap items-center gap-4 px-3 pt-2 pb-1 text-[11px] text-slate-500 dark:text-slate-400">
           <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-sky-400" /> Preço Deriv
+            <span className="h-2 w-2 rounded-full bg-sky-400" /> Preço cTrader
           </span>
           <span className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-amber-400" /> VWAP

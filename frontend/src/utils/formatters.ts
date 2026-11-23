@@ -17,7 +17,7 @@ export function formatNumber(
 
 export function formatPrice(
   value: number | null | undefined,
-  decimals = 4,
+  decimals = 5,
   fallback = '--',
 ): string {
   return formatNumber(value, decimals, fallback)
@@ -116,35 +116,23 @@ export function hasValidSymbolMetrics(state?: Partial<SymbolState> | null): bool
 }
 
 const FRIENDLY_SYMBOL_NAMES: Record<string, string> = {
-  R_10: 'Volatility 10 Index',
-  R_25: 'Volatility 25 Index',
-  R_50: 'Volatility 50 Index',
-  R_75: 'Volatility 75 Index',
-  R_100: 'Volatility 100 Index',
-  '1HZ10V': 'Volatility 10 (1s) Index',
-  '1HZ25V': 'Volatility 25 (1s) Index',
-  '1HZ50V': 'Volatility 50 (1s) Index',
-  '1HZ75V': 'Volatility 75 (1s) Index',
-  '1HZ100V': 'Volatility 100 (1s) Index',
-  stpRNG: 'Step Index',
-  BOOM500: 'Boom 500 Index',
-  BOOM1000: 'Boom 1000 Index',
-  CRASH500: 'Crash 500 Index',
-  CRASH1000: 'Crash 1000 Index',
-  frxXAUUSD: 'Gold/USD',
-  frxXAGUSD: 'Silver/USD',
-  cryBTCUSD: 'BTC/USD',
-  cryETHUSD: 'ETH/USD',
-  OTC_SP500: 'US 500',
-  OTC_NDX: 'US Tech 100',
-  OTC_DJI: 'Wall Street 30',
-  OTC_HSI: 'Hong Kong 50',
-  OTC_AS51: 'Australia 200',
-  OTC_N225: 'Japan 225',
-  OTC_GDAXI: 'Germany 40',
-  OTC_FTSE: 'UK 100',
-  OTC_FCHI: 'France 40',
-  OTC_SX5E: 'Euro 50',
+  EURUSD: 'EUR/USD',
+  GBPUSD: 'GBP/USD',
+  USDJPY: 'USD/JPY',
+  AUDUSD: 'AUD/USD',
+  USDCAD: 'USD/CAD',
+  USDCHF: 'USD/CHF',
+  NZDUSD: 'NZD/USD',
+  EURJPY: 'EUR/JPY',
+  GBPJPY: 'GBP/JPY',
+  XAUUSD: 'Gold/USD (XAUUSD)',
+  XAGUSD: 'Silver/USD (XAGUSD)',
+  BTCUSD: 'BTC/USD',
+  ETHUSD: 'ETH/USD',
+  US500: 'S&P 500 (US500)',
+  US100: 'Nasdaq 100 (US100)',
+  US30: 'Dow Jones 30 (US30)',
+  DE40: 'DAX 40 (DE40)',
 }
 
 export function formatSymbolDisplay(
@@ -160,9 +148,6 @@ export function formatSymbolDisplay(
   }
   if (FRIENDLY_SYMBOL_NAMES[symbol]) {
     return FRIENDLY_SYMBOL_NAMES[symbol]
-  }
-  if ((symbol.startsWith('frx') || symbol.startsWith('cry')) && symbol.length === 9) {
-    return `${symbol.slice(3, 6)}/${symbol.slice(6, 9)}`
   }
   return symbol
 }

@@ -10,7 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from prado_linux.config import DEFAULT_CATEGORIES, PradoServerConfig, load_config
+from prado_linux.config import DEFAULT_CATEGORIES, PradoServerConfig, load_config, migrate_legacy_symbol
 from prado_linux.news_scout import DEFAULT_NEWS_FEEDS
 
 
@@ -148,18 +148,19 @@ class SupabaseStore:
         )
         if code == 200 and isinstance(settings_rows, list) and settings_rows:
             s = settings_rows[0]
-            cfg.connection_mode = str(s.get("connection_mode") or cfg.connection_mode)
+            raw_mode = str(s.get("connection_mode") or cfg.connection_mode)
+            cfg.connection_mode = "CTRADER_CLOUD" if raw_mode == "DERIV_CLOUD" else raw_mode
             cfg.allow_real_trading = bool(s.get("allow_real_trading", False))
             cfg.auto_trading_enabled = bool(s.get("auto_trading_enabled", True))
             cfg.active_account_id = str(s.get("active_account_id") or "")
             cfg.active_account_type = str(s.get("active_account_type") or "DEMO")
-            cfg.deriv_app_id = str(s.get("deriv_app_id") or "1089")
-            cfg.default_stake_usd = float(s.get("default_stake_usd") or 10.0)
-            cfg.default_multiplier = int(s.get("default_multiplier") or 100)
+            cfg.ctrader_client_id = str(s.get("ctrader_client_id") or cfg.ctrader_client_id)
+            cfg.ctrader_redirect_uri = str(s.get("ctrader_redirect_uri") or cfg.ctrader_redirect_uri)
+            cfg.default_lot_size = max(0.01, float(s.get("default_lot_size") or 0.01))
             if isinstance(s.get("active_symbols"), list) and s["active_symbols"]:
-                cfg.active_symbols = list(s["active_symbols"])
+                cfg.active_symbols = [migrate_legacy_symbol(x) for x in s["active_symbols"]]
             if isinstance(s.get("correlated_basket"), list):
-                cfg.correlated_basket = list(s["correlated_basket"])
+                cfg.correlated_basket = [migrate_legacy_symbol(x, "GBPUSD") for x in s["correlated_basket"]]
             if isinstance(s.get("custom_categories"), dict) and s["custom_categories"]:
                 cfg.custom_categories = dict(s["custom_categories"])
             else:
@@ -167,28 +168,32 @@ class SupabaseStore:
 
         code_acc, acc_rows = self._request(
             "GET",
-            f"/rest/v1/prado_deriv_accounts?user_id=eq.{uid_q}&select=*",
+            f"/rest/v1/prado_ctrader_accounts?user_id=eq.{uid_q}&select=*",
             bearer_token=access_token,
         )
         if code_acc == 200 and isinstance(acc_rows, list):
             cfg.accounts = [
                 {
                     "account_id": str(r.get("account_id") or ""),
+                    "ctid_account_id": str(r.get("ctid_account_id") or ""),
+                    "trader_login": str(r.get("trader_login") or ""),
                     "account_type": str(r.get("account_type") or "DEMO"),
-                    "label": str(r.get("label") or "Deriv"),
-                    "deriv_token": str(r.get("deriv_token") or ""),
-                    "deriv_app_id": str(r.get("deriv_app_id") or "1089"),
-                    "default_stake_usd": float(r.get("default_stake_usd") or 10.0),
-                    "default_multiplier": int(r.get("default_multiplier") or 100),
-                    "connection_mode": str(r.get("connection_mode") or "DERIV_CLOUD"),
-                    "loginid": str(r.get("loginid") or ""),
+                    "is_live": bool(r.get("is_live", False)),
+                    "broker_name": str(r.get("broker_name") or "cTrader"),
+                    "label": str(r.get("label") or "cTrader"),
+                    "access_token": str(r.get("access_token") or ""),
+                    "refresh_token": str(r.get("refresh_token") or ""),
+                    "default_lot_size": max(0.01, float(r.get("default_lot_size") or 0.01)),
+                    "connection_mode": str(r.get("connection_mode") or "CTRADER_CLOUD"),
+                    "balance": float(r.get("balance") or 0.0),
+                    "currency": str(r.get("currency") or "USD"),
                 }
                 for r in acc_rows
             ]
             active = next((a for a in cfg.accounts if a["account_id"] == cfg.active_account_id), None)
             if active:
-                cfg.deriv_token = active["deriv_token"]
-                cfg.deriv_app_id = active["deriv_app_id"]
+                cfg.ctrader_access_token = active["access_token"]
+                cfg.ctrader_refresh_token = active["refresh_token"]
 
         code_bots, bot_rows = self._request(
             "GET",
@@ -205,7 +210,7 @@ class SupabaseStore:
                         "bot_id": str(r.get("bot_id") or ""),
                         "name": str(r.get("name") or ""),
                         "account_id": str(r.get("account_id") or ""),
-                        "symbol": str(r.get("symbol") or "R_100"),
+                        "symbol": migrate_legacy_symbol(str(r.get("symbol") or "EURUSD")),
                         "template_id": str(r.get("template_id") or "WALL_STREET_HYBRID_BOTH"),
                         "bot_template_id": str(r.get("template_id") or "WALL_STREET_HYBRID_BOTH"),
                         "operation_mode": str(r.get("operation_mode") or "BOTH"),
@@ -215,8 +220,7 @@ class SupabaseStore:
                         "max_loss_usd": float(r.get("max_loss_usd") or 20.0),
                         "status": str(r.get("status") or "STOPPED"),
                         "active": str(r.get("status") or "STOPPED") == "RUNNING",
-                        "lot_size": float(r.get("lot_size") or 10.0),
-                        "multiplier": int(r.get("multiplier") or 100),
+                        "lot_size": max(0.01, float(r.get("lot_size") or 0.01)),
                         "realized_pnl": float(r.get("realized_pnl") or 0.0),
                         "floating_pnl": float(r.get("floating_pnl") or 0.0),
                         "total_pnl": float(r.get("total_pnl") or 0.0),
@@ -274,7 +278,7 @@ class SupabaseStore:
                     "feed_id": str(r.get("feed_id") or ""),
                     "source": str(r.get("source") or ""),
                     "url": str(r.get("url") or ""),
-                    "default_symbol": str(r.get("default_symbol") or "ALL"),
+                    "default_symbol": migrate_legacy_symbol(str(r.get("default_symbol") or "ALL")),
                 }
                 for r in feed_rows
             ]
@@ -299,18 +303,18 @@ class SupabaseStore:
                 "auto_trading_enabled": bool(cfg.auto_trading_enabled),
                 "active_account_id": cfg.active_account_id,
                 "active_account_type": cfg.active_account_type,
-                "deriv_app_id": cfg.deriv_app_id,
-                "default_stake_usd": float(cfg.default_stake_usd),
-                "default_multiplier": int(cfg.default_multiplier),
+                "ctrader_client_id": cfg.ctrader_client_id,
+                "ctrader_redirect_uri": cfg.ctrader_redirect_uri,
+                "default_lot_size": float(cfg.default_lot_size),
                 "active_symbols": list(cfg.active_symbols),
                 "correlated_basket": list(cfg.correlated_basket),
                 "custom_categories": dict(cfg.custom_categories),
                 "risk_config": {
                     "max_daily_loss_money": cfg.max_daily_loss_money,
                     "daily_target_money": cfg.daily_target_money,
-                    "max_stake_per_trade": cfg.max_stake_per_trade,
+                    "max_lot_per_trade": cfg.max_lot_per_trade,
                     "max_concurrent_trades": cfg.max_concurrent_trades,
-                    "max_total_exposure_usd": cfg.max_total_exposure_usd,
+                    "max_total_lots": cfg.max_total_lots,
                 },
                 "news_config": {
                     "news_bot_enabled": cfg.news_bot_enabled,
@@ -322,20 +326,24 @@ class SupabaseStore:
             extra_headers=upsert_headers,
         )
 
-        # Sync accounts
+        # Sync cTrader accounts
         if cfg.accounts:
             acc_payload = [
                 {
                     "user_id": user_id,
                     "account_id": str(a.get("account_id") or ""),
+                    "ctid_account_id": str(a.get("ctid_account_id") or ""),
+                    "trader_login": str(a.get("trader_login") or ""),
                     "account_type": str(a.get("account_type") or "DEMO"),
-                    "label": str(a.get("label") or "Deriv"),
-                    "deriv_token": str(a.get("deriv_token") or ""),
-                    "deriv_app_id": str(a.get("deriv_app_id") or "1089"),
-                    "default_stake_usd": float(a.get("default_stake_usd") or 10.0),
-                    "default_multiplier": int(a.get("default_multiplier") or 100),
-                    "connection_mode": str(a.get("connection_mode") or "DERIV_CLOUD"),
-                    "loginid": str(a.get("loginid") or ""),
+                    "is_live": bool(a.get("is_live", False)),
+                    "broker_name": str(a.get("broker_name") or "cTrader"),
+                    "label": str(a.get("label") or "cTrader"),
+                    "access_token": str(a.get("access_token") or ""),
+                    "refresh_token": str(a.get("refresh_token") or ""),
+                    "default_lot_size": float(a.get("default_lot_size") or 0.01),
+                    "connection_mode": str(a.get("connection_mode") or "CTRADER_CLOUD"),
+                    "balance": float(a.get("balance") or 0.0),
+                    "currency": str(a.get("currency") or "USD"),
                 }
                 for a in cfg.accounts
                 if a.get("account_id")
@@ -343,13 +351,13 @@ class SupabaseStore:
             if acc_payload:
                 self._request(
                     "POST",
-                    "/rest/v1/prado_deriv_accounts?on_conflict=user_id,account_id",
+                    "/rest/v1/prado_ctrader_accounts?on_conflict=user_id,account_id",
                     acc_payload,
                     bearer_token=access_token,
                     extra_headers=upsert_headers,
                 )
 
-        # Sync bots (replace user's bot list cleanly)
+        # Sync bots
         self._request("DELETE", f"/rest/v1/prado_bots?user_id=eq.{uid_q}", bearer_token=access_token)
         if cfg.bots:
             bot_rows = [
@@ -358,7 +366,7 @@ class SupabaseStore:
                     "user_id": user_id,
                     "name": str(b.get("name") or ""),
                     "account_id": str(b.get("account_id") or ""),
-                    "symbol": str(b.get("symbol") or "R_100"),
+                    "symbol": str(b.get("symbol") or "EURUSD"),
                     "template_id": str(b.get("template_id") or b.get("bot_template_id") or "WALL_STREET_HYBRID_BOTH"),
                     "operation_mode": str(b.get("operation_mode") or "BOTH"),
                     "timeframe": str(b.get("timeframe") or "TICKS"),
@@ -366,8 +374,7 @@ class SupabaseStore:
                     "loss_guard_enabled": bool(b.get("loss_guard_enabled", False)),
                     "max_loss_usd": float(b.get("max_loss_usd") or 20.0),
                     "status": str(b.get("status") or "STOPPED"),
-                    "lot_size": float(b.get("lot_size") or 10.0),
-                    "multiplier": int(b.get("multiplier") or 100),
+                    "lot_size": float(b.get("lot_size") or 0.01),
                     "realized_pnl": float(b.get("realized_pnl") or 0.0),
                     "floating_pnl": float(b.get("floating_pnl") or 0.0),
                     "total_pnl": float(b.get("total_pnl") or 0.0),
