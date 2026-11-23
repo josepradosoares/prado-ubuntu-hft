@@ -203,6 +203,15 @@ def test_backtest_generates_trades_and_supports_all_symbols_and_timeframes(tmp_p
     assert rep_period["total_trades"] > 0
     assert rep_period["timeframe"] == "H1"
 
+    rep_grid = app.service.run_mathematical_backtest({
+        "symbol": "R_100",
+        "template_id": "GRID_LINEAR_HFT",
+        "timeframe": "M15",
+        "period": "1Y",
+    })
+    assert rep_grid["total_trades"] > 0
+    assert rep_grid["timeframe"] == "M15"
+
 
 
 

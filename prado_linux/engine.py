@@ -1559,6 +1559,7 @@ class PradoTradingService:
         max_drawdown = 0.0
         trades: list[dict[str, Any]] = []
         open_pos: dict[str, Any] | None = None
+        grid_anchor = 0.0
 
         step_stride = max(1, len(ticks) // 250)
         for idx in range(40, len(ticks), step_stride):
@@ -1607,6 +1608,21 @@ class PradoTradingService:
                     custom_act = self._evaluate_custom_template(tpl, sub_ticks, params)
                     if custom_act:
                         act = custom_act
+                elif op_mode == "GRID_LINEAR" or template_id == "GRID_LINEAR_HFT":
+                    step_pts = max(float(params.get("grid_step_points") or tpl.get("grid_step_points") or 1.5), curr_price * 0.0005)
+                    grid_dir = str(params.get("grid_direction") or tpl.get("grid_direction") or "BUY_ONLY").upper()
+                    if grid_anchor <= 0.0:
+                        grid_anchor = curr_price
+                        act = "SELL_FLOW" if grid_dir == "SELL_ONLY" else "BUY_FLOW"
+                    elif abs(curr_price - grid_anchor) >= step_pts:
+                        prev_anchor = grid_anchor
+                        grid_anchor = curr_price
+                        if grid_dir == "SELL_ONLY":
+                            act = "SELL_FLOW"
+                        elif grid_dir == "BOTH":
+                            act = "SELL_FLOW" if curr_price > prev_anchor else "BUY_FLOW"
+                        else:
+                            act = "BUY_FLOW"
                 if act in ("BUY_FLOW", "SELL_FLOW", "BUY_REVERT_VWAP", "SELL_REVERT_VWAP"):
                     is_b = act.startswith("BUY")
                     sl_pts = max(flow.sl_points, curr_price * 0.0005)
