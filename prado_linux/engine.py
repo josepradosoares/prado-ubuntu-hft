@@ -2024,31 +2024,46 @@ class PradoTradingService:
                     want_sell = True
 
             if want_buy or want_sell:
-                action = "BUY_GRID" if want_buy else "SELL_GRID"
-                signal = action
-                ok, msg = self.connector.place_order(
-                    symbol=bsym,
-                    action=action,
-                    stake=float(bot.get("lot_size", self.cfg.default_stake_usd)),
-                    price=last_price,
-                    sl_points=grid_step * max_levels,
-                    tp_points=grid_tp,
-                    multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
-                    bot_name=bot_name,
-                    allow_multi_same_symbol=True,
-                    max_levels_override=max_levels,
+                if time.time() < float(bot.get("_unavailable_until", 0.0) or 0.0):
+                    signal = "UNAVAILABLE"
+                else:
+                    action = "BUY_GRID" if want_buy else "SELL_GRID"
+                    signal = action
+                    ok, msg = self.connector.place_order(
+                        symbol=bsym,
+                        action=action,
+                        stake=float(bot.get("lot_size", self.cfg.default_stake_usd)),
+                        price=last_price,
+                        sl_points=grid_step * max_levels,
+                        tp_points=grid_tp,
+                        multiplier=int(bot.get("multiplier", self.cfg.default_multiplier)),
+                        bot_name=bot_name,
+                        allow_multi_same_symbol=True,
+                        max_levels_override=max_levels,
+                    )
+                    if ok:
+                        bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
+                        bot["grid_anchor_price"] = last_price
+                        bot["last_error"] = ""
+                        bot.pop("_unavailable_until", None)
+                        self._log_event("BOT_EXEC", msg)
+                        positions = self.connector.get_open_positions()
+                    elif "ratelimit" in msg.lower():
+                        signal = "RATE_LIMITED"
+                        bot["last_error"] = msg
+                        self._log_event("BOT_RATE_LIMIT", msg)
+                    elif self._is_contract_unavailable_msg(msg):
+                        signal = "UNAVAILABLE"
+                        bot["last_error"] = msg
+                        bot["_unavailable_until"] = time.time() + 60.0
+                        self._log_event("BOT_CONTRACT_UNAVAILABLE", msg)
+            elif bot.get("status") == "RUNNING" and (
+                "ratelimit" in str(bot.get("last_error", "")).lower()
+                or (
+                    self._is_contract_unavailable_msg(str(bot.get("last_error", "")))
+                    and time.time() >= float(bot.get("_unavailable_until", 0.0) or 0.0)
                 )
-                if ok:
-                    bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
-                    bot["grid_anchor_price"] = last_price
-                    bot["last_error"] = ""
-                    self._log_event("BOT_EXEC", msg)
-                    positions = self.connector.get_open_positions()
-                elif "ratelimit" in msg.lower():
-                    signal = "RATE_LIMITED"
-                    bot["last_error"] = msg
-                    self._log_event("BOT_RATE_LIMIT", msg)
-            elif bot.get("status") == "RUNNING" and "ratelimit" in str(bot.get("last_error", "")).lower():
+            ):
                 bot["last_error"] = ""
 
         bot["last_signal"] = signal
@@ -2226,6 +2241,20 @@ class PradoTradingService:
                 self._auto_resume_news_paused_bots(skip_bot_ids=just_paused_ids)
                 self._log_event("NEWS_SCOUT", f"Pesquisa de notícias concluída ({len(self.news_scout.items)} manchete(s)).")
             return self._news_snapshot_dict()
+
+    @staticmethod
+    def _is_contract_unavailable_msg(msg: str) -> bool:
+        low = (msg or "").lower()
+        return any(
+            marker in low
+            for marker in (
+                "indisponível",
+                "tradingdurationnotallowed",
+                "trading is not offered for this duration",
+                "marketisclosed",
+                "contractcreationsuspended",
+            )
+        )
 
     def step_once(self) -> dict[str, Any]:
         with self._lock:
@@ -2492,6 +2521,9 @@ class PradoTradingService:
                                 chosen_action = bot_action
 
                             if chosen_action and not any(p["symbol"] == bsym for p in positions):
+                                if time.time() < float(bot.get("_unavailable_until", 0.0) or 0.0):
+                                    bot["last_signal"] = "UNAVAILABLE"
+                                    continue
                                 bot["last_signal"] = chosen_action
                                 ok, msg = self.connector.place_order(
                                     symbol=bsym,
@@ -2509,12 +2541,18 @@ class PradoTradingService:
                                 if ok:
                                     bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
                                     bot["last_error"] = ""
+                                    bot.pop("_unavailable_until", None)
                                     self._log_event("BOT_NEWS_EXEC", msg)
                                     positions = self.connector.get_open_positions()
                                 elif "ratelimit" in msg.lower():
                                     bot["last_signal"] = "RATE_LIMITED"
                                     bot["last_error"] = msg
                                     self._log_event("BOT_RATE_LIMIT", msg)
+                                elif self._is_contract_unavailable_msg(msg):
+                                    bot["last_signal"] = "UNAVAILABLE"
+                                    bot["last_error"] = msg
+                                    bot["_unavailable_until"] = time.time() + 60.0
+                                    self._log_event("BOT_CONTRACT_UNAVAILABLE", msg)
                         continue
 
                     if (
@@ -2523,6 +2561,9 @@ class PradoTradingService:
                         and not risk_locked
                         and bot_action in ("BUY_FLOW", "SELL_FLOW", "BUY_REVERT_VWAP", "SELL_REVERT_VWAP")
                     ):
+                        if time.time() < float(bot.get("_unavailable_until", 0.0) or 0.0):
+                            bot["last_signal"] = "UNAVAILABLE"
+                            continue
                         has_pos = any(p["symbol"] == bsym for p in positions)
                         if not has_pos:
                             ok, msg = self.connector.place_order(
@@ -2540,13 +2581,25 @@ class PradoTradingService:
                             if ok:
                                 bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
                                 bot["last_error"] = ""
+                                bot.pop("_unavailable_until", None)
                                 self._log_event("BOT_EXEC", msg)
                                 positions = self.connector.get_open_positions()
                             elif "ratelimit" in msg.lower():
                                 bot["last_signal"] = "RATE_LIMITED"
                                 bot["last_error"] = msg
                                 self._log_event("BOT_RATE_LIMIT", msg)
-                    elif bot.get("status") == "RUNNING" and "ratelimit" in str(bot.get("last_error", "")).lower():
+                            elif self._is_contract_unavailable_msg(msg):
+                                bot["last_signal"] = "UNAVAILABLE"
+                                bot["last_error"] = msg
+                                bot["_unavailable_until"] = time.time() + 60.0
+                                self._log_event("BOT_CONTRACT_UNAVAILABLE", msg)
+                    elif bot.get("status") == "RUNNING" and (
+                        "ratelimit" in str(bot.get("last_error", "")).lower()
+                        or (
+                            self._is_contract_unavailable_msg(str(bot.get("last_error", "")))
+                            and time.time() >= float(bot.get("_unavailable_until", 0.0) or 0.0)
+                        )
+                    ):
                         bot["last_error"] = ""
                 except DerivRateLimitError as rl_exc:
                     bot["last_signal"] = "RATE_LIMITED"

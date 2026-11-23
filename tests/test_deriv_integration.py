@@ -549,7 +549,8 @@ def test_place_multiplier_order_auto_adjusts_accepted_multiplier_for_stprng() ->
     assert ok is True
     assert "750x" in msg
     assert "990011" in msg
-    assert calls[1]["multiplier"] == 750
+    proposal_calls = [c for c in calls if "proposal" in c]
+    assert proposal_calls[1]["multiplier"] == 750
 
 
 def test_news_scout_pauses_grid_and_opens_order_in_favor(tmp_path) -> None:

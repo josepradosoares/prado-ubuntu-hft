@@ -72,6 +72,7 @@ def extract_ws_endpoint(payload: dict[str, Any]) -> str:
         "statement",
         "ticks_history",
         "ticks",
+        "contracts_for",
         "active_symbols",
         "authorize",
         "ping",
@@ -309,6 +310,8 @@ class DerivClient:
         self._stream_contracts: dict[str, dict[str, Any]] = {}
         self._poc_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self._poc_cache_ttl: float = 10.0
+        self._contracts_for_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+        self._contracts_for_cache_ttl: float = 180.0
         self._subscribed_cids: set[str] = set()
         self._poc_stream_subscribed: bool = False
         self._balance_stream_subscribed: bool = False
@@ -1074,6 +1077,63 @@ class DerivClient:
             )
         return records
 
+    _NON_FATAL_CONTRACT_ERRORS = (
+        "TradingDurationNotAllowed",
+        "Trading is not offered for this duration",
+        "MarketIsClosed",
+        "ContractCreationSuspended",
+        "InvalidSymbol",
+    )
+
+    @classmethod
+    def _is_contract_unavailable_error(cls, err_txt: str) -> bool:
+        low = err_txt.lower()
+        return any(marker.lower() in low for marker in cls._NON_FATAL_CONTRACT_ERRORS)
+
+    def get_contracts_for(self, symbol: str, use_cache: bool = True) -> list[dict[str, Any]] | None:
+        """Fetch currently available contracts for `underlying_symbol` via `contracts_for`."""
+        now = time.time()
+        if use_cache:
+            with self._lock:
+                cached = self._contracts_for_cache.get(symbol)
+                if cached and (now - cached[0]) < self._contracts_for_cache_ttl:
+                    return list(cached[1])
+        resp = self._send_rpc({"contracts_for": symbol})
+        if not isinstance(resp, dict) or "contracts_for" not in resp:
+            return None
+        cf = resp.get("contracts_for")
+        if not isinstance(cf, dict):
+            return None
+        available = cf.get("available")
+        if not isinstance(available, list):
+            return None
+        items = [dict(item) for item in available if isinstance(item, dict)]
+        with self._lock:
+            self._contracts_for_cache[symbol] = (now, items)
+        return list(items)
+
+    def supports_multiplier_contract(self, symbol: str, contract_type: str) -> tuple[bool, str]:
+        """Verify via `contracts_for` whether `contract_type` is currently offered for `symbol`."""
+        try:
+            available = self.get_contracts_for(symbol)
+        except DerivRateLimitError:
+            return True, ""
+        except RuntimeError as exc:
+            err_txt = str(exc)
+            if self._is_contract_unavailable_error(err_txt):
+                return False, f"[Deriv] Contrato/duração indisponível para {symbol}: {err_txt}"
+            return True, ""
+
+        if available is None:
+            return True, ""
+        if not available:
+            return False, f"[Deriv] Nenhum contrato disponível para {symbol} no momento (mercado fechado ou restrito)."
+
+        target = contract_type.upper()
+        if any(str(item.get("contract_type", "")).upper() == target for item in available):
+            return True, ""
+        return False, f"[Deriv] Contrato {target} indisponível para {symbol} no momento (contracts_for)."
+
     def place_multiplier_order(
         self,
         symbol: str,
@@ -1110,6 +1170,10 @@ class DerivClient:
             "multiplier": int(multiplier),
             "timestamp": time.time(),
         }
+        supported, unavailable_reason = self.supports_multiplier_contract(symbol, contract_type)
+        if not supported:
+            self.last_order_lifecycle["stage"] = "CONTRACT_UNAVAILABLE"
+            return False, unavailable_reason
         try:
             prop_resp = self._send_rpc(proposal_req)
         except DerivRateLimitError as exc:
@@ -1117,6 +1181,9 @@ class DerivClient:
             return False, f"[Deriv] RateLimit ativo: {exc}"
         except RuntimeError as exc:
             err_txt = str(exc)
+            if self._is_contract_unavailable_error(err_txt):
+                self.last_order_lifecycle["stage"] = "CONTRACT_UNAVAILABLE"
+                return False, f"[Deriv] Contrato/duração indisponível para {symbol}: {err_txt}"
             if "Multiplier is not in acceptable range" in err_txt and "Accepts" in err_txt:
                 tail = err_txt.split("Accepts", 1)[1]
                 accepted = [int(m) for m in re.findall(r"\d+", tail)]
@@ -1130,6 +1197,12 @@ class DerivClient:
                     except DerivRateLimitError as rl_exc:
                         self.last_order_lifecycle["stage"] = "RATE_LIMITED"
                         return False, f"[Deriv] RateLimit ativo: {rl_exc}"
+                    except RuntimeError as retry_exc:
+                        retry_txt = str(retry_exc)
+                        if self._is_contract_unavailable_error(retry_txt):
+                            self.last_order_lifecycle["stage"] = "CONTRACT_UNAVAILABLE"
+                            return False, f"[Deriv] Contrato/duração indisponível para {symbol}: {retry_txt}"
+                        raise
                 else:
                     raise
             else:
