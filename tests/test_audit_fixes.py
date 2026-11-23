@@ -115,3 +115,33 @@ def test_health_endpoint_is_public_and_fire_buy_respects_risk_lock(tmp_path: Pat
     assert res is not None
     assert res["last_signal"] == "RISK_LOCKED"
     assert res["trades_executed"] == 0
+
+
+def test_bet_expired_and_sold_contracts_handled_gracefully() -> None:
+    def _fake_rpc(payload: dict) -> dict:
+        if "portfolio" in payload:
+            return {
+                "portfolio": {
+                    "contracts": [
+                        {"contract_id": "101", "symbol": "R_100", "buy_price": 10.0},
+                        {"contract_id": "102", "symbol": "R_100", "buy_price": 10.0},
+                    ]
+                }
+            }
+        if "proposal_open_contract" in payload:
+            cid = payload["contract_id"]
+            if cid == 101:
+                return {"proposal_open_contract": {"contract_id": 101, "is_sold": 1, "is_expired": 1, "status": "sold"}}
+            return {"proposal_open_contract": {"contract_id": 102, "underlying_symbol": "R_100", "contract_type": "MULTUP", "buy_price": 10.0, "entry_spot": 500.0, "current_spot": 501.0, "profit": 1.2}}
+        if "sell" in payload:
+            return {"error": {"code": "BetExpired", "message": "The contract has expired."}}
+        return {}
+
+    client = DerivClient(token="pat_test_123", app_id="12345", rpc_transport=_fake_rpc)
+    open_contracts = client.get_open_contracts()
+    assert [c["ticket"] for c in open_contracts] == ["102"]
+
+    ok, msg = client.close_contract("101")
+    assert ok is True
+    assert "expirado" in msg.lower() or "encerrado" in msg.lower()
+

@@ -741,15 +741,17 @@ class DerivUniversalConnector:
         if self.cfg.connection_mode.upper() != "SIMULATION":
             if self._deriv is None:
                 return False, "Deriv desconectada: não é possível encerrar contrato."
+            self._positions_cache = None
             positions = self.get_open_positions()
             matched = next((p for p in positions if str(p.get("ticket")) == str(ticket)), None)
             try:
                 ok, msg = self._deriv.close_contract(str(ticket))
             except Exception as exc:
-                return False, f"[Deriv] Erro ao encerrar #{ticket}: {exc}"
-            if ok:
                 self._positions_cache = None
-                self._balance_cache = None
+                return False, f"[Deriv] Erro ao encerrar #{ticket}: {exc}"
+            self._positions_cache = None
+            self._balance_cache = None
+            if ok:
                 ts_str = datetime.now().strftime("%H:%M:%S")
                 self._deriv_deals_history.insert(
                     0,

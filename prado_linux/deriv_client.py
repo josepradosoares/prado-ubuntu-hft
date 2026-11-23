@@ -748,6 +748,12 @@ class DerivClient:
                 poc = poc_resp.get("proposal_open_contract", {})
             except Exception:
                 poc = c
+            if (
+                poc.get("is_sold") in (1, True)
+                or poc.get("is_expired") in (1, True)
+                or str(poc.get("status", "")).lower() in ("sold", "won", "lost")
+            ):
+                continue
             ctype = str(poc.get("contract_type", c.get("contract_type", "MULTUP"))).upper()
             is_buy = "UP" in ctype or "CALL" in ctype
             lim = poc.get("limit_order") or {}
@@ -778,6 +784,9 @@ class DerivClient:
         try:
             resp = self._send_rpc({"sell": cid_int, "price": 0})
         except Exception as exc:
+            err_lower = str(exc).lower()
+            if "betexpired" in err_lower or "has expired" in err_lower or "already been sold" in err_lower or "already sold" in err_lower:
+                return True, f"[Deriv] Contrato #{contract_id} já estava encerrado/expirado na corretora."
             return False, f"[Deriv] Erro ao encerrar #{contract_id}: {exc}"
         sold = resp.get("sell", {})
         if sold:
