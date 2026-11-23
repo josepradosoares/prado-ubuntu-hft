@@ -1115,9 +1115,13 @@ class PradoTradingService:
                     elif act == "DELETE":
                         removed = self.cfg.bots.pop(idx)
                         save_config(self.cfg, self.config_path)
+                        if self._latest_snapshot is not None:
+                            self._latest_snapshot["bots"] = list(self.cfg.bots)
                         self._log_event("BOT_FLEET", f"Robô '{removed['name']}' apagado.")
                         return removed
                     save_config(self.cfg, self.config_path)
+                    if self._latest_snapshot is not None:
+                        self._latest_snapshot["bots"] = list(self.cfg.bots)
                     return b
             return None
 
@@ -1125,6 +1129,8 @@ class PradoTradingService:
         with self._lock:
             self.cfg.bots.clear()
             save_config(self.cfg, self.config_path)
+            if self._latest_snapshot is not None:
+                self._latest_snapshot["bots"] = []
             self._log_event("BOT_FLEET", "Frota de robôs limpa.")
             return self.cfg.bots
 

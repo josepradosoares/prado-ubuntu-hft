@@ -145,3 +145,27 @@ def test_bet_expired_and_sold_contracts_handled_gracefully() -> None:
     assert ok is True
     assert "expirado" in msg.lower() or "encerrado" in msg.lower()
 
+
+def test_control_bot_pause_resume_stop_updates_snapshot_immediately(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "cfg.json"
+    app = PradoWebApp(config_path=cfg_path)
+    app.service.cfg.connection_mode = "SIMULATION"
+    bot = app.service.create_bot({"name": "BotInstant", "symbol": "R_100"})
+    app.service.step_once()
+
+    res_pause = app.service.control_bot(bot["bot_id"], "PAUSE")
+    assert res_pause is not None and res_pause["status"] == "PAUSED" and res_pause["active"] is False
+    snap = app.service.get_snapshot()
+    assert snap["bots"][0]["status"] == "PAUSED"
+
+    res_resume = app.service.control_bot(bot["bot_id"], "RESUME")
+    assert res_resume is not None and res_resume["status"] == "RUNNING" and res_resume["active"] is True
+    snap = app.service.get_snapshot()
+    assert snap["bots"][0]["status"] == "RUNNING"
+
+    res_stop = app.service.control_bot(bot["bot_id"], "STOP")
+    assert res_stop is not None and res_stop["status"] == "STOPPED" and res_stop["active"] is False
+    snap = app.service.get_snapshot()
+    assert snap["bots"][0]["status"] == "STOPPED"
+
+

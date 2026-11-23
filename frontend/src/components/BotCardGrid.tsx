@@ -24,7 +24,7 @@ interface Props {
   symbolCatalog?: BrokerSymbol[]
   lastUpdated?: string
   autoTradingEnabled?: boolean
-  onAction: (botId: string, action: string) => void
+  onAction: (botId: string, action: string) => Promise<void> | void
   onEdit: (bot: BotItem) => void
   onDuplicate: (bot: BotItem) => void
   onNewBot: () => void
@@ -47,6 +47,17 @@ export function BotCardGrid({
   const [assetFilter, setAssetFilter] = useState('ALL')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'PAUSED'>('ALL')
   const [detailBot, setDetailBot] = useState<BotItem | null>(null)
+  const [pendingBots, setPendingBots] = useState<Record<string, boolean>>({})
+
+  async function triggerAction(botId: string, action: string) {
+    if (pendingBots[botId]) return
+    setPendingBots((prev) => ({ ...prev, [botId]: true }))
+    try {
+      await onAction(botId, action)
+    } finally {
+      setPendingBots((prev) => ({ ...prev, [botId]: false }))
+    }
+  }
   const [confirmState, setConfirmState] = useState<{
     open: boolean
     title: string
@@ -98,12 +109,12 @@ export function BotCardGrid({
         variant: 'warning',
         onConfirm: () => {
           setConfirmState((s) => ({ ...s, open: false }))
-          onAction(b.bot_id, side)
+          void triggerAction(b.bot_id, side)
         },
       })
       return
     }
-    onAction(b.bot_id, side)
+    void triggerAction(b.bot_id, side)
   }
 
   function requestDeleteBot(b: BotItem) {
@@ -115,7 +126,7 @@ export function BotCardGrid({
       variant: 'danger',
       onConfirm: () => {
         setConfirmState((s) => ({ ...s, open: false }))
-        onAction(b.bot_id, 'DELETE')
+        void triggerAction(b.bot_id, 'DELETE')
       },
     })
   }
@@ -453,8 +464,9 @@ export function BotCardGrid({
                   </button>
                   <button
                     type="button"
+                    disabled={!!pendingBots[b.bot_id]}
                     onClick={() =>
-                      onAction(
+                      void triggerAction(
                         b.bot_id,
                         b.active || b.status === 'RUNNING'
                           ? 'PAUSE'
@@ -470,7 +482,7 @@ export function BotCardGrid({
                           ? 'Retomar robô'
                           : 'Iniciar robô'
                     }
-                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-700 py-2 text-slate-700 dark:text-slate-200 transition"
+                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-700 py-2 text-slate-700 dark:text-slate-200 transition disabled:opacity-50 disabled:cursor-wait"
                   >
                     {b.active || b.status === 'RUNNING' ? (
                       <Pause className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
@@ -480,9 +492,10 @@ export function BotCardGrid({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onAction(b.bot_id, 'STOP')}
+                    disabled={!!pendingBots[b.bot_id]}
+                    onClick={() => void triggerAction(b.bot_id, 'STOP')}
                     title="Parar robô com segurança"
-                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-700 py-2 text-slate-700 dark:text-slate-200 transition"
+                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-700 py-2 text-slate-700 dark:text-slate-200 transition disabled:opacity-50 disabled:cursor-wait"
                   >
                     <Square className="h-3.5 w-3.5" />
                   </button>

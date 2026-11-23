@@ -532,13 +532,13 @@ class PradoWebApp:
             action = str(payload.get("action", "START")).strip().upper()
             if action == "DELETE_ALL":
                 svc.delete_all_bots()
-                svc.step_once()
                 self._sync_user(user, svc)
                 return 200, json.dumps({"ok": True, "bots": []}, ensure_ascii=False), {"Content-Type": "application/json"}
             updated = svc.control_bot(bot_id, action)
             if updated is None:
                 return 404, json.dumps({"ok": False, "error": "Robô não encontrado"}), {"Content-Type": "application/json"}
-            svc.step_once()
+            if action in ("FIRE_BUY", "FIRE_SELL"):
+                svc.step_once()
             self._sync_user(user, svc)
             return 200, json.dumps({"ok": True, "bot": updated, "bots": cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
 
