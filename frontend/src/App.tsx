@@ -379,6 +379,9 @@ export default function App() {
       setAuthenticated(true)
       setAuthChecked(true)
       setConnectionError(null)
+      if (window.location.pathname === '/login') {
+        window.history.replaceState({}, document.title, '/')
+      }
 
       if (meRes.ok) {
         const meData: MeResponse = await meRes.json()
@@ -477,6 +480,9 @@ export default function App() {
           return
         }
         setAuthenticated(true)
+        if (window.location.pathname === '/login') {
+          window.history.replaceState({}, document.title, '/')
+        }
         setInitialLoading(true)
         await loadAllInitial()
       } else {

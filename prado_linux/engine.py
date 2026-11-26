@@ -1326,7 +1326,9 @@ class PradoTradingService:
         self.connector = CTraderUniversalConnector(cfg)
         self.connector.connect()
         self.news_scout = NewsScout()
-        self.economic_calendar = EconomicCalendarScout()
+        self.economic_calendar = EconomicCalendarScout(
+            cache_path=config_path.parent / "economic_calendar_cache.json"
+        )
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None

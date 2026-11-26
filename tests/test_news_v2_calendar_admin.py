@@ -154,6 +154,74 @@ def test_economic_calendar_scout_parse_and_error_handling() -> None:
     assert "network down" in cal_err.last_error.lower()
 
 
+def test_economic_calendar_shared_cache_anti_429_and_upcoming_first(tmp_path: Path) -> None:
+    EconomicCalendarScout.clear_shared_cache()
+    now_ts = time.time()
+    future_early = datetime.fromtimestamp(now_ts + 1800, tz=timezone.utc).isoformat()
+    future_late = datetime.fromtimestamp(now_ts + 7200, tz=timezone.utc).isoformat()
+    past_old = datetime.fromtimestamp(now_ts - 7200, tz=timezone.utc).isoformat()
+    past_recent = datetime.fromtimestamp(now_ts - 1800, tz=timezone.utc).isoformat()
+
+    calls = 0
+    payload = json.dumps(
+        [
+            {"title": "Past Old", "country": "AUD", "date": past_old, "impact": "Low"},
+            {"title": "Future Late", "country": "EUR", "date": future_late, "impact": "Medium"},
+            {"title": "Past Recent", "country": "GBP", "date": past_recent, "impact": "Low"},
+            {"title": "Future Early", "country": "USD", "date": future_early, "impact": "High"},
+        ]
+    )
+
+    def _counting_fetcher(_url: str) -> str:
+        nonlocal calls
+        calls += 1
+        return payload
+
+    cache_file = tmp_path / "cal_cache.json"
+    cal = EconomicCalendarScout(
+        fetcher=_counting_fetcher,
+        cache_path=cache_file,
+        min_force_interval_sec=300,
+    )
+    events = cal.fetch_week(force=True)
+    assert calls == 1
+    assert len(events) == 4
+    assert cache_file.exists()
+
+    # Second force=True within 5-minute protection window skips network hit
+    events2 = cal.fetch_week(force=True)
+    assert calls == 1
+    assert len(events2) == 4
+    assert cal.last_error == ""
+
+    # Upcoming events sorted first ascending, then past events descending (most recent past first)
+    snap = cal.snapshot_dict(now_ts=now_ts)
+    titles = [e["title"] for e in snap["events"]]
+    assert titles == ["Future Early", "Future Late", "Past Recent", "Past Old"]
+
+    # Simulate 429 error while cached events exist -> NO scary last_error, sets status_note + cooldown
+    def _rate_limited(_url: str) -> str:
+        raise OSError("HTTP Error 429: Too Many Requests")
+
+    cal_cached_429 = EconomicCalendarScout(
+        fetcher=_rate_limited,
+        cache_path=cache_file,
+        min_force_interval_sec=0,
+        rate_limit_cooldown_sec=600,
+    )
+    res_429 = cal_cached_429.fetch_week(force=True)
+    assert len(res_429) == 4
+    assert cal_cached_429.last_error == ""
+    assert "cache" in cal_cached_429.status_note.lower()
+
+    # Without cache, 429 yields friendly PT-BR error (not raw technical HTTP 429)
+    EconomicCalendarScout.clear_shared_cache()
+    cal_cold_429 = EconomicCalendarScout(fetcher=_rate_limited)
+    assert cal_cold_429.fetch_week(force=True) == []
+    assert "429" not in cal_cold_429.last_error
+    assert "limite" in cal_cold_429.last_error.lower() or "ocupada" in cal_cold_429.last_error.lower()
+
+
 def test_web_app_admin_only_feeds_and_calendar_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_sb = _FakeNewsMultiTenantSupabase()
     app = PradoWebApp(config_path=tmp_path / "config.json", supabase_store=fake_sb)  # type: ignore[arg-type]

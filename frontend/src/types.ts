@@ -173,6 +173,7 @@ export interface EconomicCalendarSnapshot {
   events: EconomicCalendarEvent[]
   last_fetch_at: number
   last_error: string
+  status_note?: string
   next_high_impact: EconomicCalendarEvent | null
 }
 

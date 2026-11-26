@@ -6,8 +6,12 @@ from email.utils import parsedate_to_datetime
 import hashlib
 import ipaddress
 import json
+import os
+from pathlib import Path
 import re
 import socket
+import tempfile
+import threading
 import time
 from typing import Any, Callable
 import urllib.parse
@@ -451,16 +455,104 @@ def _format_countdown(delta_sec: float) -> str:
 
 
 class EconomicCalendarScout:
-    """Weekly public economic calendar fetcher with caching (zero paid keys)."""
+    """Weekly public economic calendar fetcher with shared cache, disk persistence & anti-429 cooldown."""
 
     CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+    _SHARED_LOCK = threading.RLock()
+    _SHARED_EVENTS: list[dict[str, Any]] = []
+    _SHARED_FETCH_AT: float = 0.0
+    _SHARED_COOLDOWN_UNTIL: float = 0.0
+    _SHARED_LAST_ERROR: str = ""
+    _SHARED_STATUS_NOTE: str = ""
 
-    def __init__(self, fetcher: Callable[[str], str] | None = None, cache_sec: int = 1800) -> None:
+    @classmethod
+    def clear_shared_cache(cls) -> None:
+        with cls._SHARED_LOCK:
+            cls._SHARED_EVENTS = []
+            cls._SHARED_FETCH_AT = 0.0
+            cls._SHARED_COOLDOWN_UNTIL = 0.0
+            cls._SHARED_LAST_ERROR = ""
+            cls._SHARED_STATUS_NOTE = ""
+
+    def __init__(
+        self,
+        fetcher: Callable[[str], str] | None = None,
+        cache_sec: int = 1800,
+        cache_path: Path | None = None,
+        min_force_interval_sec: int = 300,
+        rate_limit_cooldown_sec: int = 600,
+    ) -> None:
+        self._custom_fetcher = fetcher is not None
         self._fetcher = fetcher or self._default_fetch
         self.cache_sec = max(60, int(cache_sec))
+        self.cache_path = cache_path
+        self.min_force_interval_sec = max(0, int(min_force_interval_sec))
+        self.rate_limit_cooldown_sec = max(60, int(rate_limit_cooldown_sec))
         self.events: list[dict[str, Any]] = []
         self.last_fetch_at: float = 0.0
         self.last_error: str = ""
+        self.status_note: str = ""
+        self._cooldown_until: float = 0.0
+        self._hydrate_from_cache()
+
+    def _hydrate_from_cache(self) -> None:
+        if self.cache_path and self.cache_path.exists():
+            try:
+                raw = json.loads(self.cache_path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict) and isinstance(raw.get("events"), list) and raw["events"]:
+                    self.events = list(raw["events"])
+                    self.last_fetch_at = float(raw.get("last_fetch_at") or 0.0)
+                    self._cooldown_until = float(raw.get("cooldown_until") or 0.0)
+            except Exception:
+                pass
+        if not self._custom_fetcher:
+            with self._SHARED_LOCK:
+                if self._SHARED_EVENTS and (not self.events or self._SHARED_FETCH_AT >= self.last_fetch_at):
+                    self.events = list(self._SHARED_EVENTS)
+                    self.last_fetch_at = self._SHARED_FETCH_AT
+                    self._cooldown_until = self._SHARED_COOLDOWN_UNTIL
+                    self.last_error = self._SHARED_LAST_ERROR
+                    self.status_note = self._SHARED_STATUS_NOTE
+                elif self.events and not self._SHARED_EVENTS:
+                    self._SHARED_EVENTS = list(self.events)
+                    self._SHARED_FETCH_AT = self.last_fetch_at
+                    self._SHARED_COOLDOWN_UNTIL = self._cooldown_until
+
+    def _persist_cache(self) -> None:
+        if not self.cache_path:
+            return
+        try:
+            self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = json.dumps(
+                {
+                    "events": self.events,
+                    "last_fetch_at": self.last_fetch_at,
+                    "cooldown_until": self._cooldown_until,
+                },
+                ensure_ascii=False,
+            )
+            fd, tmp_name = tempfile.mkstemp(prefix=".cal_", suffix=".tmp", dir=str(self.cache_path.parent))
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(payload)
+                os.replace(tmp_name, self.cache_path)
+            finally:
+                if os.path.exists(tmp_name):
+                    try:
+                        os.unlink(tmp_name)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+
+    def _sync_shared(self) -> None:
+        if not self._custom_fetcher:
+            with self._SHARED_LOCK:
+                self._SHARED_EVENTS = list(self.events)
+                self._SHARED_FETCH_AT = self.last_fetch_at
+                self._SHARED_COOLDOWN_UNTIL = self._cooldown_until
+                self._SHARED_LAST_ERROR = self.last_error
+                self._SHARED_STATUS_NOTE = self.status_note
 
     def _default_fetch(self, url: str) -> str:
         req = urllib.request.Request(
@@ -471,9 +563,27 @@ class EconomicCalendarScout:
             return resp.read().decode("utf-8", errors="ignore")
 
     def fetch_week(self, force: bool = False) -> list[dict[str, Any]]:
+        if not self._custom_fetcher:
+            with self._SHARED_LOCK:
+                if self._SHARED_EVENTS and not self.events:
+                    self.events = list(self._SHARED_EVENTS)
+                    self.last_fetch_at = self._SHARED_FETCH_AT
+                    self._cooldown_until = self._SHARED_COOLDOWN_UNTIL
         now = time.time()
-        if not force and self.last_fetch_at > 0 and (now - self.last_fetch_at) < self.cache_sec:
+        if now < self._cooldown_until:
+            if self.events:
+                self.last_error = ""
+                self.status_note = "Agenda exibida a partir do cache recente (proteção contra limite de consultas)."
             return self.events
+        if self.events and self.last_fetch_at > 0:
+            age = now - self.last_fetch_at
+            if not force and age < self.cache_sec:
+                return self.events
+            if force and self.min_force_interval_sec > 0 and age < self.min_force_interval_sec:
+                self.last_error = ""
+                self.status_note = "Agenda já está atualizada (cache recente dos últimos minutos)."
+                return self.events
+
         try:
             raw_txt = self._fetcher(self.CALENDAR_URL)
             data = json.loads(raw_txt or "[]")
@@ -516,11 +626,28 @@ class EconomicCalendarScout:
                 )
             parsed.sort(key=lambda x: float(x.get("timestamp") or 0.0))
             self.events = parsed[:120]
-            self.last_error = ""
-        except Exception as exc:
-            self.last_error = f"Falha ao consultar calendário econômico: {exc}"
-        finally:
             self.last_fetch_at = now
+            self.last_error = ""
+            self.status_note = ""
+            self._cooldown_until = 0.0
+            self._persist_cache()
+        except Exception as exc:
+            msg = str(exc)
+            is_429 = "429" in msg or "too many requests" in msg.lower()
+            if is_429:
+                self._cooldown_until = now + self.rate_limit_cooldown_sec
+                if self.events:
+                    self.last_error = ""
+                    self.status_note = "Agenda exibida a partir do cache recente (proteção contra limite de consultas)."
+                else:
+                    self.last_error = "Fonte do calendário econômico temporariamente ocupada (limite de consultas). Nova atualização automática em alguns minutos."
+                    self.status_note = ""
+            else:
+                self.last_error = f"Falha ao consultar calendário econômico: {exc}" if not self.events else ""
+                if self.events:
+                    self.status_note = "Exibindo agenda em cache recente."
+                self.last_fetch_at = now
+        self._sync_shared()
         return self.events
 
     def snapshot_dict(self, now_ts: float | None = None) -> dict[str, Any]:
@@ -537,11 +664,21 @@ class EconomicCalendarScout:
                 "countdown": _format_countdown(delta) if ts > 0 else "--",
             }
             enriched.append(rec)
-            if is_up and ev.get("impact") == "HIGH" and next_high is None:
+            if is_up and ev.get("impact") == "HIGH" and (
+                next_high is None or float(rec.get("timestamp") or 0.0) < float(next_high.get("timestamp") or 0.0)
+            ):
                 next_high = rec
+        # Upcoming events first (ascending), followed by finished events (most recent first)
+        enriched.sort(
+            key=lambda x: (
+                0 if x.get("is_upcoming") else 1,
+                float(x.get("timestamp") or 0.0) if x.get("is_upcoming") else -float(x.get("timestamp") or 0.0),
+            )
+        )
         return {
             "events": enriched,
             "last_fetch_at": self.last_fetch_at,
             "last_error": self.last_error,
+            "status_note": self.status_note,
             "next_high_impact": next_high,
         }

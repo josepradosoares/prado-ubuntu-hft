@@ -69,7 +69,7 @@ export function NewsPanel({
 
   // Economic calendar filters
   const [calOnlyHigh, setCalOnlyHigh] = useState(false)
-  const [calOnlyUpcoming, setCalOnlyUpcoming] = useState(true)
+  const [calScope, setCalScope] = useState<'UPCOMING' | 'TODAY' | 'WEEK'>('UPCOMING')
   const [calCurrency, setCalCurrency] = useState('ALL')
 
   // Admin feed form
@@ -111,13 +111,17 @@ export function NewsPanel({
   }, [calendar])
 
   const filteredCalendarEvents = useMemo(() => {
+    const now = new Date()
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000
+    const endToday = startToday + 86400
     return (calendar?.events || []).filter((ev) => {
       if (calOnlyHigh && ev.impact !== 'HIGH') return false
-      if (calOnlyUpcoming && !ev.is_upcoming) return false
+      if (calScope === 'UPCOMING' && !ev.is_upcoming) return false
+      if (calScope === 'TODAY' && (ev.timestamp < startToday || ev.timestamp >= endToday)) return false
       if (calCurrency !== 'ALL' && ev.currency !== calCurrency) return false
       return true
     })
-  }, [calendar, calOnlyHigh, calOnlyUpcoming, calCurrency])
+  }, [calendar, calOnlyHigh, calScope, calCurrency])
 
   const availableNewsSymbols = useMemo(() => {
     const set = new Set<string>(Object.keys(news?.summary_by_symbol || {}))
@@ -345,6 +349,11 @@ export function NewsPanel({
               {calendar.last_error}
             </div>
           )}
+          {!calendar?.last_error && calendar?.status_note && (
+            <div className="rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
+              {calendar.status_note}
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <select
@@ -370,17 +379,33 @@ export function NewsPanel({
             >
               Só Alto Impacto (3★)
             </button>
-            <button
-              type="button"
-              onClick={() => setCalOnlyUpcoming((v) => !v)}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
-                calOnlyUpcoming
-                  ? 'border-blue-500/40 bg-blue-500/15 text-blue-700 dark:text-blue-300'
-                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              Apenas próximos eventos
-            </button>
+            <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+              {(
+                [
+                  ['UPCOMING', 'Próximos'],
+                  ['TODAY', 'Hoje'],
+                  ['WEEK', 'Toda a semana'],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setCalScope(key)}
+                  className={`px-3 py-1.5 text-xs font-semibold transition ${
+                    calScope === key
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {calendar?.last_fetch_at ? (
+              <span className="ml-auto text-[11px] font-mono text-slate-400">
+                Sincronizado: {formatLastTime(calendar.last_fetch_at)}
+              </span>
+            ) : null}
           </div>
 
           <div className="overflow-x-auto max-h-72 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800">
