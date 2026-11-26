@@ -742,3 +742,124 @@ def test_news_scout_rss_429_host_cooldown_and_cached_fallback() -> None:
     items3, _ = scout.scan(feeds=feeds)
     assert calls - calls_before_third == 1  # only Yahoo called
     assert any(it["title"] == "Fed holds rates steady" for it in items3)
+
+
+def test_analyst_desk_cards_confluence_conviction_and_shield(tmp_path: Path) -> None:
+    EconomicCalendarScout.clear_shared_cache()
+    cfg = load_config(tmp_path / "cfg_desk.json")
+    cfg.connection_mode = "SIMULATION"
+    cfg.ctrader_access_token = ""
+    cfg.active_symbols = ["EURUSD", "XAUUSD", "BTCUSD"]
+    cfg.news_calendar_shield_enabled = True
+    cfg.news_calendar_pause_minutes = 15
+    cfg.news_filter_only = True
+    svc = PradoTradingService(cfg, config_path=tmp_path / "cfg_desk.json")
+    svc.create_bot({"name": "Bot Euro", "symbol": "EURUSD", "news_assisted": True, "auto_start": False})
+
+    now = time.time()
+    svc.news_scout.items = [
+        {
+            "id": "e1",
+            "title": "Fed signals rate cut ahead as inflation cools",
+            "symbol": "EURUSD",
+            "impact": "HIGH",
+            "bias": "BULLISH",
+            "score": 0.85,
+            "published_ts": now,
+            "analysis_source": "AI_OPENROUTER",
+            "ai_reason": "Corte de juros enfraquece o dólar e favorece EURUSD.",
+        },
+        {
+            "id": "e2",
+            "title": "ECB keeps hawkish stance on Eurozone growth",
+            "symbol": "EURUSD",
+            "impact": "HIGH",
+            "bias": "BULLISH",
+            "score": 0.75,
+            "published_ts": now - 120,
+            "analysis_source": "AI_OPENROUTER",
+            "ai_reason": "BCE firme sustenta valorização do euro.",
+        },
+        {
+            "id": "x1",
+            "title": "Stronger US yields weigh on gold",
+            "symbol": "XAUUSD",
+            "impact": "HIGH",
+            "bias": "BEARISH",
+            "score": -0.7,
+            "published_ts": now,
+            "analysis_source": "AI_GEMINI",
+            "ai_reason": "Dólar forte pressiona o ouro.",
+        },
+        {
+            "id": "b1",
+            "title": "Bitcoin holds weekly range",
+            "symbol": "BTCUSD",
+            "impact": "LOW",
+            "bias": "NEUTRAL",
+            "score": 0.0,
+            "published_ts": now,
+            "analysis_source": "LOCAL_RULES",
+            "ai_reason": "",
+        },
+        {
+            "id": "a1",
+            "title": "Global markets steady ahead of macro week",
+            "symbol": "ALL",
+            "impact": "LOW",
+            "bias": "NEUTRAL",
+            "score": 0.0,
+            "published_ts": now,
+            "analysis_source": "LOCAL_RULES",
+            "ai_reason": "",
+        },
+    ]
+
+    summary = svc.news_scout.summary_by_symbol(now_ts=now)
+    assert summary["EURUSD"]["confidence"] >= 70
+    assert summary["EURUSD"]["recommendation"] == "STRONG_BUY"
+    assert summary["EURUSD"]["ai_count"] == 2
+    assert summary["EURUSD"]["bullish_count"] == 2
+    assert "EURUSD" in summary["EURUSD"]["top_reason"] or "BCE" in summary["EURUSD"]["top_reason"]
+
+    svc._latest_snapshot = {
+        "symbols": {
+            "EURUSD": {"price": 1.1025, "vwap": 1.1000, "zscore": 1.9, "signal": "BUY_FLOW", "regime": "TREND_UP"},
+            "XAUUSD": {"price": 2650.0, "vwap": 2640.0, "zscore": 1.5, "signal": "BUY_FLOW", "regime": "TREND_UP"},
+            "BTCUSD": {"price": 90000.0, "vwap": 90000.0, "zscore": 0.1, "signal": "WAIT", "regime": "NEUTRAL"},
+        }
+    }
+
+    snap_news = svc._news_snapshot_dict()
+    cards = snap_news["analyst_cards"]
+    assert all(c["symbol"] != "ALL" for c in cards)
+    by_sym = {c["symbol"]: c for c in cards}
+
+    eur_card = by_sym["EURUSD"]
+    assert eur_card["action"] == "STRONG_BUY"
+    assert eur_card["confluence_state"] == "ALIGNED_BUY"
+    assert eur_card["conviction"] >= 70
+    assert eur_card["bots_count"] == 1
+    assert eur_card["shield_active"] is False
+    assert "libera" in eur_card["robot_effect"].lower() or "autorizada" in eur_card["robot_effect"].lower()
+
+    xau_card = by_sym["XAUUSD"]
+    assert xau_card["action"] == "WAIT_CONFLICT"
+    assert xau_card["confluence_state"] == "CONFLICT"
+    assert "bloqueia" in xau_card["robot_effect"].lower() or "diverg" in xau_card["robot_effect"].lower()
+
+    btc_card = by_sym["BTCUSD"]
+    assert btc_card["action"] == "NEUTRAL"
+
+    # Active 3-star USD calendar event inside ±15m -> PAUSE_SHIELD with conviction 0
+    usd_5m = datetime.fromtimestamp(now + 300, tz=timezone.utc).isoformat()
+    svc.economic_calendar = EconomicCalendarScout(
+        fetcher=lambda _u: json.dumps([{"title": "US CPI y/y", "country": "USD", "date": usd_5m, "impact": "High"}])
+    )
+    svc.economic_calendar.fetch_week(force=True)
+    shield_cards = {c["symbol"]: c for c in svc._news_snapshot_dict()["analyst_cards"]}
+    assert shield_cards["EURUSD"]["action"] == "PAUSE_SHIELD"
+    assert shield_cards["EURUSD"]["confluence_state"] == "SHIELD"
+    assert shield_cards["EURUSD"]["shield_active"] is True
+    assert shield_cards["EURUSD"]["conviction"] == 0
+    assert "3★" in shield_cards["EURUSD"]["robot_effect"] or "pausad" in shield_cards["EURUSD"]["robot_effect"].lower()

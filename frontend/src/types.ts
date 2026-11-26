@@ -205,6 +205,35 @@ export interface AIProviderCatalogItem {
   key_placeholder?: string
 }
 
+export interface AnalystCardItem {
+  symbol: string
+  action: 'STRONG_BUY' | 'BUY' | 'STRONG_SELL' | 'SELL' | 'WAIT_CONFLICT' | 'PAUSE_SHIELD' | 'NEUTRAL' | string
+  action_label: string
+  confluence_state: 'ALIGNED_BUY' | 'ALIGNED_SELL' | 'CONFLICT' | 'MACRO_BUY' | 'MACRO_SELL' | 'TECH_ONLY' | 'SHIELD' | 'NEUTRAL' | string
+  confluence_label: string
+  conviction: number
+  news_bias: string
+  news_score: number
+  news_confidence: number
+  tech_bias: string
+  tech_signal: string
+  price: number
+  vwap: number
+  zscore: number
+  count: number
+  high_impact: number
+  ai_count: number
+  bullish_count: number
+  bearish_count: number
+  neutral_count: number
+  top_reason: string
+  top_headline?: string
+  robot_effect: string
+  bots_count: number
+  shield_active: boolean
+  next_event?: { currency: string; title: string; countdown: string } | null
+}
+
 export interface NewsSnapshot {
   enabled: boolean
   pause_grid_on_high_impact: boolean
@@ -228,7 +257,25 @@ export interface NewsSnapshot {
   feed_status?: NewsFeedStatus[]
   curated_catalog?: CuratedNewsSource[]
   items: NewsItem[]
-  summary_by_symbol: Record<string, { symbol: string; count: number; high_impact: number; avg_score: number; bias: string }>
+  summary_by_symbol: Record<
+    string,
+    {
+      symbol: string
+      count: number
+      high_impact: number
+      avg_score: number
+      bias: string
+      confidence?: number
+      recommendation?: string
+      top_reason?: string
+      top_headline?: string
+      ai_count?: number
+      bullish_count?: number
+      bearish_count?: number
+      neutral_count?: number
+    }
+  >
+  analyst_cards?: AnalystCardItem[]
   calendar?: EconomicCalendarSnapshot
 }
 

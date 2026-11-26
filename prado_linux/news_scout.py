@@ -1062,25 +1062,91 @@ class NewsScout:
     def summary_by_symbol(self, now_ts: float | None = None) -> dict[str, dict[str, Any]]:
         ref_now = time.time() if now_ts is None else float(now_ts)
         summary: dict[str, dict[str, Any]] = {}
+        best_rank: dict[str, float] = {}
         for it in self.items:
             sym = str(it.get("symbol", ""))
             if not sym:
                 continue
             w = _recency_weight(float(it.get("published_ts") or ref_now), ref_now)
+            sc = float(it.get("score", 0.0))
+            it_bias = str(it.get("bias") or "NEUTRAL").upper()
+            is_ai = str(it.get("analysis_source") or "").startswith("AI_")
             entry = summary.setdefault(
                 sym,
-                {"symbol": sym, "count": 0, "high_impact": 0, "weighted_sum": 0.0, "weight_total": 0.0, "bias": "NEUTRAL"},
+                {
+                    "symbol": sym,
+                    "count": 0,
+                    "high_impact": 0,
+                    "ai_count": 0,
+                    "bullish_count": 0,
+                    "bearish_count": 0,
+                    "neutral_count": 0,
+                    "macro_usd_count": 0,
+                    "weighted_sum": 0.0,
+                    "weight_total": 0.0,
+                    "bias": "NEUTRAL",
+                    "confidence": 0,
+                    "recommendation": "NEUTRAL",
+                    "top_reason": "",
+                    "top_headline": "",
+                },
             )
             entry["count"] += 1
             if it.get("impact") == "HIGH":
                 entry["high_impact"] += 1
-            entry["weighted_sum"] += float(it.get("score", 0.0)) * w
+            if is_ai:
+                entry["ai_count"] += 1
+            if it_bias == "BULLISH":
+                entry["bullish_count"] += 1
+            elif it_bias == "BEARISH":
+                entry["bearish_count"] += 1
+            else:
+                entry["neutral_count"] += 1
+            if it.get("is_macro_usd"):
+                entry["macro_usd_count"] += 1
+            entry["weighted_sum"] += sc * w
             entry["weight_total"] += w
+
+            rank = (
+                w
+                * (2.0 if is_ai else 1.0)
+                * (1.5 if it.get("impact") == "HIGH" else 1.0)
+                * (1.0 + abs(sc))
+            )
+            if rank >= best_rank.get(sym, -1.0):
+                best_rank[sym] = rank
+                reason = str(it.get("ai_reason") or "").strip()
+                title = str(it.get("title") or "").strip()
+                entry["top_reason"] = reason or title
+                entry["top_headline"] = title
+
         for entry in summary.values():
             denom = max(1e-9, float(entry["weight_total"]))
             avg = float(entry["weighted_sum"]) / denom
             entry["avg_score"] = round(avg, 2)
             entry["bias"] = "BULLISH" if avg > 0.1 else ("BEARISH" if avg < -0.1 else "NEUTRAL")
+            if avg >= 0.45:
+                entry["recommendation"] = "STRONG_BUY"
+            elif avg > 0.1:
+                entry["recommendation"] = "BUY"
+            elif avg <= -0.45:
+                entry["recommendation"] = "STRONG_SELL"
+            elif avg < -0.1:
+                entry["recommendation"] = "SELL"
+            else:
+                entry["recommendation"] = "NEUTRAL"
+
+            cnt = int(entry["count"])
+            hi = int(entry["high_impact"])
+            ai_cnt = int(entry["ai_count"])
+            if entry["bias"] == "NEUTRAL":
+                conf = min(45, 15 + cnt * 4 + (10 if ai_cnt > 0 else 0))
+            else:
+                conf = min(
+                    95,
+                    int(round(abs(avg) * 55 + min(20, cnt * 6) + min(15, hi * 8) + (10 if ai_cnt > 0 else 0))),
+                )
+            entry["confidence"] = max(0, conf)
         return summary
 
 

@@ -2822,9 +2822,214 @@ class PradoTradingService:
         bot["last_signal"] = signal
         return positions
 
+    def build_analyst_cards(self, summary: dict[str, dict[str, Any]], pause_mins: int) -> list[dict[str, Any]]:
+        """Combine AI/news sentiment, live VWAP/flow signal and 3-star calendar shield into per-asset decision cards."""
+        candidates: list[str] = []
+        for raw_sym in (
+            list(getattr(self.cfg, "active_symbols", []))
+            + [str(b.get("symbol") or "") for b in getattr(self.cfg, "bots", []) if isinstance(b, dict)]
+            + list(summary.keys())
+        ):
+            sym = str(raw_sym or "").strip().upper()
+            if sym and sym != "ALL" and sym not in candidates:
+                candidates.append(sym)
+        candidates = candidates[:12]
+
+        live_symbols = self._latest_snapshot.get("symbols") if isinstance(self._latest_snapshot, dict) else {}
+        if not isinstance(live_symbols, dict):
+            live_symbols = {}
+        cal_snap = self.economic_calendar.snapshot_dict(window_minutes=pause_mins)
+        cal_events = cal_snap.get("events") or []
+        shield_enabled = bool(getattr(self.cfg, "news_calendar_shield_enabled", True))
+        pure_filter = bool(getattr(self.cfg, "news_filter_only", True))
+
+        bot_counts: dict[str, int] = {}
+        for b in getattr(self.cfg, "bots", []):
+            if isinstance(b, dict) and b.get("news_assisted"):
+                bsym = str(b.get("symbol") or "").strip().upper()
+                if bsym:
+                    bot_counts[bsym] = bot_counts.get(bsym, 0) + 1
+
+        cards: list[dict[str, Any]] = []
+        for sym in candidates:
+            news_entry = summary.get(sym) or {}
+            news_bias = str(news_entry.get("bias") or "NEUTRAL").upper()
+            news_score = float(news_entry.get("avg_score") or 0.0)
+            news_conf = int(news_entry.get("confidence") or 0)
+            ai_count = int(news_entry.get("ai_count") or 0)
+            count = int(news_entry.get("count") or 0)
+            high_impact = int(news_entry.get("high_impact") or 0)
+            bullish_count = int(news_entry.get("bullish_count") or 0)
+            bearish_count = int(news_entry.get("bearish_count") or 0)
+            neutral_count = int(news_entry.get("neutral_count") or 0)
+            top_reason = str(news_entry.get("top_reason") or "").strip()
+            top_headline = str(news_entry.get("top_headline") or "").strip()
+
+            sym_state = live_symbols.get(sym) or {}
+            price = float(sym_state.get("price") or 0.0)
+            vwap = float(sym_state.get("vwap") or 0.0)
+            zscore = float(sym_state.get("zscore") or 0.0)
+            tech_signal = str(sym_state.get("signal") or "WAIT").upper()
+            if "BUY" in tech_signal:
+                tech_bias = "BULLISH"
+            elif "SELL" in tech_signal:
+                tech_bias = "BEARISH"
+            elif price > 0 and vwap > 0 and abs(zscore) >= 0.5:
+                tech_bias = "BULLISH" if price > vwap else "BEARISH"
+            else:
+                tech_bias = "NEUTRAL"
+
+            currencies = self.economic_calendar.symbol_currencies(sym)
+            active_shield = (
+                self.economic_calendar.get_active_shield_events(sym, window_minutes=pause_mins)
+                if shield_enabled
+                else []
+            )
+            shield_active = len(active_shield) > 0
+            next_event = next(
+                (
+                    ev
+                    for ev in cal_events
+                    if ev.get("is_upcoming")
+                    and ev.get("impact") == "HIGH"
+                    and str(ev.get("currency") or "").upper() in currencies
+                ),
+                None,
+            )
+
+            if shield_active:
+                ev_names = ", ".join(f"{e.get('currency')} {e.get('title')}" for e in active_shield[:2])
+                action = "PAUSE_SHIELD"
+                action_label = "Pausado (3★)"
+                confluence_state = "SHIELD"
+                confluence_label = "Escudo do Calendário 3★ Ativo"
+                conviction = 0
+                robot_effect = f"Escudo 3★ ativo ({ev_names}): robôs pausam novas entradas nesta moeda."
+            elif news_bias in ("BULLISH", "BEARISH") and tech_bias == news_bias:
+                conviction = min(98, max(65, news_conf + 18))
+                if news_bias == "BULLISH":
+                    action = "STRONG_BUY"
+                    action_label = "Compra Alinhada"
+                    confluence_state = "ALIGNED_BUY"
+                    confluence_label = "IA + Gráfico em Alta"
+                    robot_effect = f"Entrada de COMPRA liberada: notícias ({news_score:+.2f}) e gráfico confirmam alta."
+                else:
+                    action = "STRONG_SELL"
+                    action_label = "Venda Alinhada"
+                    confluence_state = "ALIGNED_SELL"
+                    confluence_label = "IA + Gráfico em Baixa"
+                    robot_effect = f"Entrada de VENDA liberada: notícias ({news_score:+.2f}) e gráfico confirmam queda."
+            elif news_bias in ("BULLISH", "BEARISH") and tech_bias in ("BULLISH", "BEARISH") and tech_bias != news_bias:
+                conviction = max(15, int(round(news_conf * 0.4)))
+                action = "WAIT_CONFLICT"
+                action_label = "Divergente • Aguardar"
+                confluence_state = "CONFLICT"
+                confluence_label = "Notícia vs Gráfico em Conflito"
+                robot_effect = (
+                    "Filtro Puro bloqueia entrada contra a notícia; robô aguarda alinhamento."
+                    if pure_filter
+                    else "Sinal técnico diverge da notícia; atenção redobrada antes de operar."
+                )
+            elif news_bias == "BULLISH":
+                conviction = max(25, news_conf)
+                action = "BUY"
+                action_label = "Viés de Compra"
+                confluence_state = "MACRO_BUY"
+                confluence_label = "Notícias em Alta • Gráfico Neutro"
+                robot_effect = (
+                    "Viés comprador ativo; robô aguarda gatilho técnico de compra (Filtro Puro)."
+                    if pure_filter
+                    else "Viés comprador ativo nas notícias."
+                )
+            elif news_bias == "BEARISH":
+                conviction = max(25, news_conf)
+                action = "SELL"
+                action_label = "Viés de Venda"
+                confluence_state = "MACRO_SELL"
+                confluence_label = "Notícias em Baixa • Gráfico Neutro"
+                robot_effect = (
+                    "Viés vendedor ativo; robô aguarda gatilho técnico de venda (Filtro Puro)."
+                    if pure_filter
+                    else "Viés vendedor ativo nas notícias."
+                )
+            elif tech_bias in ("BULLISH", "BEARISH"):
+                conviction = 45
+                action = "BUY" if tech_bias == "BULLISH" else "SELL"
+                action_label = "Fluxo Comprador" if tech_bias == "BULLISH" else "Fluxo Vendedor"
+                confluence_state = "TECH_ONLY"
+                confluence_label = "Notícia Neutra • Fluxo Ativo"
+                robot_effect = "Notícias neutras; robô segue o sinal técnico do gráfico sem bloqueios."
+            else:
+                conviction = max(10, min(35, news_conf))
+                action = "NEUTRAL"
+                action_label = "Neutro • Técnico"
+                confluence_state = "NEUTRAL"
+                confluence_label = "Sem Direção Definida"
+                robot_effect = "Sem impacto direcional nas notícias; robô opera livre no gráfico."
+
+            cards.append(
+                {
+                    "symbol": sym,
+                    "action": action,
+                    "action_label": action_label,
+                    "confluence_state": confluence_state,
+                    "confluence_label": confluence_label,
+                    "conviction": conviction,
+                    "news_bias": news_bias,
+                    "news_score": round(news_score, 2),
+                    "news_confidence": news_conf,
+                    "tech_bias": tech_bias,
+                    "tech_signal": tech_signal,
+                    "price": round(price, 5),
+                    "vwap": round(vwap, 5),
+                    "zscore": round(zscore, 2),
+                    "count": count,
+                    "high_impact": high_impact,
+                    "ai_count": ai_count,
+                    "bullish_count": bullish_count,
+                    "bearish_count": bearish_count,
+                    "neutral_count": neutral_count,
+                    "top_reason": top_reason or "Sem manchetes diretas recentes — acompanhando o gráfico.",
+                    "top_headline": top_headline,
+                    "robot_effect": robot_effect,
+                    "bots_count": bot_counts.get(sym, 0),
+                    "shield_active": shield_active,
+                    "next_event": (
+                        {
+                            "currency": str(next_event.get("currency") or ""),
+                            "title": str(next_event.get("title") or ""),
+                            "countdown": str(next_event.get("countdown") or ""),
+                        }
+                        if next_event
+                        else None
+                    ),
+                }
+            )
+
+        order = {
+            "SHIELD": 0,
+            "ALIGNED_BUY": 1,
+            "ALIGNED_SELL": 1,
+            "CONFLICT": 2,
+            "MACRO_BUY": 3,
+            "MACRO_SELL": 3,
+            "TECH_ONLY": 4,
+            "NEUTRAL": 5,
+        }
+        cards.sort(
+            key=lambda c: (
+                order.get(str(c["confluence_state"]), 6),
+                -int(c["bots_count"]),
+                -int(c["conviction"]),
+                str(c["symbol"]),
+            )
+        )
+        return cards
+
     def _news_snapshot_dict(self) -> dict[str, Any]:
         pause_mins = max(5, min(60, int(getattr(self.cfg, "news_calendar_pause_minutes", 15) or 15)))
         ai_cfg = getattr(self.news_scout, "_ai_analyzer", None)
+        summary = self.news_scout.summary_by_symbol()
         return {
             "enabled": bool(getattr(self.cfg, "news_bot_enabled", False)),
             "pause_grid_on_high_impact": bool(getattr(self.cfg, "news_pause_grid_on_high_impact", False)),
@@ -2848,7 +3053,8 @@ class PradoTradingService:
             "feed_status": list(getattr(self.news_scout, "feed_status", [])),
             "curated_catalog": [dict(c) for c in CURATED_NEWS_CATALOG],
             "items": list(self.news_scout.items),
-            "summary_by_symbol": self.news_scout.summary_by_symbol(),
+            "summary_by_symbol": summary,
+            "analyst_cards": self.build_analyst_cards(summary, pause_mins),
             "calendar": self.economic_calendar.snapshot_dict(window_minutes=pause_mins),
         }
 

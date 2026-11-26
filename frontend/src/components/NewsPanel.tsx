@@ -8,17 +8,21 @@ import {
   ExternalLink,
   Filter,
   Globe,
+  PauseCircle,
   Plus,
   RefreshCw,
   Save,
   Search,
+  Settings2,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
   Trash2,
+  TrendingDown,
+  TrendingUp,
   XCircle,
 } from 'lucide-react'
-import { AIProviderCatalogItem, BotItem, BrokerSymbol, NewsFeed, NewsSnapshot } from '../types'
+import { AIProviderCatalogItem, AnalystCardItem, BotItem, BrokerSymbol, NewsFeed, NewsSnapshot } from '../types'
 import { formatSymbolDisplay } from '../utils/formatters'
 import { formatNewsImpact } from '../utils/labels'
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from './ui/Card'
@@ -197,6 +201,7 @@ export function NewsPanel({
   const [aiLoadingModels, setAiLoadingModels] = useState(false)
   const [dynamicModels, setDynamicModels] = useState<string[]>([])
   const [aiModelsNote, setAiModelsNote] = useState<string>('')
+  const [showAiConfig, setShowAiConfig] = useState(false)
   const [aiTestResult, setAiTestResult] = useState<{
     ok: boolean
     bias?: string
@@ -245,6 +250,40 @@ export function NewsPanel({
     () => (news?.items || []).filter((it) => Boolean(it.analysis_source && it.analysis_source.startsWith('AI_'))).length,
     [news],
   )
+  const analystCards = useMemo<AnalystCardItem[]>(() => {
+    if (news?.analyst_cards && news.analyst_cards.length > 0) return news.analyst_cards
+    return Object.values(news?.summary_by_symbol || {})
+      .filter((s) => s.symbol !== 'ALL')
+      .map((s) => ({
+        symbol: s.symbol,
+        action: s.bias === 'BULLISH' ? 'BUY' : s.bias === 'BEARISH' ? 'SELL' : 'NEUTRAL',
+        action_label: s.bias === 'BULLISH' ? 'Viés de Compra' : s.bias === 'BEARISH' ? 'Viés de Venda' : 'Neutro • Técnico',
+        confluence_state: s.bias === 'BULLISH' ? 'MACRO_BUY' : s.bias === 'BEARISH' ? 'MACRO_SELL' : 'NEUTRAL',
+        confluence_label: 'Análise Macro',
+        conviction: s.confidence ?? Math.min(90, Math.round(Math.abs(s.avg_score) * 70 + 20)),
+        news_bias: s.bias,
+        news_score: s.avg_score,
+        news_confidence: s.confidence ?? 0,
+        tech_bias: 'NEUTRAL',
+        tech_signal: 'WAIT',
+        price: 0,
+        vwap: 0,
+        zscore: 0,
+        count: s.count,
+        high_impact: s.high_impact,
+        ai_count: s.ai_count ?? 0,
+        bullish_count: s.bullish_count ?? 0,
+        bearish_count: s.bearish_count ?? 0,
+        neutral_count: s.neutral_count ?? 0,
+        top_reason: s.top_reason || s.top_headline || 'Sem manchetes diretas recentes — acompanhando o gráfico.',
+        top_headline: s.top_headline || '',
+        robot_effect: 'Acompanhe o alinhamento entre notícias e gráfico antes de entrar.',
+        bots_count: connectedBots.filter((b) => b.symbol === s.symbol).length,
+        shield_active: false,
+        next_event: null,
+      }))
+  }, [news?.analyst_cards, news?.summary_by_symbol, connectedBots])
+  const globalMacro = news?.summary_by_symbol?.ALL
 
   const filteredItems = useMemo(() => {
     const q = searchTerm.trim().toLowerCase()
@@ -407,23 +446,49 @@ export function NewsPanel({
 
   return (
     <div className="space-y-6">
-      {/* 1. Controle do Motor de Notícias & Erros */}
-      <Card>
-        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+      {/* 1. MESA DO ANALISTA DE NOTÍCIAS IA (Cards de Confluência por Ativo + Config Recolhível) */}
+      <Card className="overflow-hidden border-violet-500/30">
+        <CardHeader className="bg-gradient-to-r from-violet-500/10 via-blue-500/5 to-transparent flex flex-wrap items-center justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Globe className="h-4 w-4 text-blue-500" />
-              Central de Notícias &amp; Proteção Macro
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500/15 text-violet-500">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              Mesa do Analista de Notícias IA
             </CardTitle>
             <CardDescription>
-              Monitoramento em tempo real (RSS + Atom em PT-BR e Inglês) com peso maior para notícias recentes. Robôs que marcam &quot;Técnica + Notícias&quot; consultam esse painel.
+              Confluência em tempo real: leitura semântica das notícias cruzada com o fluxo técnico (VWAP) e Calendário 3★ para orientar operador e robôs
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 px-3 py-2 text-[11px] font-mono text-slate-500 dark:text-slate-400">
-              <Clock className="h-3.5 w-3.5" />
-              Última busca: {formatLastTime(news?.last_scan_at)}
+            {aiAnalyzedCount > 0 && (
+              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                {aiAnalyzedCount} de {news?.items?.length || 0} lidas por IA
+              </span>
+            )}
+            <span
+              className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                news?.ai_active
+                  ? 'border border-violet-500/30 bg-violet-500/15 text-violet-700 dark:text-violet-300'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              {news?.ai_active
+                ? `IA Ativa • ${(news?.ai_provider || 'gemini').toUpperCase()} (${news?.ai_model || ''})`
+                : 'Regras Locais Gratuitas'}
             </span>
+            <button
+              type="button"
+              onClick={() => setShowAiConfig((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                showAiConfig
+                  ? 'border-violet-500 bg-violet-600 text-white'
+                  : 'border-violet-500/35 bg-violet-500/10 text-violet-700 dark:text-violet-300 hover:bg-violet-500/20'
+              }`}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              {showAiConfig ? 'Fechar Config IA' : 'Configurar IA'}
+            </button>
             <button
               type="button"
               onClick={onScanNews}
@@ -431,9 +496,464 @@ export function NewsPanel({
               className="inline-flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${newsScanning ? 'animate-spin' : ''}`} />
-              {newsScanning ? 'Pesquisando...' : 'Pesquisar Notícias Agora'}
+              {newsScanning ? 'Analisando...' : 'Atualizar Análise'}
             </button>
           </div>
+        </CardHeader>
+
+        <CardBody className="space-y-5">
+          {!news?.ai_active && !showAiConfig && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-500/25 bg-violet-500/5 px-4 py-2.5 text-xs">
+              <span className="text-slate-700 dark:text-slate-300">
+                Conecte sua própria API Key (<strong>Gemini, ChatGPT, Claude, OpenRouter, Groq</strong>…) para trocar as regras locais pela leitura inteligente de contexto por IA.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAiConfig(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 px-3 py-1.5 text-[11px] font-semibold text-white shrink-0"
+              >
+                <Sparkles className="h-3 w-3" />
+                Conectar minha IA
+              </button>
+            </div>
+          )}
+
+          {showAiConfig && (
+            <form
+              onSubmit={handleSaveAiConfig}
+              className="space-y-4 rounded-2xl border border-violet-500/30 bg-slate-50/70 dark:bg-slate-950/50 p-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-900 dark:text-white">
+                  Configuração da Sua API Key de IA
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    aiDirtyRef.current = true
+                    setAiEnabled((v) => !v)
+                  }}
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                    aiEnabled
+                      ? 'border-violet-500 bg-violet-600 text-white'
+                      : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${aiEnabled ? 'bg-emerald-300' : 'bg-slate-400'}`} />
+                  {aiEnabled ? 'IA Ligada' : 'IA Desligada'}
+                </button>
+              </div>
+
+              <div>
+                <span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+                  1. Escolha o provedor de IA
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {aiProviders.map((p) => {
+                    const selected = aiProvider === p.id
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => handleProviderChange(p.id)}
+                        className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                          selected
+                            ? 'border-violet-500 bg-violet-500/15 text-violet-800 dark:text-violet-200 ring-1 ring-violet-500/40'
+                            : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
+                        }`}
+                      >
+                        <span className="truncate">{p.name}</span>
+                        {selected && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-violet-500" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                      2. Modelo
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleLoadProviderModels}
+                      disabled={aiLoadingModels || (!aiApiKey.trim() && !news?.ai_api_key_set)}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-600 dark:text-violet-300 hover:underline disabled:opacity-40"
+                    >
+                      <RefreshCw className={`h-3 w-3 ${aiLoadingModels ? 'animate-spin' : ''}`} />
+                      {aiLoadingModels ? 'Buscando...' : 'Carregar modelos da minha API'}
+                    </button>
+                  </div>
+                  {availableModels.length > 0 && (
+                    <select
+                      value={aiCustomModelMode ? '__CUSTOM__' : aiModel}
+                      onChange={(e) => {
+                        aiDirtyRef.current = true
+                        const v = e.target.value
+                        if (v === '__CUSTOM__') {
+                          setAiCustomModelMode(true)
+                        } else {
+                          setAiCustomModelMode(false)
+                          setAiModel(v)
+                        }
+                      }}
+                      className={inputClass}
+                    >
+                      {availableModels.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                      <option value="__CUSTOM__">Outro modelo (digitar ID manualmente)</option>
+                    </select>
+                  )}
+                  {(aiCustomModelMode || availableModels.length === 0) && (
+                    <input
+                      type="text"
+                      value={aiModel}
+                      onChange={(e) => {
+                        aiDirtyRef.current = true
+                        setAiModel(e.target.value)
+                      }}
+                      placeholder={selectedProviderMeta?.default_model || 'Ex: meta-llama/llama-3.3-70b-instruct:free'}
+                      className={`${inputClass} font-mono ${availableModels.length > 0 ? 'mt-1.5' : ''}`}
+                      required
+                    />
+                  )}
+                  {aiModelsNote && (
+                    <span className="mt-1 block text-[11px] text-emerald-600 dark:text-emerald-400">
+                      {aiModelsNote}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                      3. Sua API Key
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          news?.ai_api_key_set
+                            ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                        }`}
+                      >
+                        {news?.ai_api_key_set ? 'Chave salva' : 'Não configurada'}
+                      </span>
+                      {news?.ai_api_key_set && (
+                        <button
+                          type="button"
+                          onClick={handleClearAiKey}
+                          disabled={aiSaving}
+                          className="inline-flex items-center gap-1 text-[11px] text-rose-600 dark:text-rose-400 hover:underline"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Remover
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    type="password"
+                    value={aiApiKey}
+                    onChange={(e) => {
+                      aiDirtyRef.current = true
+                      setAiApiKey(e.target.value)
+                    }}
+                    placeholder={
+                      news?.ai_api_key_set
+                        ? 'Chave salva e protegida (cole outra só para trocar)'
+                        : selectedProviderMeta?.key_placeholder || 'Cole sua API Key aqui'
+                    }
+                    className={`${inputClass} font-mono`}
+                  />
+                </div>
+              </div>
+
+              {selectedProviderMeta?.needs_base_url && (
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                    URL Base da API (Compatível com OpenAI /chat/completions)
+                  </label>
+                  <input
+                    type="url"
+                    value={aiBaseUrl}
+                    onChange={(e) => {
+                      aiDirtyRef.current = true
+                      setAiBaseUrl(e.target.value)
+                    }}
+                    placeholder="https://api.mistral.ai/v1/chat/completions"
+                    className={`${inputClass} font-mono`}
+                    required
+                  />
+                </div>
+              )}
+
+              {aiTestResult && (
+                <div
+                  className={`rounded-xl border px-3.5 py-2.5 text-xs ${
+                    aiTestResult.ok
+                      ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                      : 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                  }`}
+                >
+                  {aiTestResult.ok ? (
+                    <div>
+                      <strong>Conexão validada ({aiTestResult.latency_ms}ms)!</strong> Teste em manchete macro:{' '}
+                      <span className="font-mono font-bold">{aiTestResult.bias}</span> ({aiTestResult.impact}) —{' '}
+                      {aiTestResult.reason}
+                    </div>
+                  ) : (
+                    <div>
+                      <strong>Não foi possível conectar:</strong> {aiTestResult.error}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Sua chave fica salva exclusivamente na sua conta. Se o provedor oscilar, as regras locais assumem automaticamente.
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleTestAiConnection}
+                    disabled={aiTesting || (!aiApiKey.trim() && !news?.ai_api_key_set)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-violet-500/35 bg-violet-500/10 hover:bg-violet-500/20 px-4 py-2 text-xs font-semibold text-violet-700 dark:text-violet-300 disabled:opacity-50"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {aiTesting ? 'Testando...' : 'Testar Conexão com IA'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={aiSaving}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    {aiSaving ? 'Salvando...' : 'Salvar e Aplicar IA'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
+          {globalMacro && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 px-4 py-2.5 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <Globe className="h-4 w-4 shrink-0 text-blue-500" />
+                <span className="font-bold text-slate-800 dark:text-slate-100 shrink-0">Panorama Macro Global:</span>
+                <span
+                  className={`rounded-md px-2 py-0.5 text-[10px] font-bold shrink-0 ${
+                    globalMacro.bias === 'BULLISH'
+                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                      : globalMacro.bias === 'BEARISH'
+                      ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                      : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  {globalMacro.bias === 'BULLISH' ? 'OTIMISTA (ALTA)' : globalMacro.bias === 'BEARISH' ? 'CAUTELA (BAIXA)' : 'NEUTRO'} •{' '}
+                  {globalMacro.avg_score > 0 ? `+${globalMacro.avg_score.toFixed(2)}` : globalMacro.avg_score.toFixed(2)}
+                </span>
+                {globalMacro.top_reason && (
+                  <span className="truncate text-slate-600 dark:text-slate-400">{globalMacro.top_reason}</span>
+                )}
+              </div>
+              <span className="text-[11px] font-mono text-slate-500 shrink-0">
+                {globalMacro.count} manchete(s) gerais
+              </span>
+            </div>
+          )}
+
+          {/* Cards das Moedas / Ativos — Decisão Clara para Operador e Robô */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {analystCards.map((card) => {
+              const isBuy = card.action === 'STRONG_BUY' || card.action === 'BUY'
+              const isSell = card.action === 'STRONG_SELL' || card.action === 'SELL'
+              const isShield = card.action === 'PAUSE_SHIELD'
+              const isConflict = card.action === 'WAIT_CONFLICT'
+              const borderCls = isShield
+                ? 'border-amber-500/45 bg-amber-500/[0.04]'
+                : card.confluence_state === 'ALIGNED_BUY'
+                ? 'border-emerald-500/45 bg-emerald-500/[0.04]'
+                : card.confluence_state === 'ALIGNED_SELL'
+                ? 'border-rose-500/45 bg-rose-500/[0.04]'
+                : isConflict
+                ? 'border-amber-500/35 bg-amber-500/[0.03]'
+                : 'border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40'
+              const badgeCls = isShield
+                ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/35'
+                : isBuy
+                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                : isSell
+                ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30'
+                : isConflict
+                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                : 'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+              const barCls = isShield
+                ? 'bg-amber-500'
+                : isBuy
+                ? 'bg-emerald-500'
+                : isSell
+                ? 'bg-rose-500'
+                : isConflict
+                ? 'bg-amber-500'
+                : 'bg-slate-400'
+              const isSelectedFilter = filterSymbol === card.symbol
+              return (
+                <div
+                  key={card.symbol}
+                  onClick={() => setFilterSymbol((prev) => (prev === card.symbol ? 'ALL' : card.symbol))}
+                  className={`cursor-pointer rounded-2xl border p-4 transition space-y-3 ${borderCls} ${
+                    isSelectedFilter ? 'ring-2 ring-blue-500' : 'hover:border-slate-400 dark:hover:border-slate-600'
+                  }`}
+                >
+                  {/* Cabeçalho do Card: Ativo + Preço + Veredito */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                          {formatSymbolDisplay(card.symbol, symbols)}
+                        </span>
+                        {card.ai_count > 0 && (
+                          <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-bold text-violet-700 dark:text-violet-300 shrink-0">
+                            IA
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-2 text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                        <span>{card.symbol}</span>
+                        {card.price > 0 && <span>• {card.price}</span>}
+                        {card.bots_count > 0 && (
+                          <span className="rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-sans font-semibold text-blue-700 dark:text-blue-300">
+                            {card.bots_count} robô(s)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-[11px] font-bold shrink-0 ${badgeCls}`}>
+                      {isShield ? (
+                        <PauseCircle className="h-3.5 w-3.5" />
+                      ) : isBuy ? (
+                        <TrendingUp className="h-3.5 w-3.5" />
+                      ) : isSell ? (
+                        <TrendingDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ShieldAlert className="h-3.5 w-3.5" />
+                      )}
+                      {card.action_label}
+                    </span>
+                  </div>
+
+                  {/* Barra de Peso / Força para Decisão */}
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <span className="font-medium text-slate-600 dark:text-slate-300">{card.confluence_label}</span>
+                      <span className="font-mono font-bold text-slate-900 dark:text-white">
+                        Peso {card.conviction}%
+                      </span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${barCls}`}
+                        style={{ width: `${Math.max(4, Math.min(100, card.conviction))}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Comparação Lado a Lado: Notícias IA vs Fluxo Técnico */}
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/60 dark:bg-slate-900/50 px-2.5 py-2">
+                      <span className="block text-[10px] uppercase text-slate-400">Notícias / IA</span>
+                      <div className="mt-0.5 flex items-center justify-between font-semibold">
+                        <span
+                          className={
+                            card.news_bias === 'BULLISH'
+                              ? 'text-emerald-600 dark:text-emerald-300'
+                              : card.news_bias === 'BEARISH'
+                              ? 'text-rose-600 dark:text-rose-300'
+                              : 'text-slate-500'
+                          }
+                        >
+                          {card.news_bias === 'BULLISH' ? 'ALTA' : card.news_bias === 'BEARISH' ? 'BAIXA' : 'NEUTRO'}
+                        </span>
+                        <span className="font-mono text-[10px] text-slate-500">
+                          {card.news_score > 0 ? `+${card.news_score.toFixed(2)}` : card.news_score.toFixed(2)}
+                        </span>
+                      </div>
+                      <span className="block text-[10px] text-slate-400 mt-0.5">
+                        {card.count} notícia(s) ({card.bullish_count}↑ / {card.bearish_count}↓)
+                      </span>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/60 dark:bg-slate-900/50 px-2.5 py-2">
+                      <span className="block text-[10px] uppercase text-slate-400">Gráfico (VWAP)</span>
+                      <div className="mt-0.5 flex items-center justify-between font-semibold">
+                        <span
+                          className={
+                            card.tech_bias === 'BULLISH'
+                              ? 'text-emerald-600 dark:text-emerald-300'
+                              : card.tech_bias === 'BEARISH'
+                              ? 'text-rose-600 dark:text-rose-300'
+                              : 'text-slate-500'
+                          }
+                        >
+                          {card.tech_bias === 'BULLISH' ? 'COMPRA' : card.tech_bias === 'BEARISH' ? 'VENDA' : 'NEUTRO'}
+                        </span>
+                        <span className="font-mono text-[10px] text-slate-500">
+                          Z {card.zscore >= 0 ? `+${card.zscore.toFixed(1)}` : card.zscore.toFixed(1)}
+                        </span>
+                      </div>
+                      <span className="block text-[10px] font-mono text-slate-400 mt-0.5 truncate">
+                        Sinal: {card.tech_signal}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Tese resumida da IA */}
+                  <p className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed line-clamp-2">
+                    “{card.top_reason}”
+                  </p>
+
+                  {/* Rodapé: Impacto direto no Robô + Próximo Evento 3★ */}
+                  <div className="rounded-xl border border-slate-200/70 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 px-3 py-2 text-[11px] flex items-start gap-2">
+                    <Bot className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-500" />
+                    <div className="min-w-0 flex-1">
+                      <span className="block text-slate-700 dark:text-slate-200 font-medium">{card.robot_effect}</span>
+                      {card.next_event && (
+                        <span className="block text-[10px] text-amber-600 dark:text-amber-300 mt-0.5">
+                          Próximo 3★: {card.next_event.currency} • {card.next_event.title} ({card.next_event.countdown})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* 2. Controles do Motor de Notícias & Proteção Macro */}
+      <Card>
+        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-blue-500" />
+              Controles do Robô &amp; Proteção Macro
+            </CardTitle>
+            <CardDescription>
+              Regras de segurança aplicadas automaticamente nos robôs que utilizam Técnica + Notícias
+            </CardDescription>
+          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 px-3 py-2 text-[11px] font-mono text-slate-500 dark:text-slate-400">
+            <Clock className="h-3.5 w-3.5" />
+            Última busca: {formatLastTime(news?.last_scan_at)}
+          </span>
         </CardHeader>
 
         <CardBody className="space-y-4">
@@ -447,7 +967,6 @@ export function NewsPanel({
             </div>
           )}
 
-          {/* Controles Reais do Motor */}
           {(calendar?.active_shield_events?.length || 0) > 0 && (news?.calendar_shield_enabled ?? true) && (
             <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/15 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
               <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
@@ -588,298 +1107,6 @@ export function NewsPanel({
               </div>
             </div>
           </div>
-
-          {/* Sentimento por Ativo */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-            {Object.values(news?.summary_by_symbol || {}).map((s) => (
-              <button
-                key={s.symbol}
-                type="button"
-                onClick={() => setFilterSymbol((prev) => (prev === s.symbol ? 'ALL' : s.symbol))}
-                className={`rounded-xl border p-3 text-left transition ${
-                  filterSymbol === s.symbol
-                    ? 'border-blue-500 bg-blue-500/10'
-                    : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 hover:border-slate-400 dark:hover:border-slate-600'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-xs font-mono font-bold text-slate-900 dark:text-white truncate">
-                    {formatSymbolDisplay(s.symbol, symbols)}
-                  </span>
-                  <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-semibold shrink-0 ${
-                      s.bias === 'BULLISH'
-                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
-                        : s.bias === 'BEARISH'
-                        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300'
-                        : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                    }`}
-                  >
-                    {s.bias === 'BULLISH' ? 'ALTA' : s.bias === 'BEARISH' ? 'BAIXA' : 'NEUTRO'}
-                  </span>
-                </div>
-                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                  <span>
-                    {s.count} notícia(s) • {s.high_impact} alto impacto
-                  </span>
-                  <span className="font-mono text-[10px]">
-                    {s.avg_score > 0 ? `+${s.avg_score.toFixed(2)}` : s.avg_score.toFixed(2)}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </CardBody>
-      </Card>
-
-      {/* 1B. Inteligência Artificial nas Notícias (Sua API Key — Design Limpo & Multi-Provedor) */}
-      <Card className="overflow-hidden border-violet-500/30">
-        <CardHeader className="bg-gradient-to-r from-violet-500/10 via-fuchsia-500/5 to-transparent flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-violet-500/15 text-violet-500">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              Inteligência Artificial nas Notícias
-            </CardTitle>
-            <CardDescription>
-              Conecte sua própria API Key para interpretar contexto, negação e correlação do dólar em tempo real.
-            </CardDescription>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {aiAnalyzedCount > 0 && (
-              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-                {aiAnalyzedCount} de {news?.items?.length || 0} lidas por IA
-              </span>
-            )}
-            <span
-              className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
-                news?.ai_active
-                  ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              {news?.ai_active
-                ? `IA Ativa • ${(news?.ai_provider || 'gemini').toUpperCase()} (${news?.ai_model || ''})`
-                : 'Regras Locais Gratuitas'}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                aiDirtyRef.current = true
-                setAiEnabled((v) => !v)
-              }}
-              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
-                aiEnabled
-                  ? 'border-violet-500 bg-violet-600 text-white'
-                  : 'border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900 text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              <span className={`h-2 w-2 rounded-full ${aiEnabled ? 'bg-emerald-300' : 'bg-slate-400'}`} />
-              {aiEnabled ? 'IA Ligada' : 'IA Desligada'}
-            </button>
-          </div>
-        </CardHeader>
-        <CardBody>
-          <form onSubmit={handleSaveAiConfig} className="space-y-4">
-            {/* Seletor visual de provedores */}
-            <div>
-              <span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
-                1. Escolha o provedor de IA
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {aiProviders.map((p) => {
-                  const selected = aiProvider === p.id
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => handleProviderChange(p.id)}
-                      className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
-                        selected
-                          ? 'border-violet-500 bg-violet-500/15 text-violet-800 dark:text-violet-200 ring-1 ring-violet-500/40'
-                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
-                      }`}
-                    >
-                      <span className="truncate">{p.name}</span>
-                      {selected && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-violet-500" />}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Modelo + Sua API Key */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                    2. Modelo
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleLoadProviderModels}
-                    disabled={aiLoadingModels || (!aiApiKey.trim() && !news?.ai_api_key_set)}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-600 dark:text-violet-300 hover:underline disabled:opacity-40"
-                  >
-                    <RefreshCw className={`h-3 w-3 ${aiLoadingModels ? 'animate-spin' : ''}`} />
-                    {aiLoadingModels ? 'Buscando...' : 'Carregar modelos da minha API'}
-                  </button>
-                </div>
-                {availableModels.length > 0 && (
-                  <select
-                    value={aiCustomModelMode ? '__CUSTOM__' : aiModel}
-                    onChange={(e) => {
-                      aiDirtyRef.current = true
-                      const v = e.target.value
-                      if (v === '__CUSTOM__') {
-                        setAiCustomModelMode(true)
-                      } else {
-                        setAiCustomModelMode(false)
-                        setAiModel(v)
-                      }
-                    }}
-                    className={inputClass}
-                  >
-                    {availableModels.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                    <option value="__CUSTOM__">Outro modelo (digitar ID manualmente)</option>
-                  </select>
-                )}
-                {(aiCustomModelMode || availableModels.length === 0) && (
-                  <input
-                    type="text"
-                    value={aiModel}
-                    onChange={(e) => {
-                      aiDirtyRef.current = true
-                      setAiModel(e.target.value)
-                    }}
-                    placeholder={selectedProviderMeta?.default_model || 'Ex: meta-llama/llama-3.3-70b-instruct:free'}
-                    className={`${inputClass} font-mono ${availableModels.length > 0 ? 'mt-1.5' : ''}`}
-                    required
-                  />
-                )}
-                {aiModelsNote && (
-                  <span className="mt-1 block text-[11px] text-emerald-600 dark:text-emerald-400">
-                    {aiModelsNote}
-                  </span>
-                )}
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                    3. Sua API Key
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        news?.ai_api_key_set
-                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                          : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
-                      }`}
-                    >
-                      {news?.ai_api_key_set ? 'Chave salva' : 'Não configurada'}
-                    </span>
-                    {news?.ai_api_key_set && (
-                      <button
-                        type="button"
-                        onClick={handleClearAiKey}
-                        disabled={aiSaving}
-                        className="inline-flex items-center gap-1 text-[11px] text-rose-600 dark:text-rose-400 hover:underline"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                        Remover
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <input
-                  type="password"
-                  value={aiApiKey}
-                  onChange={(e) => {
-                    aiDirtyRef.current = true
-                    setAiApiKey(e.target.value)
-                  }}
-                  placeholder={
-                    news?.ai_api_key_set
-                      ? 'Chave salva e protegida (cole outra só para trocar)'
-                      : selectedProviderMeta?.key_placeholder || 'Cole sua API Key aqui'
-                  }
-                  className={`${inputClass} font-mono`}
-                />
-              </div>
-            </div>
-
-            {selectedProviderMeta?.needs_base_url && (
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  URL Base da API (Compatível com OpenAI /chat/completions)
-                </label>
-                <input
-                  type="url"
-                  value={aiBaseUrl}
-                  onChange={(e) => {
-                    aiDirtyRef.current = true
-                    setAiBaseUrl(e.target.value)
-                  }}
-                  placeholder="https://api.mistral.ai/v1/chat/completions"
-                  className={`${inputClass} font-mono`}
-                  required
-                />
-              </div>
-            )}
-
-            {aiTestResult && (
-              <div
-                className={`rounded-xl border px-3.5 py-2.5 text-xs ${
-                  aiTestResult.ok
-                    ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
-                    : 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200'
-                }`}
-              >
-                {aiTestResult.ok ? (
-                  <div>
-                    <strong>Conexão validada ({aiTestResult.latency_ms}ms)!</strong> Teste em manchete macro:{' '}
-                    <span className="font-mono font-bold">{aiTestResult.bias}</span> ({aiTestResult.impact}) —{' '}
-                    {aiTestResult.reason}
-                  </div>
-                ) : (
-                  <div>
-                    <strong>Não foi possível conectar:</strong> {aiTestResult.error}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                Sua chave fica salva exclusivamente na sua conta. Se o provedor oscilar, as regras locais assumem automaticamente.
-              </span>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleTestAiConnection}
-                  disabled={aiTesting || (!aiApiKey.trim() && !news?.ai_api_key_set)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-violet-500/35 bg-violet-500/10 hover:bg-violet-500/20 px-4 py-2 text-xs font-semibold text-violet-700 dark:text-violet-300 disabled:opacity-50"
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {aiTesting ? 'Testando...' : 'Testar Conexão com IA'}
-                </button>
-                <button
-                  type="submit"
-                  disabled={aiSaving}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                >
-                  <Save className="h-3.5 w-3.5" />
-                  {aiSaving ? 'Salvando...' : 'Salvar e Aplicar IA'}
-                </button>
-              </div>
-            </div>
-          </form>
         </CardBody>
       </Card>
 
