@@ -478,3 +478,112 @@ def test_grid_linear_news_scout_indicators_and_supabase_isolation(tmp_path: Path
     finally:
         for usvc in app._user_services.values():
             usvc.stop_background_loop()
+
+
+def test_ctrader_reauthorizes_account_2102_on_reconnect_and_not_authorized(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 1. _open_connection sends BOTH 2100 and 2102 when _selected_account_id is set
+    sent_payloads: list[dict] = []
+
+    class _FakeWS:
+        connected = True
+
+        def close(self) -> None:
+            self.connected = False
+
+    client_ws = CTraderClient("cid", "csec", "tok_123", account_id="ct_49716348")
+    monkeypatch.setattr(client_ws, "_open_ws_url", lambda _url: _FakeWS())
+    monkeypatch.setattr(client_ws, "_start_ws_reader", lambda _ws: None)
+    monkeypatch.setattr(client_ws, "_stop_ws_reader", lambda: None)
+
+    def _fake_send_via_reader(_ws, env: dict, timeout: float = 10.0) -> dict:
+        sent_payloads.append(env)
+        pt = env["payloadType"]
+        if pt == PT_APPLICATION_AUTH_REQ:
+            return {"clientMsgId": env["clientMsgId"], "payloadType": PT_APPLICATION_AUTH_RES, "payload": {}}
+        if pt == PT_ACCOUNT_AUTH_REQ:
+            return {"clientMsgId": env["clientMsgId"], "payloadType": PT_ACCOUNT_AUTH_RES, "payload": {}}
+        return {"clientMsgId": env["clientMsgId"], "payloadType": 0, "payload": {}}
+
+    monkeypatch.setattr(client_ws, "_send_via_reader", _fake_send_via_reader)
+    client_ws._open_connection()
+    assert [p["payloadType"] for p in sent_payloads] == [PT_APPLICATION_AUTH_REQ, PT_ACCOUNT_AUTH_REQ]
+    assert sent_payloads[1]["payload"]["ctidTraderAccountId"] == 49716348
+    assert client_ws._account_authed is True
+
+    # _open_connection(auto_auth_account=False) sends ONLY 2100 (for list_accounts)
+    sent_payloads.clear()
+    client_ws._open_connection(auto_auth_account=False)
+    assert [p["payloadType"] for p in sent_payloads] == [PT_APPLICATION_AUTH_REQ]
+
+    # 2. _send_rpc self-heals on INVALID_REQUEST: Trading account is not authorized via 2102 + retry
+    rpc_log: list[int] = []
+    trader_calls = 0
+
+    def _rpc_reauth(env: dict) -> dict:
+        nonlocal trader_calls
+        pt = env["payloadType"]
+        cid = env["clientMsgId"]
+        rpc_log.append(pt)
+        if pt == PT_TRADER_REQ:
+            trader_calls += 1
+            if trader_calls == 1:
+                return {
+                    "clientMsgId": cid,
+                    "payloadType": PT_OA_ERROR_RES,
+                    "payload": {"errorCode": "INVALID_REQUEST", "description": "Trading account is not authorized"},
+                }
+            return {"clientMsgId": cid, "payloadType": PT_TRADER_RES, "payload": {"trader": {"balance": 100000}}}
+        if pt == PT_ACCOUNT_AUTH_REQ:
+            return {"clientMsgId": cid, "payloadType": PT_ACCOUNT_AUTH_RES, "payload": {}}
+        if pt == PT_NEW_ORDER_REQ:
+            return {
+                "clientMsgId": cid,
+                "payloadType": PT_OA_ERROR_RES,
+                "payload": {"errorCode": "INVALID_REQUEST", "description": "Trading account is not authorized"},
+            }
+        return {"clientMsgId": cid, "payloadType": 0, "payload": {}}
+
+    client_rpc = CTraderClient("cid", "csec", "tok_123", account_id="49716348", rpc_transport=_rpc_reauth)
+    resp = client_rpc._send_rpc(PT_TRADER_REQ, {"ctidTraderAccountId": 49716348})
+    assert resp["payloadType"] == PT_TRADER_RES
+    assert rpc_log == [PT_TRADER_REQ, PT_ACCOUNT_AUTH_REQ, PT_TRADER_REQ]
+
+    # 3. Safety rule: PT_NEW_ORDER_REQ (2106) is NEVER blindly retried even on not authorized
+    client_rpc._account_authed = True
+    rpc_log.clear()
+    with pytest.raises(RuntimeError, match="not authorized"):
+        client_rpc._send_rpc(PT_NEW_ORDER_REQ, {"ctidTraderAccountId": 49716348})
+    assert rpc_log == [PT_NEW_ORDER_REQ]
+    assert client_rpc._account_authed is False
+
+
+def test_bot_survives_transient_ctrader_not_authorized_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = load_config(tmp_path / "cfg_reauth.json")
+    cfg.connection_mode = "SIMULATION"
+    cfg.ctrader_access_token = ""
+    svc = PradoTradingService(cfg, config_path=tmp_path / "cfg_reauth.json")
+    bot = svc.create_bot({"name": "Grid Gold", "symbol": "XAUUSD", "auto_start": True})
+
+    reconnected = {"count": 0}
+    monkeypatch.setattr(svc.connector, "connect", lambda: (reconnected.__setitem__("count", reconnected["count"] + 1) or True, "ok"))
+
+    orig_fetch = svc.connector.fetch_ticks
+
+    def _boom_fetch(sym: str, *args, **kwargs):
+        if sym == "XAUUSD" and "granularity" in kwargs:
+            raise RuntimeError("cTrader Open API (INVALID_REQUEST): Trading account is not authorized")
+        return orig_fetch(sym, *args, **kwargs)
+
+    monkeypatch.setattr(svc.connector, "fetch_ticks", _boom_fetch)
+    svc.step_once()
+    assert bot["status"] == "RUNNING"
+    assert bot["active"] is True
+    assert bot["last_signal"] == "RECONNECTING"
+    assert "reconectando" in bot["last_error"].lower()
+    assert reconnected["count"] == 1
+
+    # Next healthy tick automatically clears transient last_error
+    monkeypatch.setattr(svc.connector, "fetch_ticks", orig_fetch)
+    svc.step_once()
+    assert bot["status"] == "RUNNING"
+    assert bot["last_error"] == ""

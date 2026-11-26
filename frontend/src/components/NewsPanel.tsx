@@ -236,6 +236,12 @@ export function NewsPanel({
     setAiCustomModelMode(knownModels.length === 0 || (Boolean(nextModel) && !knownModels.includes(nextModel)))
   }, [news, aiProviders])
 
+  useEffect(() => {
+    if (!aiTestResult?.ok) return
+    const timer = window.setTimeout(() => setAiTestResult(null), 8000)
+    return () => window.clearTimeout(timer)
+  }, [aiTestResult])
+
   const connectedBots = useMemo(() => bots.filter((b) => Boolean(b.news_assisted)), [bots])
   const feeds = useMemo(() => news?.feeds || [], [news])
   const feedStatusMap = useMemo(() => {
@@ -375,6 +381,7 @@ export function NewsPanel({
       await onUpdateNewsConfig(payload)
       setAiApiKey('')
       aiDirtyRef.current = false
+      setShowAiConfig(false)
       if (aiEnabled) {
         onScanNews()
       }
@@ -695,23 +702,33 @@ export function NewsPanel({
 
               {aiTestResult && (
                 <div
-                  className={`rounded-xl border px-3.5 py-2.5 text-xs ${
+                  className={`flex items-start justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-xs ${
                     aiTestResult.ok
                       ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
                       : 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200'
                   }`}
                 >
-                  {aiTestResult.ok ? (
-                    <div>
-                      <strong>Conexão validada ({aiTestResult.latency_ms}ms)!</strong> Teste em manchete macro:{' '}
-                      <span className="font-mono font-bold">{aiTestResult.bias}</span> ({aiTestResult.impact}) —{' '}
-                      {aiTestResult.reason}
-                    </div>
-                  ) : (
-                    <div>
-                      <strong>Não foi possível conectar:</strong> {aiTestResult.error}
-                    </div>
-                  )}
+                  <div className="min-w-0 flex-1">
+                    {aiTestResult.ok ? (
+                      <div>
+                        <strong>Conexão validada ({aiTestResult.latency_ms}ms)!</strong> Teste em manchete macro:{' '}
+                        <span className="font-mono font-bold">{aiTestResult.bias}</span> ({aiTestResult.impact}) —{' '}
+                        {aiTestResult.reason}
+                      </div>
+                    ) : (
+                      <div>
+                        <strong>Não foi possível conectar:</strong> {aiTestResult.error}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAiTestResult(null)}
+                    className="shrink-0 rounded-md p-0.5 opacity-70 hover:opacity-100"
+                    title="Fechar mensagem"
+                  >
+                    <XCircle className="h-4 w-4" />
+                  </button>
                 </div>
               )}
 

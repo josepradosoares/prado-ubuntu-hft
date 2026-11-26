@@ -32,6 +32,24 @@ interface Props {
   onDeleteAll: () => void
 }
 
+function formatBotError(raw: string): string {
+  const msg = String(raw || '').trim()
+  const low = msg.toLowerCase()
+  if (low.includes('not authorized') || low.includes('reconectando')) {
+    return 'Reconectando autorização da conta cTrader...'
+  }
+  if (low.includes('market_closed') || low.includes('market is closed')) {
+    return 'Mercado fechado para este ativo no momento.'
+  }
+  if (low.includes('not_enough_money') || low.includes('margin')) {
+    return 'Margem livre insuficiente na conta para este lote.'
+  }
+  if (low.includes('ratelimit') || low.includes('frequency')) {
+    return 'Limite temporário de consultas na corretora (aguardando janela).'
+  }
+  return msg
+}
+
 export function BotCardGrid({
   bots,
   symbols,
@@ -427,8 +445,17 @@ export function BotCardGrid({
                     </span>
                   </div>
                   {b.last_error ? (
-                    <div className="mt-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[10px] font-mono text-rose-700 dark:text-rose-300 break-words">
-                      Erro isolado: {b.last_error}
+                    <div
+                      className={`mt-2 rounded-lg border px-2.5 py-1 text-[10px] font-medium break-words ${
+                        b.last_signal === 'RECONNECTING' ||
+                        b.last_error.toLowerCase().includes('not authorized') ||
+                        b.last_error.toLowerCase().includes('reconect') ||
+                        b.last_error.toLowerCase().includes('ratelimit')
+                          ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                          : 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                      }`}
+                    >
+                      {formatBotError(b.last_error)}
                     </div>
                   ) : null}
                   {lastUpdated && (

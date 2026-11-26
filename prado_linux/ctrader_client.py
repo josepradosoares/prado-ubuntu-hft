@@ -501,6 +501,12 @@ class CTraderClient:
         self._req_seq += 1
         return f"prado_{self._req_seq}"
 
+    def _numeric_selected_account_id(self) -> int | None:
+        raw = str(self._selected_account_id or "").strip()
+        if raw.startswith("ct_"):
+            raw = raw[3:]
+        return int(raw) if raw.isdigit() else None
+
     def _open_ws_url(self, url: str) -> Any:
         try:
             import websocket  # type: ignore
@@ -881,7 +887,7 @@ class CTraderClient:
             raise CTraderAuthError("INSUFFICIENT_SCOPE", f"cTrader Escopo ({code}): {desc}")
         raise RuntimeError(f"cTrader Open API ({code}): {desc}")
 
-    def _open_connection(self) -> Any:
+    def _open_connection(self, auto_auth_account: bool = True) -> Any:
         self.connection_state = "CONNECTING"
         target_url = CTRADER_LIVE_WS_URL if self.is_live else CTRADER_DEMO_WS_URL
         try:
@@ -904,6 +910,22 @@ class CTraderClient:
             if pt in (PT_OA_ERROR_RES, PT_ERROR_RES):
                 self._handle_error_payload(resp.get("payload") or {}, group="realtime")
             self._app_authed = True
+            if auto_auth_account and not getattr(self, "_skip_auto_account_auth", False) and self.access_token:
+                ctid_int = self._numeric_selected_account_id()
+                if ctid_int is not None:
+                    acct_env = {
+                        "clientMsgId": self._next_msg_id(),
+                        "payloadType": PT_ACCOUNT_AUTH_REQ,
+                        "payload": {"ctidTraderAccountId": ctid_int, "accessToken": self.access_token},
+                    }
+                    a_resp = self._send_via_reader(ws, acct_env, timeout=10.0)
+                    a_pt = int(a_resp.get("payloadType") or 0)
+                    if a_pt in (PT_OA_ERROR_RES, PT_ERROR_RES):
+                        a_err = a_resp.get("payload") or {}
+                        a_code = str(a_err.get("errorCode") or "").upper()
+                        if "ALREADY_LOGGED_IN" not in a_code:
+                            self._handle_error_payload(a_err, group="realtime")
+                    self._account_authed = True
             self._last_activity_at = time.time()
             return ws
         except Exception:
@@ -914,7 +936,13 @@ class CTraderClient:
                 pass
             raise
 
-    def _send_rpc(self, payload_type: int, payload: dict[str, Any], max_attempts: int = 2) -> dict[str, Any]:
+    def _send_rpc(
+        self,
+        payload_type: int,
+        payload: dict[str, Any],
+        max_attempts: int = 2,
+        _reauth_retry: bool = False,
+    ) -> dict[str, Any]:
         group = classify_payload_group(payload_type)
         self.rate_limiter.acquire(group)
         envelope = {
@@ -927,7 +955,10 @@ class CTraderClient:
             resp = self._rpc_transport(envelope)
             pt = int(resp.get("payloadType") or 0)
             if pt in (PT_OA_ERROR_RES, PT_ERROR_RES, PT_ORDER_ERROR_EVENT):
-                self._handle_error_payload(resp.get("payload") or {}, group=group)
+                err_payload = resp.get("payload") or {}
+                if self._should_reauth_account(payload_type, err_payload, _reauth_retry):
+                    return self._reauth_and_retry_rpc(payload_type, payload, err_payload)
+                self._handle_error_payload(err_payload, group=group)
             self.rate_limiter.record_success(group)
             return resp
 
@@ -986,9 +1017,46 @@ class CTraderClient:
 
         pt = int(resp.get("payloadType") or 0)
         if pt in (PT_OA_ERROR_RES, PT_ERROR_RES, PT_ORDER_ERROR_EVENT):
-            self._handle_error_payload(resp.get("payload") or {}, group=group)
+            err_payload = resp.get("payload") or {}
+            if self._should_reauth_account(payload_type, err_payload, _reauth_retry):
+                return self._reauth_and_retry_rpc(payload_type, payload, err_payload)
+            self._handle_error_payload(err_payload, group=group)
         self.rate_limiter.record_success(group)
         return resp
+
+    def _should_reauth_account(self, payload_type: int, err_payload: dict[str, Any], already_retried: bool) -> bool:
+        desc_low = str(err_payload.get("description") or "").lower()
+        code_up = str(err_payload.get("errorCode") or "").upper()
+        is_not_auth = "not authorized" in desc_low or "NOT_AUTHORIZED" in code_up
+        if not is_not_auth:
+            return False
+        if payload_type == PT_NEW_ORDER_REQ:
+            # Never auto-resend an order; only force re-auth before the next tick
+            self._account_authed = False
+            return False
+        if already_retried or not self.access_token:
+            return False
+        return payload_type not in (PT_APPLICATION_AUTH_REQ, PT_ACCOUNT_AUTH_REQ, PT_GET_ACCOUNTS_BY_ACCESS_TOKEN_REQ)
+
+    def _reauth_and_retry_rpc(
+        self,
+        payload_type: int,
+        payload: dict[str, Any],
+        err_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        ctid_raw = str(payload.get("ctidTraderAccountId") or "").strip()
+        ctid_int = int(ctid_raw) if ctid_raw.isdigit() else self._numeric_selected_account_id()
+        if ctid_int is None:
+            self._handle_error_payload(err_payload, group=classify_payload_group(payload_type))
+        self._account_authed = False
+        self._send_rpc(
+            PT_ACCOUNT_AUTH_REQ,
+            {"ctidTraderAccountId": ctid_int, "accessToken": self.access_token},
+            max_attempts=1,
+            _reauth_retry=True,
+        )
+        self._account_authed = True
+        return self._send_rpc(payload_type, payload, max_attempts=1, _reauth_retry=True)
 
     def ping(self) -> bool:
         try:
@@ -1063,7 +1131,11 @@ class CTraderClient:
         if self._rpc_transport is None and not self._app_authed:
             with self._lock:
                 if self._ws is None or self._reader_dead or not getattr(self._ws, "connected", False):
-                    self._ws = self._open_connection()
+                    self._skip_auto_account_auth = True
+                    try:
+                        self._ws = self._open_connection()
+                    finally:
+                        self._skip_auto_account_auth = False
         resp = self._send_rpc(PT_GET_ACCOUNTS_BY_ACCESS_TOKEN_REQ, {"accessToken": self.access_token})
         payload = resp.get("payload") or {}
         scope = str(payload.get("permissionScope") or "")

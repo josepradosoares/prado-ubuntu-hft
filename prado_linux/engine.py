@@ -1372,7 +1372,24 @@ class PradoTradingService:
         self._thread: threading.Thread | None = None
         self._latest_snapshot: dict[str, Any] = {}
         self._event_log: list[dict[str, str]] = []
+        self._last_auto_reauth_at: float = 0.0
         self._log_event("SYSTEM", "Motor Prado Institutional HFT (cTrader Open API) inicializado.")
+
+    @staticmethod
+    def _is_transient_conn_error(msg: str) -> bool:
+        low = str(msg or "").lower()
+        return any(
+            tok in low
+            for tok in (
+                "not authorized",
+                "interrompida",
+                "websocket",
+                "reconect",
+                "tempo limite",
+                "timeout",
+                "desconectad",
+            )
+        )
 
     def _log_event(self, category: str, message: str) -> None:
         entry = {
@@ -2812,6 +2829,7 @@ class PradoTradingService:
                         self._log_event("BOT_SYMBOL_UNAVAILABLE", msg)
             elif bot.get("status") == "RUNNING" and (
                 "ratelimit" in str(bot.get("last_error", "")).lower()
+                or self._is_transient_conn_error(str(bot.get("last_error", "")))
                 or (
                     self._is_symbol_unavailable_msg(str(bot.get("last_error", "")))
                     and time.time() >= float(bot.get("_unavailable_until", 0.0) or 0.0)
@@ -3607,6 +3625,7 @@ class PradoTradingService:
                                 self._log_event("BOT_SYMBOL_UNAVAILABLE", msg)
                     elif bot.get("status") == "RUNNING" and (
                         "ratelimit" in str(bot.get("last_error", "")).lower()
+                        or self._is_transient_conn_error(str(bot.get("last_error", "")))
                         or (
                             self._is_symbol_unavailable_msg(str(bot.get("last_error", "")))
                             and time.time() >= float(bot.get("_unavailable_until", 0.0) or 0.0)
@@ -3618,10 +3637,22 @@ class PradoTradingService:
                     bot["last_error"] = str(rl_exc)
                     self._log_event("BOT_RATE_LIMIT", f"Cooldown temporário no robô '{bot.get('name', bot.get('bot_id', '?'))}': {rl_exc}")
                 except Exception as bot_exc:
-                    bot["status"] = "ERROR"
-                    bot["active"] = False
-                    bot["last_error"] = str(bot_exc)
-                    self._log_event("BOT_ERROR", f"Erro isolado no robô '{bot.get('name', bot.get('bot_id', '?'))}': {bot_exc}")
+                    err_str = str(bot_exc)
+                    if self._is_transient_conn_error(err_str):
+                        bot["status"] = "RUNNING"
+                        bot["active"] = True
+                        bot["last_signal"] = "RECONNECTING"
+                        bot["last_error"] = "Reconectando autorização da conta cTrader..."
+                        now_reauth = time.time()
+                        if (now_reauth - self._last_auto_reauth_at) >= 15.0:
+                            self._last_auto_reauth_at = now_reauth
+                            self.connector.connect()
+                            self._log_event("CTRADER_REAUTH", "Reautorização automática da sessão cTrader executada.")
+                    else:
+                        bot["status"] = "ERROR"
+                        bot["active"] = False
+                        bot["last_error"] = err_str
+                        self._log_event("BOT_ERROR", f"Erro isolado no robô '{bot.get('name', bot.get('bot_id', '?'))}': {bot_exc}")
 
             if getattr(self.cfg, "news_bot_enabled", False):
                 poll_sec = max(30, int(getattr(self.cfg, "news_poll_interval_sec", 90) or 90))
