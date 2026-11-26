@@ -12,6 +12,10 @@ import {
   Lock,
   ExternalLink,
   KeyRound,
+  Eye,
+  EyeOff,
+  Loader2,
+  ArrowLeft,
 } from 'lucide-react'
 import {
   BacktestReport,
@@ -183,8 +187,13 @@ export default function App() {
   const [loginPass, setLoginPass] = useState('')
   const [loginError, setLoginError] = useState('')
   const [supabaseEnabled, setSupabaseEnabled] = useState(false)
-  const [authMode, setAuthMode] = useState<'LOGIN' | 'SIGNUP'>('LOGIN')
+  const [authMode, setAuthMode] = useState<'LOGIN' | 'SIGNUP' | 'FORGOT' | 'RESET'>('LOGIN')
   const [loginInfo, setLoginInfo] = useState('')
+  const [loginSubmitting, setLoginSubmitting] = useState(false)
+  const [showLoginPass, setShowLoginPass] = useState(false)
+  const [showConfirmPass, setShowConfirmPass] = useState(false)
+  const [resetConfirmPass, setResetConfirmPass] = useState('')
+  const [recoveryToken, setRecoveryToken] = useState('')
   const [me, setMe] = useState<MeResponse | null>(null)
   const [publicPlans, setPublicPlans] = useState<SaasPlan[]>([])
   const [publicTrialDays, setPublicTrialDays] = useState<number>(7)
@@ -299,6 +308,31 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    const rawHash = window.location.hash.replace(/^#/, '')
+    if (rawHash) {
+      const hashParams = new URLSearchParams(rawHash)
+      const hType = hashParams.get('type')
+      const hAccessTok = hashParams.get('access_token')
+      const hErrDesc = hashParams.get('error_description') || hashParams.get('error')
+      if (hErrDesc) {
+        setAuthMode('FORGOT')
+        setLoginError('Link de recuperação expirado ou inválido. Solicite um novo link abaixo.')
+        window.history.replaceState({}, document.title, '/login')
+      } else if (hType === 'recovery' && hAccessTok) {
+        setRecoveryToken(hAccessTok)
+        setAuthMode('RESET')
+        setLoginError('')
+        setLoginInfo('Validação confirmada! Defina sua nova senha abaixo.')
+        setAuthenticated(false)
+        setAuthChecked(true)
+        setInitialLoading(false)
+        window.history.replaceState({}, document.title, '/reset-password')
+      }
+    } else if (window.location.pathname === '/reset-password') {
+      setAuthMode('FORGOT')
+      setLoginInfo('Informe seu e-mail para receber o link de redefinição de senha.')
+    }
+
     const params = new URLSearchParams(window.location.search)
     const oauthState = params.get('ctrader_oauth')
     if (oauthState) {
@@ -460,8 +494,75 @@ export default function App() {
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault()
+    if (loginSubmitting) return
     setLoginError('')
     setLoginInfo('')
+
+    if (authMode === 'FORGOT') {
+      setLoginSubmitting(true)
+      try {
+        const res = await fetch('/api/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: loginUser }),
+        })
+        const data = await res.json()
+        if (res.ok && data.ok) {
+          setLoginInfo(
+            data.message ||
+              'Se este e-mail estiver cadastrado, enviamos um link de recuperação de senha.',
+          )
+        } else {
+          setLoginError(data.error || 'Não foi possível enviar o e-mail de recuperação.')
+        }
+      } catch {
+        setLoginError('Erro de conexão ao solicitar recuperação de senha.')
+      } finally {
+        setLoginSubmitting(false)
+      }
+      return
+    }
+
+    if (authMode === 'RESET') {
+      if (loginPass.length < 6) {
+        setLoginError('A nova senha deve ter pelo menos 6 caracteres.')
+        return
+      }
+      if (loginPass !== resetConfirmPass) {
+        setLoginError('As senhas digitadas não coincidem.')
+        return
+      }
+      setLoginSubmitting(true)
+      try {
+        const res = await fetch('/api/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ access_token: recoveryToken, password: loginPass }),
+        })
+        const data = await res.json()
+        if (res.ok && data.ok) {
+          setLoginPass('')
+          setResetConfirmPass('')
+          setRecoveryToken('')
+          setShowLoginPass(false)
+          setShowConfirmPass(false)
+          setAuthMode('LOGIN')
+          setLoginInfo(data.message || 'Senha redefinida com sucesso! Agora você já pode entrar.')
+          if (window.location.pathname === '/reset-password') {
+            window.history.replaceState({}, document.title, '/login')
+          }
+        } else {
+          setLoginError(data.error || 'Não foi possível redefinir sua senha.')
+        }
+      } catch {
+        setLoginError('Erro de conexão ao redefinir senha.')
+      } finally {
+        setLoginSubmitting(false)
+      }
+      return
+    }
+
+    setLoginSubmitting(true)
     const endpoint = supabaseEnabled && authMode === 'SIGNUP' ? '/api/signup' : '/api/login'
     try {
       const res = await fetch(endpoint, {
@@ -482,7 +583,7 @@ export default function App() {
           return
         }
         setAuthenticated(true)
-        if (window.location.pathname === '/login') {
+        if (window.location.pathname === '/login' || window.location.pathname === '/reset-password') {
           window.history.replaceState({}, document.title, '/')
         }
         setInitialLoading(true)
@@ -492,6 +593,8 @@ export default function App() {
       }
     } catch {
       setLoginError('Erro de conexão ao autenticar.')
+    } finally {
+      setLoginSubmitting(false)
     }
   }
 
@@ -1394,7 +1497,7 @@ export default function App() {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
-            {supabaseEnabled && (
+            {supabaseEnabled && (authMode === 'LOGIN' || authMode === 'SIGNUP') && (
               <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 dark:bg-slate-900 p-1">
                 <button
                   type="button"
@@ -1428,31 +1531,127 @@ export default function App() {
                 </button>
               </div>
             )}
-            <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                {supabaseEnabled ? 'E-mail (Supabase)' : 'Usuário'}
-              </label>
-              <input
-                type={supabaseEnabled ? 'email' : 'text'}
-                placeholder={supabaseEnabled ? 'seu@email.com' : 'admin'}
-                value={loginUser}
-                onChange={(e) => setLoginUser(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                Senha
-              </label>
-              <input
-                type="password"
-                value={loginPass}
-                onChange={(e) => setLoginPass(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
-                required
-              />
-            </div>
+
+            {(authMode === 'FORGOT' || authMode === 'RESET') && (
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                    {authMode === 'FORGOT' ? 'Recuperar senha' : 'Definir nova senha'}
+                  </h2>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {authMode === 'FORGOT'
+                      ? 'Enviaremos um link seguro para seu e-mail.'
+                      : 'Escolha uma senha forte com ao menos 6 caracteres.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('LOGIN')
+                    setLoginError('')
+                    setLoginInfo('')
+                    setShowLoginPass(false)
+                    setShowConfirmPass(false)
+                    if (window.location.pathname === '/reset-password') {
+                      window.history.replaceState({}, document.title, '/login')
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Voltar
+                </button>
+              </div>
+            )}
+
+            {authMode !== 'RESET' && (
+              <div>
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  {supabaseEnabled || authMode === 'FORGOT' ? 'E-mail (Supabase)' : 'Usuário'}
+                </label>
+                <input
+                  type={supabaseEnabled || authMode === 'FORGOT' ? 'email' : 'text'}
+                  placeholder={supabaseEnabled || authMode === 'FORGOT' ? 'seu@email.com' : 'admin'}
+                  value={loginUser}
+                  onChange={(e) => setLoginUser(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                  required
+                />
+              </div>
+            )}
+
+            {authMode !== 'FORGOT' && (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
+                    {authMode === 'RESET' ? 'Nova Senha' : 'Senha'}
+                  </label>
+                  {supabaseEnabled && authMode === 'LOGIN' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode('FORGOT')
+                        setLoginError('')
+                        setLoginInfo('')
+                        setShowLoginPass(false)
+                      }}
+                      className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Esqueci minha senha
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <input
+                    type={showLoginPass ? 'text' : 'password'}
+                    value={loginPass}
+                    onChange={(e) => setLoginPass(e.target.value)}
+                    minLength={authMode === 'SIGNUP' || authMode === 'RESET' ? 6 : undefined}
+                    placeholder={authMode === 'LOGIN' ? '••••••••' : 'Mínimo 6 caracteres'}
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 pl-3.5 pr-11 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPass((v) => !v)}
+                    aria-label={showLoginPass ? 'Ocultar senha' : 'Mostrar senha'}
+                    title={showLoginPass ? 'Ocultar senha' : 'Mostrar senha'}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition"
+                  >
+                    {showLoginPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {authMode === 'RESET' && (
+              <div>
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  Confirmar Nova Senha
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPass ? 'text' : 'password'}
+                    value={resetConfirmPass}
+                    onChange={(e) => setResetConfirmPass(e.target.value)}
+                    minLength={6}
+                    placeholder="Repita a nova senha"
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 pl-3.5 pr-11 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPass((v) => !v)}
+                    aria-label={showConfirmPass ? 'Ocultar confirmação de senha' : 'Mostrar confirmação de senha'}
+                    title={showConfirmPass ? 'Ocultar senha' : 'Mostrar senha'}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition"
+                  >
+                    {showConfirmPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {supabaseEnabled && authMode === 'SIGNUP' && (
               <div className="space-y-3 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3">
                 <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
@@ -1487,9 +1686,25 @@ export default function App() {
             )}
             <button
               type="submit"
-              className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 py-2.5 text-sm font-semibold text-white transition shadow-lg shadow-blue-600/20"
+              disabled={loginSubmitting}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 py-2.5 text-sm font-semibold text-white transition shadow-lg shadow-blue-600/20 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {supabaseEnabled && authMode === 'SIGNUP' ? 'Criar Conta no Supabase' : 'Entrar no Terminal'}
+              {loginSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {loginSubmitting
+                ? authMode === 'SIGNUP'
+                  ? 'Criando conta...'
+                  : authMode === 'FORGOT'
+                  ? 'Enviando link...'
+                  : authMode === 'RESET'
+                  ? 'Salvando senha...'
+                  : 'Entrando...'
+                : authMode === 'FORGOT'
+                ? 'Enviar link de recuperação'
+                : authMode === 'RESET'
+                ? 'Salvar nova senha'
+                : supabaseEnabled && authMode === 'SIGNUP'
+                ? 'Criar Conta no Supabase'
+                : 'Entrar no Terminal'}
             </button>
           </form>
         </div>

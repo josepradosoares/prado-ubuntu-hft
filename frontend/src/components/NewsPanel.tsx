@@ -185,12 +185,14 @@ export function NewsPanel({
   const [feedSymbol, setFeedSymbol] = useState('ALL')
 
   // Per-subscriber BYOK AI config state
+  const aiSetupRequired = Boolean(news?.ai_setup_required)
+  const autoOpenedAiSetupRef = useRef(false)
   const aiProviders = useMemo(
     () => (news?.ai_providers && news.ai_providers.length > 0 ? news.ai_providers : FALLBACK_AI_PROVIDERS),
     [news?.ai_providers],
   )
   const aiDirtyRef = useRef(false)
-  const [aiEnabled, setAiEnabled] = useState<boolean>(Boolean(news?.ai_enabled))
+  const [aiEnabled, setAiEnabled] = useState<boolean>(Boolean(news?.ai_enabled || news?.ai_setup_required))
   const [aiProvider, setAiProvider] = useState<string>(news?.ai_provider || 'gemini')
   const [aiModel, setAiModel] = useState<string>(news?.ai_model || 'gemini-3.5-flash-lite')
   const [aiCustomModelMode, setAiCustomModelMode] = useState<boolean>(false)
@@ -201,7 +203,7 @@ export function NewsPanel({
   const [aiLoadingModels, setAiLoadingModels] = useState(false)
   const [dynamicModels, setDynamicModels] = useState<string[]>([])
   const [aiModelsNote, setAiModelsNote] = useState<string>('')
-  const [showAiConfig, setShowAiConfig] = useState(false)
+  const [showAiConfig, setShowAiConfig] = useState(Boolean(news?.ai_setup_required))
   const [aiTestResult, setAiTestResult] = useState<{
     ok: boolean
     bias?: string
@@ -224,12 +226,21 @@ export function NewsPanel({
   }, [selectedProviderMeta, dynamicModels])
 
   useEffect(() => {
+    if (aiSetupRequired && !autoOpenedAiSetupRef.current) {
+      autoOpenedAiSetupRef.current = true
+      setShowAiConfig(true)
+    } else if (!aiSetupRequired) {
+      autoOpenedAiSetupRef.current = false
+    }
+  }, [aiSetupRequired])
+
+  useEffect(() => {
     if (aiDirtyRef.current || !news) return
     const nextProv = news.ai_provider || 'gemini'
     const nextModel = news.ai_model || 'gemini-3.5-flash-lite'
     const meta = aiProviders.find((p) => p.id === nextProv)
     const knownModels = meta?.models || []
-    setAiEnabled(Boolean(news.ai_enabled))
+    setAiEnabled(news.ai_setup_required && !news.ai_api_key_set ? true : Boolean(news.ai_enabled))
     setAiProvider(nextProv)
     setAiModel(nextModel)
     setAiBaseUrl(news.ai_base_url || '')
@@ -369,20 +380,22 @@ export function NewsPanel({
     setAiSaving(true)
     setAiTestResult(null)
     try {
+      const hasNewKey = Boolean(aiApiKey.trim())
+      const nextAiEnabled = hasNewKey && aiSetupRequired ? true : aiEnabled
       const payload: Record<string, unknown> = {
-        news_ai_enabled: aiEnabled,
+        news_ai_enabled: nextAiEnabled,
         news_ai_provider: aiProvider,
         news_ai_model: aiModel.trim() || selectedProviderMeta?.default_model || 'gemini-3.5-flash-lite',
         news_ai_base_url: aiBaseUrl.trim(),
       }
-      if (aiApiKey.trim()) {
+      if (hasNewKey) {
         payload.news_ai_api_key = aiApiKey.trim()
       }
       await onUpdateNewsConfig(payload)
       setAiApiKey('')
       aiDirtyRef.current = false
-      setShowAiConfig(false)
-      if (aiEnabled) {
+      if (nextAiEnabled && (hasNewKey || news?.ai_api_key_set)) {
+        setShowAiConfig(false)
         onScanNews()
       }
     } finally {
@@ -477,11 +490,15 @@ export function NewsPanel({
               className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
                 news?.ai_active
                   ? 'border border-violet-500/30 bg-violet-500/15 text-violet-700 dark:text-violet-300'
+                  : aiSetupRequired
+                  ? 'border border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
               }`}
             >
               {news?.ai_active
                 ? `IA Ativa • ${(news?.ai_provider || 'gemini').toUpperCase()} (${news?.ai_model || ''})`
+                : aiSetupRequired
+                ? 'Configure sua API Key de IA'
                 : 'Regras Locais Gratuitas'}
             </span>
             <button
@@ -499,8 +516,9 @@ export function NewsPanel({
             <button
               type="button"
               onClick={onScanNews}
-              disabled={newsScanning}
-              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              disabled={newsScanning || aiSetupRequired}
+              title={aiSetupRequired ? 'Configure e ative sua própria API Key de IA acima para carregar as notícias.' : undefined}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${newsScanning ? 'animate-spin' : ''}`} />
               {newsScanning ? 'Analisando...' : 'Atualizar Análise'}
@@ -512,7 +530,9 @@ export function NewsPanel({
           {!news?.ai_active && !showAiConfig && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-500/25 bg-violet-500/5 px-4 py-2.5 text-xs">
               <span className="text-slate-700 dark:text-slate-300">
-                Conecte sua própria API Key (<strong>Gemini, ChatGPT, Claude, OpenRouter, Groq</strong>…) para trocar as regras locais pela leitura inteligente de contexto por IA.
+                {aiSetupRequired
+                  ? 'As notícias e análises da sua conta são liberadas automaticamente assim que você configurar sua própria API Key (Gemini, ChatGPT, Claude, OpenRouter, Groq…).'
+                  : 'Conecte sua própria API Key (Gemini, ChatGPT, Claude, OpenRouter, Groq…) para trocar as regras locais pela leitura inteligente de contexto por IA.'}
               </span>
               <button
                 type="button"
@@ -520,7 +540,7 @@ export function NewsPanel({
                 className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 px-3 py-1.5 text-[11px] font-semibold text-white shrink-0"
               >
                 <Sparkles className="h-3 w-3" />
-                Conectar minha IA
+                {aiSetupRequired ? 'Configurar minha IA' : 'Conectar minha IA'}
               </button>
             </div>
           )}
@@ -759,7 +779,22 @@ export function NewsPanel({
             </form>
           )}
 
-          {globalMacro && (
+          {aiSetupRequired ? (
+            <div className="rounded-2xl border border-dashed border-violet-500/35 bg-violet-500/[0.04] px-6 py-8 text-center space-y-2">
+              <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-500 mx-auto">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                Conecte sua IA para liberar a Mesa do Analista e as Notícias
+              </h3>
+              <p className="max-w-lg mx-auto text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                Cada cliente utiliza sua própria API Key de IA (Google Gemini, OpenRouter, ChatGPT, Claude, Groq ou DeepSeek).
+                Cole sua chave no formulário acima e clique em <strong>Salvar e Aplicar IA</strong> para carregar as notícias e os cards de decisão em tempo real.
+              </p>
+            </div>
+          ) : (
+            <>
+              {globalMacro && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 px-4 py-2.5 text-xs">
               <div className="flex items-center gap-2 min-w-0">
                 <Globe className="h-4 w-4 shrink-0 text-blue-500" />
@@ -951,7 +986,9 @@ export function NewsPanel({
                 </div>
               )
             })}
-          </div>
+              </div>
+            </>
+          )}
         </CardBody>
       </Card>
 
@@ -1362,9 +1399,14 @@ export function NewsPanel({
           </div>
         </CardHeader>
         <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
-          {filteredItems.length === 0 ? (
+          {aiSetupRequired ? (
+            <div className="px-5 py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+              As manchetes financeiras da sua conta serão carregadas assim que você configurar e ativar sua própria{' '}
+              <strong>API Key de IA</strong> na seção acima.
+            </div>
+          ) : filteredItems.length === 0 ? (
             <div className="px-5 py-8 text-center text-xs text-slate-500">
-              Nenhuma manchete encontrada para os filtros selecionados. Clique em <strong>Pesquisar Notícias Agora</strong> acima.
+              Nenhuma manchete encontrada para os filtros selecionados. Clique em <strong>Atualizar Análise</strong> acima.
             </div>
           ) : (
             filteredItems.map((it) => (

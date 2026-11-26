@@ -238,10 +238,29 @@ def test_web_app_admin_only_feeds_and_calendar_route(tmp_path: Path, monkeypatch
         json.dumps({"email": "cliente@teste.com", "plan_id": "institutional", "status": "active", "duration_days": 30}).encode(),
     )
 
-    # Client with news_bot CAN scan news and refresh economic calendar
+    # Client with news_bot is gated until own AI key is configured, then CAN scan news & calendar
     cli_svc = app._active_service("uid-client")
     monkeypatch.setattr(cli_svc.news_scout, "scan", lambda feeds=None: ([], []))
     monkeypatch.setattr(cli_svc.economic_calendar, "fetch_week", lambda force=False: [])
+    c_gate, b_gate, _ = app.handle_request("POST", "/api/news/scan", {"Cookie": client_cookie}, b"{}")
+    assert c_gate == 400
+    assert json.loads(b_gate)["code"] == "AI_API_KEY_REQUIRED"
+    assert (
+        app.handle_request(
+            "POST",
+            "/api/config",
+            {"Cookie": client_cookie},
+            json.dumps(
+                {
+                    "news_ai_enabled": True,
+                    "news_ai_provider": "gemini",
+                    "news_ai_model": "gemini-3.5-flash-lite",
+                    "news_ai_api_key": "client-test-key",
+                }
+            ).encode(),
+        )[0]
+        == 200
+    )
     assert app.handle_request("POST", "/api/news/scan", {"Cookie": client_cookie}, b"{}")[0] == 200
     assert app.handle_request("POST", "/api/news/calendar", {"Cookie": client_cookie}, b"{}")[0] == 200
 

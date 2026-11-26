@@ -43,11 +43,13 @@ class PradoWebApp:
         self._user_services: dict[str, PradoTradingService] = {}
         self._user_tokens: dict[str, str] = {}
         self._user_emails: dict[str, str] = {}
+        self._user_init_locks: dict[str, threading.Lock] = {}
         self._services_lock = threading.Lock()
-        self._apply_ai_news_settings(self.service)
+        self._apply_ai_news_settings(self.service, is_admin=True)
 
-    def _apply_ai_news_settings(self, svc: PradoTradingService) -> None:
-        svc.sync_news_ai(fallback_settings=self.saas.get_settings())
+    def _apply_ai_news_settings(self, svc: PradoTradingService, is_admin: bool = False) -> None:
+        fallback = self.saas.get_settings() if is_admin else None
+        svc.sync_news_ai(fallback_settings=fallback)
 
     def _user_email(self, user: str) -> str:
         return self._user_emails.get(user, "")
@@ -135,44 +137,60 @@ class PradoWebApp:
             return self.service
         with self._services_lock:
             svc = self._user_services.get(user)
-            if svc is None:
-                user_cfg_path = self.config_path.parent / f"prado_user_{user}.json"
+            if svc is not None:
+                return svc
+            init_lock = self._user_init_locks.setdefault(user, threading.Lock())
+        with init_lock:
+            with self._services_lock:
+                svc = self._user_services.get(user)
+                if svc is not None:
+                    return svc
                 token = self._user_tokens.get(user, "")
-                u_cfg = self.supabase.load_user_config(user, token, user_cfg_path)
                 u_email = self._user_emails.get(user, "").lower()
-                if (
-                    not u_cfg.accounts
-                    and not u_cfg.bots
-                    and u_email == "sitepixer@gmail.com"
-                    and (self.cfg.accounts or self.cfg.bots or self.cfg.ctrader_access_token)
-                ):
-                    u_cfg.ctrader_client_id = self.cfg.ctrader_client_id
-                    u_cfg.ctrader_client_secret = self.cfg.ctrader_client_secret
-                    u_cfg.ctrader_redirect_uri = self.cfg.ctrader_redirect_uri
-                    u_cfg.ctrader_access_token = self.cfg.ctrader_access_token
-                    u_cfg.ctrader_refresh_token = self.cfg.ctrader_refresh_token
-                    u_cfg.connection_mode = self.cfg.connection_mode
-                    u_cfg.allow_real_trading = self.cfg.allow_real_trading
-                    u_cfg.active_account_id = self.cfg.active_account_id
-                    u_cfg.active_account_type = self.cfg.active_account_type
-                    u_cfg.accounts = [dict(a) for a in self.cfg.accounts]
-                    u_cfg.bots = [dict(b) for b in self.cfg.bots]
-                    u_cfg.custom_templates = [dict(t) for t in self.cfg.custom_templates]
-                    u_cfg.news_feeds = [dict(f) for f in self.cfg.news_feeds]
-                    u_cfg.custom_categories = dict(self.cfg.custom_categories)
-                    u_cfg.active_symbols = list(self.cfg.active_symbols)
-                    u_cfg.news_bot_enabled = self.cfg.news_bot_enabled
-                    self.supabase.sync_user_config(user, token, u_cfg)
-                global_feeds = self.saas.get_global_news_feeds()
-                if global_feeds:
-                    u_cfg.news_feeds = global_feeds
-                svc = PradoTradingService(u_cfg, config_path=user_cfg_path)
-                self._apply_ai_news_settings(svc)
-                svc.step_once()
-                if not svc._thread or not svc._thread.is_alive():
-                    svc.start_background_loop()
+            user_cfg_path = self.config_path.parent / f"prado_user_{user}.json"
+            u_cfg = self.supabase.load_user_config(user, token, user_cfg_path)
+            if (
+                not u_cfg.accounts
+                and not u_cfg.bots
+                and u_email == "sitepixer@gmail.com"
+                and (self.cfg.accounts or self.cfg.bots or self.cfg.ctrader_access_token)
+            ):
+                u_cfg.ctrader_client_id = self.cfg.ctrader_client_id
+                u_cfg.ctrader_client_secret = self.cfg.ctrader_client_secret
+                u_cfg.ctrader_redirect_uri = self.cfg.ctrader_redirect_uri
+                u_cfg.ctrader_access_token = self.cfg.ctrader_access_token
+                u_cfg.ctrader_refresh_token = self.cfg.ctrader_refresh_token
+                u_cfg.connection_mode = self.cfg.connection_mode
+                u_cfg.allow_real_trading = self.cfg.allow_real_trading
+                u_cfg.active_account_id = self.cfg.active_account_id
+                u_cfg.active_account_type = self.cfg.active_account_type
+                u_cfg.accounts = [dict(a) for a in self.cfg.accounts]
+                u_cfg.bots = [dict(b) for b in self.cfg.bots]
+                u_cfg.custom_templates = [dict(t) for t in self.cfg.custom_templates]
+                u_cfg.news_feeds = [dict(f) for f in self.cfg.news_feeds]
+                u_cfg.custom_categories = dict(self.cfg.custom_categories)
+                u_cfg.active_symbols = list(self.cfg.active_symbols)
+                u_cfg.news_bot_enabled = self.cfg.news_bot_enabled
+                self.supabase.sync_user_config(user, token, u_cfg)
+            global_feeds = self.saas.get_global_news_feeds()
+            if global_feeds:
+                u_cfg.news_feeds = global_feeds
+            user_is_admin = self.saas.is_admin(user, u_email, supabase_enabled=self.supabase.is_enabled)
+            svc = PradoTradingService(u_cfg, config_path=user_cfg_path)
+            svc.require_own_ai_for_news = not user_is_admin
+            self._apply_ai_news_settings(svc, is_admin=user_is_admin)
+            svc.step_once(run_news=False)
+            if not svc._thread or not svc._thread.is_alive():
+                svc.start_background_loop()
+            with self._services_lock:
                 self._user_services[user] = svc
             return svc
+
+    def _warm_user_service(self, user: str) -> None:
+        try:
+            self._active_service(user)
+        except Exception:
+            pass
 
     def _sync_user(self, user: str, svc: PradoTradingService) -> None:
         if self.supabase.is_enabled and user and user != self.cfg.admin_username:
@@ -302,7 +320,7 @@ class PradoWebApp:
         if method == "GET" and clean_path == "/health":
             return 200, json.dumps({"ok": True, "status": "healthy"}), {"Content-Type": "application/json"}
 
-        if method == "GET" and clean_path == "/login":
+        if method == "GET" and clean_path in ("/login", "/reset-password"):
             return self._serve_index()
 
         if method == "GET" and clean_path == "/api/auth/mode":
@@ -396,10 +414,8 @@ class PradoWebApp:
                         self._user_emails[uid] = resolved_email
                         old_svc = self._user_services.pop(uid, None)
                     if old_svc is not None:
-                        old_svc.stop_background_loop()
-                    svc = self._active_service(uid)
-                    if not svc._thread or not svc._thread.is_alive():
-                        svc.start_background_loop()
+                        threading.Thread(target=old_svc.stop_background_loop, daemon=True).start()
+                    threading.Thread(target=self._warm_user_service, args=(uid,), daemon=True).start()
                     token = create_session_token(uid, self.cfg.secret_key)
                     cookie_val = f"prado_session={token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax"
                     return (
@@ -418,6 +434,77 @@ class PradoWebApp:
                 )
             return 401, json.dumps({"ok": False, "error": "Credenciais invalidas."}), {"Content-Type": "application/json"}
 
+        if method == "POST" and clean_path == "/api/forgot-password":
+            if not self.supabase.is_enabled:
+                return (
+                    400,
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "error": "A recuperação por e-mail requer autenticação Supabase ativa. Em modo local, altere a senha nas Configurações.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    {"Content-Type": "application/json"},
+                )
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                payload = {}
+            email = str(payload.get("email") or payload.get("username") or "").strip()
+            if not email or "@" not in email:
+                return 400, json.dumps({"ok": False, "error": "Informe um e-mail válido."}, ensure_ascii=False), {"Content-Type": "application/json"}
+            host = headers.get("Host") or headers.get("host") or f"localhost:{self.cfg.web_port}"
+            proto = headers.get("X-Forwarded-Proto") or headers.get("x-forwarded-proto") or ("https" if "duckdns.org" in host else "http")
+            redirect_to = f"{proto}://{host}/reset-password"
+            ok_rec, res_rec = self.supabase.reset_password_for_email(email, redirect_to=redirect_to)
+            if not ok_rec and (res_rec.get("status") == 429 or "rate" in str(res_rec.get("error", "")).lower()):
+                return (
+                    429,
+                    json.dumps(
+                        {"ok": False, "error": "Muitas solicitações seguidas. Aguarde alguns instantes e tente novamente."},
+                        ensure_ascii=False,
+                    ),
+                    {"Content-Type": "application/json"},
+                )
+            return (
+                200,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "message": "Se este e-mail estiver cadastrado, enviamos um link de recuperação de senha. Verifique sua caixa de entrada e o spam.",
+                    },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/reset-password":
+            if not self.supabase.is_enabled:
+                return (
+                    400,
+                    json.dumps({"ok": False, "error": "Redefinição de senha via token requer autenticação Supabase ativa."}, ensure_ascii=False),
+                    {"Content-Type": "application/json"},
+                )
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                payload = {}
+            access_tok = str(payload.get("access_token") or "").strip()
+            new_pwd = str(payload.get("password") or payload.get("new_password") or "")
+            ok_upd, res_upd = self.supabase.update_password_with_token(access_tok, new_pwd)
+            if ok_upd:
+                return (
+                    200,
+                    json.dumps({"ok": True, "message": "Senha redefinida com sucesso! Agora você já pode entrar."}, ensure_ascii=False),
+                    {"Content-Type": "application/json"},
+                )
+            return (
+                400,
+                json.dumps({"ok": False, "error": res_upd.get("error", "Não foi possível redefinir a senha.")}, ensure_ascii=False),
+                {"Content-Type": "application/json"},
+            )
+
         if method == "POST" and clean_path == "/api/logout":
             uid = self._extract_session_user(headers)
             if uid:
@@ -434,9 +521,6 @@ class PradoWebApp:
             if clean_path.startswith("/api/"):
                 return 401, json.dumps({"ok": False, "error": "Nao autenticado."}), {"Content-Type": "application/json"}
             return 302, "", {"Location": "/login"}
-
-        svc = self._active_service(user)
-        cfg = svc.cfg
 
         if method == "GET" and clean_path == "/":
             return self._serve_index()
@@ -461,6 +545,9 @@ class PradoWebApp:
                 ),
                 {"Content-Type": "application/json"},
             )
+
+        svc = self._active_service(user)
+        cfg = svc.cfg
 
         if method == "POST" and clean_path == "/api/subscription/select-trial-plan":
             try:
@@ -507,10 +594,11 @@ class PradoWebApp:
                 except Exception:
                     return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
                 self.saas.update_settings(payload if isinstance(payload, dict) else {})
-                self._apply_ai_news_settings(self.service)
+                self._apply_ai_news_settings(self.service, is_admin=True)
                 with self._services_lock:
-                    for u_svc in self._user_services.values():
-                        self._apply_ai_news_settings(u_svc)
+                    for uid, u_svc in self._user_services.items():
+                        u_adm = self.saas.is_admin(uid, self._user_email(uid), supabase_enabled=self.supabase.is_enabled)
+                        self._apply_ai_news_settings(u_svc, is_admin=u_adm)
                 return 200, json.dumps({"ok": True, "settings": self.saas.get_public_admin_settings()}, ensure_ascii=False), {"Content-Type": "application/json"}
             if method == "POST" and clean_path == "/api/admin/plans":
                 try:
@@ -585,8 +673,9 @@ class PradoWebApp:
                 if updates.get(sec_key) == "********":
                     updates.pop(sec_key, None)
             svc.update_config(updates)
-            self._apply_ai_news_settings(svc)
-            svc.step_once()
+            user_is_admin = self.saas.is_admin(user, self._user_email(user), supabase_enabled=self.supabase.is_enabled)
+            self._apply_ai_news_settings(svc, is_admin=user_is_admin)
+            svc.step_once(run_news=False)
             self._sync_user(user, svc)
             return (
                 200,
@@ -767,8 +856,21 @@ class PradoWebApp:
             denied = self._require_access(user, "news_bot")
             if denied is not None:
                 return denied
+            if svc.news_requires_ai_setup():
+                return (
+                    400,
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "code": "AI_API_KEY_REQUIRED",
+                            "error": "Configure e ative sua própria API Key de IA antes de carregar as notícias.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    {"Content-Type": "application/json"},
+                )
             news_data = svc.scan_news(force=True)
-            svc.step_once()
+            svc.step_once(run_news=False)
             return 200, json.dumps({"ok": True, "news": news_data}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/news/calendar":

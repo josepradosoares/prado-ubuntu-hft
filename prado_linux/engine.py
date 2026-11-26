@@ -1373,7 +1373,14 @@ class PradoTradingService:
         self._latest_snapshot: dict[str, Any] = {}
         self._event_log: list[dict[str, str]] = []
         self._last_auto_reauth_at: float = 0.0
+        self.require_own_ai_for_news: bool = False
         self._log_event("SYSTEM", "Motor Prado Institutional HFT (cTrader Open API) inicializado.")
+
+    def has_own_ai_configured(self) -> bool:
+        return bool(getattr(self.cfg, "news_ai_enabled", False) and str(getattr(self.cfg, "news_ai_api_key", "") or "").strip())
+
+    def news_requires_ai_setup(self) -> bool:
+        return bool(self.require_own_ai_for_news and not self.has_own_ai_configured())
 
     @staticmethod
     def _is_transient_conn_error(msg: str) -> bool:
@@ -1967,8 +1974,7 @@ class PradoTradingService:
                 model=str(getattr(self.cfg, "news_ai_model", "gemini-3.5-flash-lite") or "gemini-3.5-flash-lite"),
                 base_url=str(getattr(self.cfg, "news_ai_base_url", "") or ""),
             )
-            return
-        if (
+        elif (
             not user_enabled
             and isinstance(fallback_settings, dict)
             and fallback_settings.get("ai_news_enabled")
@@ -1981,14 +1987,16 @@ class PradoTradingService:
                 model=str(fallback_settings.get("ai_news_model") or "gemini-3.5-flash-lite"),
                 base_url=str(fallback_settings.get("ai_news_base_url") or ""),
             )
-            return
-        self.news_scout.configure_ai(
-            enabled=False,
-            provider=str(getattr(self.cfg, "news_ai_provider", "gemini") or "gemini"),
-            api_key="",
-            model=str(getattr(self.cfg, "news_ai_model", "gemini-3.5-flash-lite") or "gemini-3.5-flash-lite"),
-            base_url=str(getattr(self.cfg, "news_ai_base_url", "") or ""),
-        )
+        else:
+            self.news_scout.configure_ai(
+                enabled=False,
+                provider=str(getattr(self.cfg, "news_ai_provider", "gemini") or "gemini"),
+                api_key="",
+                model=str(getattr(self.cfg, "news_ai_model", "gemini-3.5-flash-lite") or "gemini-3.5-flash-lite"),
+                base_url=str(getattr(self.cfg, "news_ai_base_url", "") or ""),
+            )
+        if getattr(self, "_latest_snapshot", None):
+            self._latest_snapshot["news"] = self._news_snapshot_dict()
 
     _sync_news_ai_from_cfg = sync_news_ai
 
@@ -2016,6 +2024,9 @@ class PradoTradingService:
                     setattr(self.cfg, key, val)
             if ai_keys_touched:
                 self.sync_news_ai()
+                if self.news_requires_ai_setup():
+                    self.news_scout.items = []
+                    self.news_scout.last_scan_at = 0.0
             if any(
                 k in updates
                 for k in (
@@ -3047,7 +3058,8 @@ class PradoTradingService:
     def _news_snapshot_dict(self) -> dict[str, Any]:
         pause_mins = max(5, min(60, int(getattr(self.cfg, "news_calendar_pause_minutes", 15) or 15)))
         ai_cfg = getattr(self.news_scout, "_ai_analyzer", None)
-        summary = self.news_scout.summary_by_symbol()
+        ai_setup_req = self.news_requires_ai_setup()
+        summary = {} if ai_setup_req else self.news_scout.summary_by_symbol()
         return {
             "enabled": bool(getattr(self.cfg, "news_bot_enabled", False)),
             "pause_grid_on_high_impact": bool(getattr(self.cfg, "news_pause_grid_on_high_impact", False)),
@@ -3057,22 +3069,23 @@ class PradoTradingService:
             "calendar_shield_enabled": bool(getattr(self.cfg, "news_calendar_shield_enabled", True)),
             "calendar_pause_minutes": pause_mins,
             "news_filter_only": bool(getattr(self.cfg, "news_filter_only", True)),
+            "ai_setup_required": ai_setup_req,
             "ai_enabled": bool(getattr(self.cfg, "news_ai_enabled", False)),
-            "ai_active": bool(getattr(ai_cfg, "enabled", False) and getattr(ai_cfg, "api_key", "")) if ai_cfg else False,
+            "ai_active": (not ai_setup_req) and (bool(getattr(ai_cfg, "enabled", False) and getattr(ai_cfg, "api_key", "")) if ai_cfg else False),
             "ai_provider": str(getattr(self.cfg, "news_ai_provider", "") or (ai_cfg.provider if ai_cfg else "gemini")),
             "ai_model": str(getattr(self.cfg, "news_ai_model", "") or (ai_cfg.model if ai_cfg else "gemini-3.5-flash-lite")),
             "ai_base_url": str(getattr(self.cfg, "news_ai_base_url", "") or ""),
             "ai_api_key_set": bool(str(getattr(self.cfg, "news_ai_api_key", "") or "").strip()),
             "ai_last_error": str(getattr(ai_cfg, "last_error", "") or "") if ai_cfg else "",
             "ai_providers": [dict(p) for p in AI_PROVIDER_CATALOG],
-            "last_scan_at": self.news_scout.last_scan_at,
-            "last_error": self.news_scout.last_error,
+            "last_scan_at": 0.0 if ai_setup_req else self.news_scout.last_scan_at,
+            "last_error": "" if ai_setup_req else self.news_scout.last_error,
             "feeds": list(getattr(self.cfg, "news_feeds", [])),
-            "feed_status": list(getattr(self.news_scout, "feed_status", [])),
+            "feed_status": [] if ai_setup_req else list(getattr(self.news_scout, "feed_status", [])),
             "curated_catalog": [dict(c) for c in CURATED_NEWS_CATALOG],
-            "items": list(self.news_scout.items),
+            "items": [] if ai_setup_req else list(self.news_scout.items),
             "summary_by_symbol": summary,
-            "analyst_cards": self.build_analyst_cards(summary, pause_mins),
+            "analyst_cards": [] if ai_setup_req else self.build_analyst_cards(summary, pause_mins),
             "calendar": self.economic_calendar.snapshot_dict(window_minutes=pause_mins),
         }
 
@@ -3215,6 +3228,10 @@ class PradoTradingService:
 
     def scan_news(self, force: bool = False) -> dict[str, Any]:
         with self._lock:
+            if self.news_requires_ai_setup():
+                self.news_scout.items = []
+                self.news_scout.last_scan_at = 0.0
+                return self._news_snapshot_dict()
             now = time.time()
             poll_sec = max(30, int(getattr(self.cfg, "news_poll_interval_sec", 90) or 90))
             if force or (now - self.news_scout.last_scan_at) >= poll_sec:
@@ -3251,7 +3268,7 @@ class PradoTradingService:
             )
         )
 
-    def step_once(self) -> dict[str, Any]:
+    def step_once(self, run_news: bool = True) -> dict[str, Any]:
         with self._lock:
             now_step = time.time()
             # Controlled heartbeat ping & reconnection for live cTrader WebSocket
@@ -3654,7 +3671,7 @@ class PradoTradingService:
                         bot["last_error"] = err_str
                         self._log_event("BOT_ERROR", f"Erro isolado no robô '{bot.get('name', bot.get('bot_id', '?'))}': {bot_exc}")
 
-            if getattr(self.cfg, "news_bot_enabled", False):
+            if run_news and getattr(self.cfg, "news_bot_enabled", False) and not self.news_requires_ai_setup():
                 poll_sec = max(30, int(getattr(self.cfg, "news_poll_interval_sec", 90) or 90))
                 if (time.time() - self.news_scout.last_scan_at) >= poll_sec:
                     _, new_items = self.news_scout.scan(feeds=self.cfg.news_feeds)

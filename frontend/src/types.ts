@@ -243,6 +243,7 @@ export interface NewsSnapshot {
   calendar_shield_enabled?: boolean
   calendar_pause_minutes?: number
   news_filter_only?: boolean
+  ai_setup_required?: boolean
   ai_enabled?: boolean
   ai_active?: boolean
   ai_provider?: string

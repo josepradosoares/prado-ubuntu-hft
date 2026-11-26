@@ -1,6 +1,7 @@
 """Zero-dependency Supabase Auth & PostgREST persistence store for Prado Ubuntu HFT."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import json
 import os
@@ -137,15 +138,83 @@ class SupabaseStore:
         msg = str(data.get("error_description") or data.get("msg") or data.get("error") or "Credenciais inválidas.")
         return False, {"error": msg}
 
+    def reset_password_for_email(self, email: str, redirect_to: str = "") -> tuple[bool, dict[str, Any]]:
+        clean_email = str(email or "").strip()
+        if not clean_email or "@" not in clean_email:
+            return False, {"error": "Informe um e-mail válido."}
+        qs = f"?redirect_to={quote(redirect_to, safe='')}" if redirect_to else ""
+        code, data = self._request("POST", f"/auth/v1/recover{qs}", {"email": clean_email})
+        if 200 <= code < 300:
+            return True, {"ok": True}
+        msg = ""
+        if isinstance(data, dict):
+            msg = str(data.get("msg") or data.get("error_description") or data.get("error") or "")
+        return False, {"error": msg or "Não foi possível enviar o e-mail de recuperação.", "status": code}
+
+    def update_password_with_token(self, access_token: str, new_password: str) -> tuple[bool, dict[str, Any]]:
+        tok = str(access_token or "").strip()
+        if not tok:
+            return False, {"error": "Token de recuperação ausente ou expirado."}
+        if len(str(new_password or "")) < 6:
+            return False, {"error": "A nova senha deve ter pelo menos 6 caracteres."}
+        code, data = self._request(
+            "PUT",
+            "/auth/v1/user",
+            {"password": str(new_password)},
+            bearer_token=tok,
+        )
+        if 200 <= code < 300:
+            return True, {"ok": True}
+        msg = ""
+        if isinstance(data, dict):
+            msg = str(data.get("msg") or data.get("error_description") or data.get("error") or "")
+        return False, {"error": msg or "Link de recuperação inválido ou expirado. Solicite um novo link."}
+
     def load_user_config(self, user_id: str, access_token: str, fallback_path: Path) -> PradoServerConfig:
         cfg = load_config(fallback_path, inherit_user_tokens=False)
         uid_q = quote(user_id, safe="")
 
-        code, settings_rows = self._request(
-            "GET",
-            f"/rest/v1/prado_settings?user_id=eq.{uid_q}&select=*",
-            bearer_token=access_token,
-        )
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            f_settings = pool.submit(
+                self._request,
+                "GET",
+                f"/rest/v1/prado_settings?user_id=eq.{uid_q}&select=*",
+                None,
+                bearer_token=access_token,
+            )
+            f_acc = pool.submit(
+                self._request,
+                "GET",
+                f"/rest/v1/prado_ctrader_accounts?user_id=eq.{uid_q}&select=*",
+                None,
+                bearer_token=access_token,
+            )
+            f_bots = pool.submit(
+                self._request,
+                "GET",
+                f"/rest/v1/prado_bots?user_id=eq.{uid_q}&select=*",
+                None,
+                bearer_token=access_token,
+            )
+            f_tpl = pool.submit(
+                self._request,
+                "GET",
+                f"/rest/v1/prado_custom_templates?user_id=eq.{uid_q}&select=*",
+                None,
+                bearer_token=access_token,
+            )
+            f_feeds = pool.submit(
+                self._request,
+                "GET",
+                f"/rest/v1/prado_news_feeds?user_id=eq.{uid_q}&select=*",
+                None,
+                bearer_token=access_token,
+            )
+            code, settings_rows = f_settings.result()
+            code_acc, acc_rows = f_acc.result()
+            code_bots, bot_rows = f_bots.result()
+            code_tpl, tpl_rows = f_tpl.result()
+            code_feeds, feed_rows = f_feeds.result()
         if code == 200 and isinstance(settings_rows, list) and settings_rows:
             s = settings_rows[0]
             raw_mode = str(s.get("connection_mode") or cfg.connection_mode)
@@ -192,11 +261,6 @@ class SupabaseStore:
                 if "news_ai_base_url" in nc:
                     cfg.news_ai_base_url = str(nc.get("news_ai_base_url") or "")
 
-        code_acc, acc_rows = self._request(
-            "GET",
-            f"/rest/v1/prado_ctrader_accounts?user_id=eq.{uid_q}&select=*",
-            bearer_token=access_token,
-        )
         if code_acc == 200 and isinstance(acc_rows, list):
             cfg.accounts = [
                 {
@@ -221,11 +285,6 @@ class SupabaseStore:
                 cfg.ctrader_access_token = active["access_token"]
                 cfg.ctrader_refresh_token = active["refresh_token"]
 
-        code_bots, bot_rows = self._request(
-            "GET",
-            f"/rest/v1/prado_bots?user_id=eq.{uid_q}&select=*",
-            bearer_token=access_token,
-        )
         if code_bots == 200 and isinstance(bot_rows, list):
             loaded_bots: list[dict[str, Any]] = []
             for r in bot_rows:
@@ -260,11 +319,6 @@ class SupabaseStore:
                 loaded_bots.append(rec)
             cfg.bots = loaded_bots
 
-        code_tpl, tpl_rows = self._request(
-            "GET",
-            f"/rest/v1/prado_custom_templates?user_id=eq.{uid_q}&select=*",
-            bearer_token=access_token,
-        )
         if code_tpl == 200 and isinstance(tpl_rows, list):
             loaded_tpls: list[dict[str, Any]] = []
             for r in tpl_rows:
@@ -293,11 +347,6 @@ class SupabaseStore:
                 )
             cfg.custom_templates = loaded_tpls
 
-        code_feeds, feed_rows = self._request(
-            "GET",
-            f"/rest/v1/prado_news_feeds?user_id=eq.{uid_q}&select=*",
-            bearer_token=access_token,
-        )
         if code_feeds == 200 and isinstance(feed_rows, list) and feed_rows:
             cfg.news_feeds = [
                 {
