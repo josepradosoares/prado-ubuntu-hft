@@ -1,6 +1,7 @@
 import { Activity, Wifi, WifiOff } from 'lucide-react'
 import { BrokerSymbol, SymbolState } from '../types'
 import { formatNumber, formatPercent, formatPrice, formatSymbolDisplay, isFiniteNumber } from '../utils/formatters'
+import { formatRegime } from '../utils/labels'
 
 interface MarketIndicatorsBarProps {
   symbol: string
@@ -47,13 +48,13 @@ export function MarketIndicatorsBar({ symbol, symbolCatalog, symbolState, connec
       valueClass: `${zColor} font-mono`,
     },
     {
-      label: 'Imbalance',
+      label: 'Desequilíbrio',
       value: formatPercent(imbVal, 1, true),
       valueClass: `${imbColor} font-mono`,
     },
     {
       label: 'Regime de Mercado',
-      value: symbolState?.regime || '--',
+      value: formatRegime(symbolState?.regime),
       valueClass: 'text-slate-800 dark:text-slate-200 text-xs font-medium truncate',
     },
   ]
@@ -63,7 +64,7 @@ export function MarketIndicatorsBar({ symbol, symbolCatalog, symbolState, connec
       {items.map((item) => (
         <div
           key={item.label}
-          className="rounded-2xl border border-slate-200 dark:border-slate-800/90 bg-white dark:bg-[#111827] px-4 py-3 shadow-sm"
+          className="rounded-2xl border border-slate-200 dark:border-slate-800/90 bg-white dark:bg-[#252223] px-4 py-3 shadow-sm"
         >
           <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
             {item.label}
@@ -74,7 +75,7 @@ export function MarketIndicatorsBar({ symbol, symbolCatalog, symbolState, connec
         </div>
       ))}
 
-      <div className="rounded-2xl border border-slate-200 dark:border-slate-800/90 bg-white dark:bg-[#111827] px-4 py-3 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800/90 bg-white dark:bg-[#252223] px-4 py-3 shadow-sm">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
           Status Conexão
         </div>
@@ -82,12 +83,12 @@ export function MarketIndicatorsBar({ symbol, symbolCatalog, symbolState, connec
           {connected ? (
             <>
               <Wifi className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-              <span className="text-emerald-600 dark:text-emerald-400">Online</span>
+              <span className="text-emerald-600 dark:text-emerald-400">Conectado</span>
             </>
           ) : (
             <>
               <WifiOff className="h-3.5 w-3.5 text-rose-500 shrink-0" />
-              <span className="text-rose-600 dark:text-rose-400">Offline</span>
+              <span className="text-rose-600 dark:text-rose-400">Desconectado</span>
             </>
           )}
           <Activity className="h-3 w-3 text-slate-400 ml-auto shrink-0" />

@@ -11,6 +11,7 @@ Follows Spotware cTrader Open API official specification:
 from __future__ import annotations
 
 from collections import deque
+from datetime import datetime
 import json
 import random
 import threading
@@ -30,6 +31,19 @@ CTRADER_OAUTH_TOKEN_URL = "https://openapi.ctrader.com/apps/token"
 
 PRICE_SCALE = 100_000.0
 DEFAULT_LOT_SIZE_CENTS = 10_000_000  # 100,000 units * 100 centicents
+
+SYMBOL_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
+    "US100": ("US100", "USTEC", "NAS100", "USTECH100", "USTECH", "NDX100", "NDX", "US100CASH", "NQ100", "NAS100CASH"),
+    "US500": ("US500", "SPX500", "US500CASH", "SP500", "SPX"),
+    "US30": ("US30", "DJ30", "WS30", "US30CASH", "DOW30"),
+    "DE40": ("DE40", "GER40", "GER30", "DE30", "DAX40", "DE40CASH", "GER40CASH"),
+    "XAUUSD": ("XAUUSD", "GOLD", "XAUUSD"),
+    "XAGUSD": ("XAGUSD", "SILVER", "XAGUSD"),
+}
+
+
+def _normalize_symbol_key(name: str) -> str:
+    return "".join(ch for ch in str(name or "").upper() if ch.isalnum())
 
 # Official ProtoPayloadType / ProtoOAPayloadType enum IDs
 PT_ERROR_RES = 50
@@ -447,6 +461,8 @@ class CTraderClient:
 
         self._symbols_by_name: dict[str, dict[str, Any]] = {}
         self._symbols_by_id: dict[int, dict[str, Any]] = {}
+        self._resolved_symbol_aliases: dict[str, str] = {}
+        self._resolved_symbol_ids: dict[str, int] = {}
         self._symbol_details_cache: dict[int, tuple[float, dict[str, Any]]] = {}
         self._symbol_details_ttl: float = 300.0
         self._assets_by_id: dict[int, dict[str, Any]] = {}
@@ -577,6 +593,16 @@ class CTraderClient:
 
         label = str(td.get("label") or "")
         comment = str(td.get("comment") or label or "cTrader")
+        open_ts = int(td.get("openTimestamp") or pos.get("utcLastUpdateTimestamp") or 0)
+        open_time_str = (
+            datetime.fromtimestamp(open_ts / 1000.0).strftime("%d/%m %H:%M:%S")
+            if open_ts > 0
+            else ""
+        )
+        pos_md = int(pos.get("moneyDigits") if pos.get("moneyDigits") is not None else self._money_digits)
+        swap_val = scale_money(pos.get("swap", 0), pos_md)
+        comm_val = scale_money(pos.get("commission", 0), pos_md)
+        used_margin_val = scale_money(pos.get("usedMargin", 0), pos_md)
         return {
             "ticket": pid,
             "symbol": sym_name,
@@ -590,8 +616,60 @@ class CTraderClient:
             "sl": round(float(pos.get("stopLoss") or 0.0), 6),
             "tp": round(float(pos.get("takeProfit") or 0.0), 6),
             "profit": round(profit, 2),
+            "swap": swap_val,
+            "commission": comm_val,
+            "used_margin": used_margin_val,
+            "open_timestamp_ms": open_ts,
+            "open_time_str": open_time_str,
             "bot_name": label or comment,
             "comment": comment,
+        }
+
+    def _parse_closed_deal(
+        self,
+        deal: dict[str, Any],
+        default_reason: str = "CTRADER_EXECUTION_CLOSE",
+    ) -> dict[str, Any] | None:
+        if not isinstance(deal, dict) or not isinstance(deal.get("closePositionDetail"), dict):
+            return None
+        detail = deal["closePositionDetail"]
+        md = int(detail.get("moneyDigits") or deal.get("moneyDigits") or self._money_digits)
+        gross = scale_money(detail.get("grossProfit", 0), md)
+        swap = scale_money(detail.get("swap", 0), md)
+        comm = scale_money(detail.get("commission", 0), md)
+        pnl = round(gross + swap + comm, 2)
+        sym_id = int(deal.get("symbolId") or 0)
+        sym_meta = (self._symbol_details_cache.get(sym_id) or (0.0, {}))[1]
+        ts_raw = int(deal.get("executionTimestamp") or 0)
+        if ts_raw > 0:
+            dt = datetime.fromtimestamp(ts_raw / 1000.0)
+            time_msc = ts_raw
+        else:
+            dt = datetime.now()
+            time_msc = int(dt.timestamp() * 1000)
+        label = str(deal.get("label") or deal.get("comment") or "cTrader")
+        return {
+            "ticket": str(deal.get("positionId") or deal.get("dealId") or ""),
+            "deal_id": str(deal.get("dealId") or ""),
+            "symbol": self._symbol_name_for_id(sym_id),
+            "side": _normalize_trade_side(deal.get("tradeSide")),
+            "volume": protocol_volume_to_lots(
+                detail.get("closedVolume") or deal.get("filledVolume") or deal.get("volume"),
+                sym_meta,
+            ),
+            "price_open": float(detail.get("entryPrice") or 0.0),
+            "price_close": float(deal.get("executionPrice") or 0.0),
+            "profit": pnl,
+            "gross_profit": round(gross, 2),
+            "swap": round(swap, 2),
+            "commission": round(comm, 2),
+            "time_msc": time_msc,
+            "time_str": dt.strftime("%H:%M:%S"),
+            "date_str": dt.strftime("%Y-%m-%d"),
+            "reason": default_reason,
+            "bot_name": label,
+            "comment": str(deal.get("comment") or deal.get("label") or "cTrader"),
+            "official": True,
         }
 
     def _ingest_async_event(self, msg: dict[str, Any]) -> None:
@@ -647,28 +725,11 @@ class CTraderClient:
                             self._stream_positions.pop(pid, None)
                         else:
                             self._stream_positions[pid] = pos
-            if isinstance(deal, dict) and isinstance(deal.get("closePositionDetail"), dict):
+            closed_item = self._parse_closed_deal(deal, default_reason="CTRADER_EXECUTION_CLOSE")
+            if closed_item is not None:
                 detail = deal["closePositionDetail"]
                 md = int(detail.get("moneyDigits") or deal.get("moneyDigits") or self._money_digits)
-                gross = scale_money(detail.get("grossProfit", 0), md)
-                swap = scale_money(detail.get("swap", 0), md)
-                comm = scale_money(detail.get("commission", 0), md)
-                pnl = round(gross + swap + comm, 2)
                 bal_after = detail.get("balance")
-                sym_id = int(deal.get("symbolId") or 0)
-                sym_meta = (self._symbol_details_cache.get(sym_id) or (0.0, {}))[1]
-                closed_item = {
-                    "ticket": str(deal.get("positionId") or deal.get("dealId") or ""),
-                    "symbol": self._symbol_name_for_id(sym_id),
-                    "side": _normalize_trade_side(deal.get("tradeSide")),
-                    "volume": protocol_volume_to_lots(detail.get("closedVolume") or deal.get("filledVolume") or deal.get("volume"), sym_meta),
-                    "price_open": float(detail.get("entryPrice") or 0.0),
-                    "price_close": float(deal.get("executionPrice") or 0.0),
-                    "profit": pnl,
-                    "reason": "CTRADER_EXECUTION_CLOSE",
-                    "bot_name": str(deal.get("label") or deal.get("comment") or "cTrader"),
-                    "comment": str(deal.get("comment") or deal.get("label") or "cTrader"),
-                }
                 with self._stream_lock:
                     self._recently_closed_deals.append(closed_item)
                     if bal_after is not None:
@@ -1098,16 +1159,22 @@ class CTraderClient:
         balance = scale_money(trader.get("balance", 0), md)
         dep_asset_id = int(trader.get("depositAssetId") or 0)
         currency = "USD"
-        try:
-            assets_resp = self._send_rpc(PT_ASSET_LIST_REQ, {"ctidTraderAccountId": ctid_int})
-            for asset in (assets_resp.get("payload") or {}).get("asset") or []:
-                aid = int(asset.get("assetId") or 0)
-                if aid > 0:
-                    self._assets_by_id[aid] = asset
-                if aid == dep_asset_id:
-                    currency = str(asset.get("name") or asset.get("displayName") or "USD")
-        except Exception:
-            pass
+        for _ in range(2):
+            try:
+                assets_resp = self._send_rpc(PT_ASSET_LIST_REQ, {"ctidTraderAccountId": ctid_int})
+                for asset in (assets_resp.get("payload") or {}).get("asset") or []:
+                    aid = int(asset.get("assetId") or 0)
+                    if aid > 0:
+                        self._assets_by_id[aid] = asset
+                    if aid == dep_asset_id:
+                        resolved_cur = str(asset.get("name") or asset.get("displayName") or "USD").strip().upper()
+                        if resolved_cur:
+                            currency = resolved_cur
+                break
+            except CTraderAuthError:
+                raise
+            except Exception:
+                continue
 
         leverage_cents = int(trader.get("leverageInCents") or 10000)
         leverage = max(1, leverage_cents // 100)
@@ -1174,21 +1241,40 @@ class CTraderClient:
             out.append(item)
         return out
 
+    def _match_symbol_entry(self, sym: str) -> tuple[str, dict[str, Any]] | None:
+        direct = self._symbols_by_name.get(sym)
+        if direct:
+            return sym, direct
+        clean_target = _normalize_symbol_key(sym)
+        if not clean_target:
+            return None
+        for k, v in self._symbols_by_name.items():
+            if _normalize_symbol_key(k) == clean_target:
+                return k, v
+        for group in SYMBOL_ALIAS_GROUPS.values():
+            if clean_target in group:
+                for alias in group:
+                    for k, v in self._symbols_by_name.items():
+                        norm_k = _normalize_symbol_key(k)
+                        if norm_k == alias or norm_k.startswith(alias):
+                            return k, v
+        return None
+
     def _resolve_symbol_id(self, symbol: str) -> int:
         sym = symbol.strip()
-        info = self._symbols_by_name.get(sym)
-        if info:
-            return int(info["symbol_id"])
-        self.get_active_symbols()
-        info = self._symbols_by_name.get(sym)
-        if not info:
-            # Case-insensitive fallback match (e.g., EURUSD vs EUR/USD)
-            clean_target = sym.replace("/", "").upper()
-            for k, v in self._symbols_by_name.items():
-                if k.replace("/", "").upper() == clean_target:
-                    return int(v["symbol_id"])
+        if sym in self._resolved_symbol_ids:
+            return self._resolved_symbol_ids[sym]
+        matched = self._match_symbol_entry(sym)
+        if not matched:
+            self.get_active_symbols()
+            matched = self._match_symbol_entry(sym)
+        if not matched:
             raise RuntimeError(f"Símbolo '{symbol}' não encontrado na conta cTrader ativa.")
-        return int(info["symbol_id"])
+        broker_name, info = matched
+        sid = int(info["symbol_id"])
+        self._resolved_symbol_aliases[sym] = broker_name
+        self._resolved_symbol_ids[sym] = sid
+        return sid
 
     def get_symbol_details(self, symbol: str, use_cache: bool = True) -> dict[str, Any]:
         sid = self._resolve_symbol_id(symbol)
@@ -1228,7 +1314,19 @@ class CTraderClient:
     def get_live_ticks(self, symbol: str) -> list[TickRecord]:
         with self._stream_lock:
             dq = self._live_ticks.get(symbol)
-            return list(dq) if dq else []
+            if dq:
+                return list(dq)
+            alias = self._resolved_symbol_aliases.get(symbol)
+            if not alias and self._symbols_by_name:
+                matched = self._match_symbol_entry(symbol.strip())
+                if matched:
+                    alias = matched[0]
+                    self._resolved_symbol_aliases[symbol] = alias
+            if alias:
+                dq_alias = self._live_ticks.get(alias)
+                if dq_alias:
+                    return list(dq_alias)
+            return []
 
     def get_ticks_history(
         self,
@@ -1304,6 +1402,20 @@ class CTraderClient:
         )
         raw_ticks = (resp.get("payload") or {}).get("tickData") or []
         if not raw_ticks:
+            # Indices/CFDs outside peak session may have no ticks in last 1h; retry 24h lookback
+            from_ms_24h = max(0, to_ms - 24 * 3600 * 1000)
+            resp = self._send_rpc(
+                PT_GET_TICKDATA_REQ,
+                {
+                    "ctidTraderAccountId": ctid,
+                    "symbolId": sid,
+                    "type": QUOTE_TYPE_BID,
+                    "fromTimestamp": from_ms_24h,
+                    "toTimestamp": to_ms,
+                },
+            )
+            raw_ticks = (resp.get("payload") or {}).get("tickData") or []
+        if not raw_ticks:
             return live
 
         decoded: list[TickRecord] = []
@@ -1368,6 +1480,16 @@ class CTraderClient:
         }
         rel_sl = encode_relative_distance(sl_points)
         rel_tp = encode_relative_distance(tp_points)
+        if int(meta.get("distanceSetIn") or 1) == 1:
+            digits = int(meta.get("digits", 5))
+            sl_dist_pts = int(meta.get("slDistance") or 0)
+            tp_dist_pts = int(meta.get("tpDistance") or 0)
+            if rel_sl > 0 and sl_dist_pts > 0:
+                min_sl_rel = encode_relative_distance(sl_dist_pts * (10.0 ** (-digits)))
+                rel_sl = max(rel_sl, min_sl_rel)
+            if rel_tp > 0 and tp_dist_pts > 0:
+                min_tp_rel = encode_relative_distance(tp_dist_pts * (10.0 ** (-digits)))
+                rel_tp = max(rel_tp, min_tp_rel)
         if rel_sl > 0:
             req_payload["relativeStopLoss"] = rel_sl
         if rel_tp > 0:
@@ -1512,3 +1634,33 @@ class CTraderClient:
         with self._stream_lock:
             self._stream_positions.pop(str(pid_int), None)
         return True, f"[cTrader] Posição #{pid_int} encerrada com sucesso."
+
+    def get_deals_history(
+        self,
+        from_timestamp_ms: int,
+        to_timestamp_ms: int,
+        max_rows: int = 500,
+    ) -> list[dict[str, Any]]:
+        ctid = self._require_ctid()
+        resp = self._send_rpc(
+            PT_DEAL_LIST_REQ,
+            {
+                "ctidTraderAccountId": ctid,
+                "fromTimestamp": int(from_timestamp_ms),
+                "toTimestamp": int(to_timestamp_ms),
+                "maxRows": min(500, max(1, int(max_rows))),
+            },
+        )
+        raw_deals = (resp.get("payload") or {}).get("deal") or []
+        closed: list[dict[str, Any]] = []
+        for deal in raw_deals:
+            if not isinstance(deal, dict):
+                continue
+            status = deal.get("dealStatus")
+            if status not in (None, 2, 3, "FILLED", "PARTIALLY_FILLED"):
+                continue
+            parsed = self._parse_closed_deal(deal, default_reason="CTRADER_SERVER_DEAL")
+            if parsed is not None:
+                closed.append(parsed)
+        closed.sort(key=lambda d: int(d.get("time_msc") or 0), reverse=True)
+        return closed

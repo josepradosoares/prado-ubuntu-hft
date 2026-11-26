@@ -53,7 +53,12 @@ def migrate_legacy_symbol(symbol: str, default: str = "EURUSD") -> str:
     if s in LEGACY_SYMBOL_MAP:
         return LEGACY_SYMBOL_MAP[s]
     if s in LEGACY_SYNTHETIC_SYMBOLS or "#" in s or "$" in s:
-        return "BTCUSD" if ("BTC" in s or "Crypto" in s) else default
+        upper = s.upper()
+        if any(tag in upper for tag in ("US100", "USTEC", "NAS100", "NDX")):
+            return "US100"
+        if "BTC" in s or "Crypto" in s:
+            return "BTCUSD"
+        return default
     if (s.startswith("frx") or s.startswith("cry")) and len(s) == 9:
         return s[3:].upper()
     return s
@@ -73,10 +78,10 @@ def _is_legacy_symbol(sym: str) -> bool:
 MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     {
         "template_id": "WALL_STREET_HYBRID_BOTH",
-        "name": "1. Híbrido Institucional Completo (Fala 1: Trem VWAP + Fala 2: Giro HFT ±2σ)",
+        "name": "1. Híbrido Institucional Completo (Tendência VWAP + Reversão ±2σ)",
         "operation_mode": "BOTH",
         "formula": "VWAP = Σ(Pᵢ·Vᵢ)/ΣVᵢ | Z = (μ_w - μ)/(σ/√(w/4)) | Entrada Fluxo (|Z|≥Z_min) + Reversão (|P - VWAP|≥k·σ)",
-        "description": "Combina as duas lógicas matemáticas da entrevista do Broker de Wall Street: segue o fluxo institucional a favor da VWAP e opera retorno à média nas bandas externas.",
+        "description": "Combina duas abordagens quantitativas: segue o fluxo institucional a favor da VWAP e opera retorno à média nas bandas externas.",
         "window_ticks": 120,
         "zscore_threshold": 1.8,
         "imbalance_threshold": 0.35,
@@ -86,10 +91,10 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     },
     {
         "template_id": "FIX_VWAP_TREND_TRAIN",
-        "name": "2. Fala 1 — Trem Institucional VWAP (Seguidor Puro de Fluxo de Agressão)",
+        "name": "2. Seguidor de Fluxo VWAP (Tendência Institucional)",
         "operation_mode": "TREND_ONLY",
-        "formula": "Sinal = sign(ΔVol) quando |Z_agressão| ≥ 1.8 ∧ |Imbalance| ≥ 0.35 ∧ sign(P - VWAP) == sign(Z)",
-        "description": "Detecta aceleração de fluxo direcional a favor da VWAP e abre posição em Lotes na direção da tendência.",
+        "formula": "Sinal = sign(ΔVol) quando |Z_agressão| ≥ 1.8 ∧ |Desequilíbrio| ≥ 0.35 ∧ sign(P - VWAP) == sign(Z)",
+        "description": "Detecta aceleração de fluxo direcional a favor da VWAP e abre posição em lotes na direção da tendência.",
         "window_ticks": 100,
         "zscore_threshold": 1.8,
         "imbalance_threshold": 0.35,
@@ -99,10 +104,10 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     },
     {
         "template_id": "HFT_MEAN_REVERSION_2SIGMA",
-        "name": "3. Fala 2 — Giro HFT Provedor de Liquidez (Reversão Matemática à Média ±2σ)",
+        "name": "3. Reversão à Média ±2σ (Provedor de Liquidez)",
         "operation_mode": "REVERT_ONLY",
-        "formula": "Venda se P ≥ VWAP + 2σ ∧ Imbalance ≤ 0 | Compra se P ≤ VWAP - 2σ ∧ Imbalance ≥ 0 (Alvo = VWAP)",
-        "description": "Matemática pura de retorno à média nos extremos de desvio padrão quando o fluxo agressor perde força.",
+        "formula": "Venda se P ≥ VWAP + 2σ ∧ Desequilíbrio ≤ 0 | Compra se P ≤ VWAP - 2σ ∧ Desequilíbrio ≥ 0 (Alvo = VWAP)",
+        "description": "Retorno estatístico à média nos extremos de desvio padrão quando o fluxo agressor perde força.",
         "window_ticks": 80,
         "zscore_threshold": 2.0,
         "imbalance_threshold": 0.25,
@@ -112,10 +117,10 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     },
     {
         "template_id": "ULTRA_SCALPER_ZSCORE_BURST",
-        "name": "4. HFT Explosão de Agressão (Scalper Estatístico de Curto Alcance)",
+        "name": "4. Explosão de Agressão (Scalping Estatístico Curto)",
         "operation_mode": "TREND_ONLY",
-        "formula": "Janela curta w=50 ticks | Disparo em micro-explosão Z ≥ 2.2 ∧ Imbalance ≥ 0.45 | Alvo rápido 1.2σ",
-        "description": "Focado em explosões súbitas de micro-tendência em Forex, Ouro e Cripto 24/7 com realização rápida.",
+        "formula": "Janela curta w=50 ticks | Disparo em micro-explosão Z ≥ 2.2 ∧ Desequilíbrio ≥ 0.45 | Alvo rápido 1.2σ",
+        "description": "Focado em acelerações súbitas de microtendência em Forex, Ouro e Cripto 24/7 com realização rápida.",
         "window_ticks": 50,
         "zscore_threshold": 2.2,
         "imbalance_threshold": 0.45,
@@ -125,10 +130,10 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     },
     {
         "template_id": "STAT_ARB_CORRELATION_BASKET",
-        "name": "5. Arbitragem Estatística & Correlação de Cesta (Forex / Metais / Cripto)",
+        "name": "5. Arbitragem Estatística & Correlação de Cesta",
         "operation_mode": "BOTH",
-        "formula": "Bias_Cesta = (1/N)·Σ Imbalance(Ativo_k) | Opera somente alinhado ao vetor matemático da cesta",
-        "description": "Cruza a matemática da cesta correlacionada com o desvio padrão da VWAP do ativo-alvo sem precisar abrir nenhum gráfico.",
+        "formula": "Viés_Cesta = (1/N)·Σ Desequilíbrio(Ativo_k) | Opera somente alinhado ao vetor matemático da cesta",
+        "description": "Cruza a correlação da cesta de ativos com o desvio padrão da VWAP do ativo-alvo de forma automatizada.",
         "window_ticks": 140,
         "zscore_threshold": 1.6,
         "imbalance_threshold": 0.30,
@@ -138,10 +143,10 @@ MATH_BOT_TEMPLATES: list[dict[str, Any]] = [
     },
     {
         "template_id": "GRID_LINEAR_HFT",
-        "name": "6. Gradiente Linear — Grid HFT (Escalonamento Só Compra / Só Venda / Ambos)",
+        "name": "6. Gradiente Linear — Grade Escalonada (Compra / Venda / Ambos)",
         "operation_mode": "GRID_LINEAR",
-        "formula": "Entrada a cada ±grid_step pts (até max_grid_levels) | Saída individual ao recuar grid_tp_points",
-        "description": "Robô de alta frequência para mercados lateralizados: escolhe Só Compra, Só Venda ou Ambos, escalona ordens a cada passo e realiza lucro nível a nível.",
+        "formula": "Entrada a cada ±passo (até máx. de níveis) | Saída individual ao atingir o alvo por nível",
+        "description": "Estratégia para mercados lateralizados: escolha Só Compra, Só Venda ou Ambos, escalone ordens por nível e realize lucro passo a passo.",
         "window_ticks": 60,
         "zscore_threshold": 0.0,
         "imbalance_threshold": 0.0,
@@ -239,7 +244,7 @@ class PradoServerConfig:
     news_feeds: list[dict[str, str]] = field(default_factory=lambda: [dict(f) for f in DEFAULT_NEWS_FEEDS])
 
 
-def load_config(config_path: Path) -> PradoServerConfig:
+def load_config(config_path: Path, inherit_user_tokens: bool = True) -> PradoServerConfig:
     if config_path.exists():
         raw = json.loads(config_path.read_text(encoding="utf-8"))
         cfg = PradoServerConfig(**{k: v for k, v in raw.items() if k in PradoServerConfig.__dataclass_fields__})
@@ -257,15 +262,16 @@ def load_config(config_path: Path) -> PradoServerConfig:
     env_ruri = os.environ.get("CTRADER_REDIRECT_URI", "").strip()
     if env_ruri and not cfg.ctrader_redirect_uri:
         cfg.ctrader_redirect_uri = env_ruri
-    env_tok = os.environ.get("CTRADER_ACCESS_TOKEN", "").strip()
-    if env_tok and not cfg.ctrader_access_token:
-        cfg.ctrader_access_token = env_tok
-    env_rtok = os.environ.get("CTRADER_REFRESH_TOKEN", "").strip()
-    if env_rtok and not cfg.ctrader_refresh_token:
-        cfg.ctrader_refresh_token = env_rtok
-    env_allow_real = os.environ.get("ALLOW_REAL_TRADING", "").strip().lower()
-    if env_allow_real in ("1", "true", "yes"):
-        cfg.allow_real_trading = True
+    if inherit_user_tokens:
+        env_tok = os.environ.get("CTRADER_ACCESS_TOKEN", "").strip()
+        if env_tok and not cfg.ctrader_access_token:
+            cfg.ctrader_access_token = env_tok
+        env_rtok = os.environ.get("CTRADER_REFRESH_TOKEN", "").strip()
+        if env_rtok and not cfg.ctrader_refresh_token:
+            cfg.ctrader_refresh_token = env_rtok
+        env_allow_real = os.environ.get("ALLOW_REAL_TRADING", "").strip().lower()
+        if env_allow_real in ("1", "true", "yes"):
+            cfg.allow_real_trading = True
 
     changed = False
     if cfg.connection_mode == "DERIV_CLOUD":

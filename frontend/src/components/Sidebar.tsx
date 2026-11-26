@@ -16,7 +16,10 @@ import {
   ShieldCheck,
   Newspaper,
   Code2,
+  Crown,
+  Lock,
 } from 'lucide-react'
+import { FeatureKey, UserEntitlements } from '../types'
 
 export type TabKey =
   | 'overview'
@@ -32,6 +35,7 @@ export type TabKey =
   | 'ctrader-accounts'
   | 'history'
   | 'settings'
+  | 'admin'
 
 interface NavGroup {
   title: string
@@ -40,6 +44,7 @@ interface NavGroup {
     label: string
     icon: JSX.Element
     badge?: number
+    feature?: FeatureKey
   }[]
 }
 
@@ -51,6 +56,8 @@ interface SidebarProps {
   mobileOpen: boolean
   onCloseMobile: () => void
   totalBots: number
+  isAdmin?: boolean
+  entitlements?: UserEntitlements | null
 }
 
 export function Sidebar({
@@ -61,32 +68,34 @@ export function Sidebar({
   mobileOpen,
   onCloseMobile,
   totalBots,
+  isAdmin = false,
+  entitlements = null,
 }: SidebarProps) {
   const groups: NavGroup[] = [
     {
       title: 'Operações',
       items: [
         { key: 'overview', label: 'Visão geral', icon: <LayoutDashboard className="h-4 w-4 shrink-0" /> },
-        { key: 'running-bots', label: 'Mesa de execução', icon: <Activity className="h-4 w-4 shrink-0" /> },
+        { key: 'running-bots', label: 'Painel ao Vivo', icon: <Activity className="h-4 w-4 shrink-0" /> },
         { key: 'my-bots', label: 'Meus robôs', icon: <Bot className="h-4 w-4 shrink-0" />, badge: totalBots },
       ],
     },
     {
-      title: 'Quant & Estratégia',
+      title: 'Estratégias',
       items: [
-        { key: 'create-bot', label: 'Configurar robô matemático', icon: <Sliders className="h-4 w-4 shrink-0" /> },
-        { key: 'templates', label: 'Modelos Matemáticos', icon: <Code2 className="h-4 w-4 shrink-0" /> },
-        { key: 'backtest', label: 'Backtest tick a tick', icon: <FlaskConical className="h-4 w-4 shrink-0" /> },
-        { key: 'monitor', label: 'Matriz VWAP e Z-Score', icon: <BarChart3 className="h-4 w-4 shrink-0" /> },
-        { key: 'news', label: 'Pesquisa & Notícias', icon: <Newspaper className="h-4 w-4 shrink-0" /> },
+        { key: 'create-bot', label: 'Criar Robô', icon: <Sliders className="h-4 w-4 shrink-0" /> },
+        { key: 'templates', label: 'Estratégias', icon: <Code2 className="h-4 w-4 shrink-0" /> },
+        { key: 'backtest', label: 'Simulador', icon: <FlaskConical className="h-4 w-4 shrink-0" />, feature: 'backtest' },
+        { key: 'monitor', label: 'Radar de Mercado', icon: <BarChart3 className="h-4 w-4 shrink-0" />, feature: 'market_radar' },
+        { key: 'news', label: 'Notícias', icon: <Newspaper className="h-4 w-4 shrink-0" />, feature: 'news_bot' },
       ],
     },
     {
-      title: 'Mercado & cTrader',
+      title: 'Corretora',
       items: [
-        { key: 'categories', label: 'Categorias de ativos', icon: <Layers className="h-4 w-4 shrink-0" /> },
-        { key: 'ctrader-config', label: 'Configuração cTrader', icon: <Settings className="h-4 w-4 shrink-0" /> },
-        { key: 'ctrader-accounts', label: 'Contas cTrader', icon: <KeyRound className="h-4 w-4 shrink-0" /> },
+        { key: 'categories', label: 'Mercados', icon: <Layers className="h-4 w-4 shrink-0" /> },
+        { key: 'ctrader-config', label: 'Conectar Corretora', icon: <Settings className="h-4 w-4 shrink-0" /> },
+        { key: 'ctrader-accounts', label: 'Minhas Contas', icon: <KeyRound className="h-4 w-4 shrink-0" /> },
       ],
     },
     {
@@ -96,10 +105,20 @@ export function Sidebar({
         { key: 'settings', label: 'Configurações', icon: <Wrench className="h-4 w-4 shrink-0" /> },
       ],
     },
+    ...(isAdmin
+      ? [
+          {
+            title: 'Administração',
+            items: [
+              { key: 'admin' as TabKey, label: 'Painel Admin', icon: <Crown className="h-4 w-4 shrink-0 text-amber-500" /> },
+            ],
+          },
+        ]
+      : []),
   ]
 
   const sidebarContent = (isMobile: boolean) => (
-    <div className="flex h-full flex-col bg-white dark:bg-[#0f1624] border-r border-slate-200 dark:border-slate-800/90">
+    <div className="flex h-full flex-col bg-white dark:bg-[#201d1e] border-r border-slate-200 dark:border-slate-800/90">
       <div className="flex h-16 items-center justify-between gap-2 px-4 border-b border-slate-100 dark:border-slate-800/80">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600/10 dark:bg-blue-500/15 border border-blue-600/20 dark:border-blue-500/30 text-blue-600 dark:text-blue-400">
@@ -108,10 +127,10 @@ export function Sidebar({
           {(!collapsed || isMobile) && (
             <div className="min-w-0">
               <div className="truncate text-sm font-bold tracking-tight text-slate-900 dark:text-white">
-                Prado Ubuntu HFT
+                Quantix
               </div>
               <div className="truncate text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                cTrader Open API
+                Trading Automatizado
               </div>
             </div>
           )}
@@ -150,6 +169,11 @@ export function Sidebar({
             <div className="space-y-1">
               {group.items.map((item) => {
                 const active = activeTab === item.key
+                const locked =
+                  Boolean(item.feature) &&
+                  !isAdmin &&
+                  Boolean(entitlements) &&
+                  (!entitlements?.has_access || !entitlements.allowed_features.includes(item.feature!))
                 return (
                   <button
                     key={item.key}
@@ -162,6 +186,8 @@ export function Sidebar({
                     className={`w-full flex items-center justify-between gap-2.5 rounded-xl px-2.5 py-2 text-xs font-medium transition-all ${
                       active
                         ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/25'
+                        : locked
+                        ? 'text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800/40'
                         : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/70 hover:text-slate-900 dark:hover:text-white'
                     } ${collapsed && !isMobile ? 'justify-center px-0' : ''}`}
                   >
@@ -171,7 +197,10 @@ export function Sidebar({
                         <span className="truncate">{item.label}</span>
                       )}
                     </span>
-                    {(!collapsed || isMobile) && item.badge !== undefined && (
+                    {(!collapsed || isMobile) && locked && (
+                      <Lock className="h-3 w-3 shrink-0 opacity-70" />
+                    )}
+                    {(!collapsed || isMobile) && !locked && item.badge !== undefined && (
                       <span
                         className={`rounded-md px-1.5 py-0.5 text-[10px] font-mono ${
                           active
@@ -195,7 +224,7 @@ export function Sidebar({
           <div className="text-center">v2.0</div>
         ) : (
           <div className="flex items-center justify-between">
-            <span>Prado HFT</span>
+            <span>Quantix</span>
             <span>v2.0 • cTrader</span>
           </div>
         )}

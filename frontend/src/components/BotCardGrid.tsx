@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { BotItem, BrokerSymbol, SymbolState } from '../types'
 import { formatNumber, formatPercent, formatPrice, formatSymbolDisplay, isFiniteNumber } from '../utils/formatters'
+import { formatOperationMode, formatRegime, formatSignal } from '../utils/labels'
 import { ConfirmModal } from './ui/ConfirmModal'
 
 interface Props {
@@ -99,13 +100,13 @@ export function BotCardGrid({
 
   function requestOrder(b: BotItem, side: 'FIRE_BUY' | 'FIRE_SELL') {
     const isReal = b.account_type === 'REAL'
-    const label = side === 'FIRE_BUY' ? 'COMPRA (BUY)' : 'VENDA (SELL)'
+    const label = side === 'FIRE_BUY' ? 'COMPRA' : 'VENDA'
     if (isReal) {
       setConfirmState({
         open: true,
         title: `Confirmar ${label} em Conta REAL`,
         description: `Você está prestes a enviar uma ordem real de ${label} no ativo ${b.symbol} pelo robô "${b.name}" (Lote: ${formatNumber(b.lot_size, 2)}). Deseja continuar?`,
-        confirmLabel: `Enviar ${side === 'FIRE_BUY' ? 'Buy' : 'Sell'} Real`,
+        confirmLabel: `Enviar ${side === 'FIRE_BUY' ? 'Compra' : 'Venda'} Real`,
         variant: 'warning',
         onConfirm: () => {
           setConfirmState((s) => ({ ...s, open: false }))
@@ -180,7 +181,7 @@ export function BotCardGrid({
       </div>
 
       {bots.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-3">
+        <div className="flex flex-wrap items-center gap-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#252223] p-3">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
             <input
@@ -218,14 +219,14 @@ export function BotCardGrid({
       )}
 
       {bots.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-[#111827]/60 p-10 text-center">
+        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-[#252223]/60 p-10 text-center">
           <p className="text-sm text-slate-600 dark:text-slate-400">
             Nenhum robô configurado ainda. Clique em{' '}
             <strong className="text-blue-600 dark:text-blue-400">Novo robô matemático</strong> para cadastrar seu primeiro robô.
           </p>
         </div>
       ) : filteredBots.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-[#111827]/60 p-8 text-center">
+        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-[#252223]/60 p-8 text-center">
           <p className="text-xs text-slate-500 dark:text-slate-400">
             Nenhum robô corresponde aos filtros aplicados.
           </p>
@@ -260,7 +261,7 @@ export function BotCardGrid({
             return (
               <div
                 key={b.bot_id}
-                className={`group relative flex flex-col justify-between rounded-2xl border p-5 transition-all duration-200 bg-white dark:bg-[#111827] shadow-sm dark:shadow-lg dark:shadow-black/30 ${
+                className={`group relative flex flex-col justify-between rounded-2xl border p-5 transition-all duration-200 bg-white dark:bg-[#252223] shadow-sm dark:shadow-lg dark:shadow-black/30 ${
                   b.active
                     ? 'border-emerald-500/40 dark:border-emerald-500/30 hover:border-emerald-500/70'
                     : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 opacity-90'
@@ -402,7 +403,7 @@ export function BotCardGrid({
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-wider text-slate-500">Imbalance</div>
+                      <div className="text-[10px] uppercase tracking-wider text-slate-500">Desequilíbrio</div>
                       <div className={`mt-0.5 font-semibold ${imbColor}`}>
                         {formatPercent(imbVal, 1, true)}
                       </div>
@@ -411,7 +412,7 @@ export function BotCardGrid({
 
                   <div className="mt-3 flex items-center justify-between gap-2 text-[11px]">
                     <span className="truncate rounded-lg bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60">
-                      {st?.regime || 'AGUARDANDO'}
+                      {formatRegime(st?.regime)}
                     </span>
                     <span
                       className={`shrink-0 rounded-lg px-2.5 py-1 font-mono font-semibold border ${
@@ -422,7 +423,7 @@ export function BotCardGrid({
                           : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700/60'
                       }`}
                     >
-                      {signal}
+                      {formatSignal(signal)}
                     </span>
                   </div>
                   {b.last_error ? (
@@ -445,7 +446,7 @@ export function BotCardGrid({
                     className="inline-flex items-center justify-center gap-1 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 py-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 transition"
                   >
                     <TrendingUp className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Buy</span>
+                    <span className="hidden sm:inline">Comprar</span>
                   </button>
                   <button
                     type="button"
@@ -454,7 +455,7 @@ export function BotCardGrid({
                     className="inline-flex items-center justify-center gap-1 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 py-2 text-[11px] font-semibold text-rose-700 dark:text-rose-300 transition"
                   >
                     <TrendingDown className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Sell</span>
+                    <span className="hidden sm:inline">Vender</span>
                   </button>
                   <button
                     type="button"
@@ -518,7 +519,7 @@ export function BotCardGrid({
 
       {detailBot && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] shadow-2xl overflow-hidden">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#252223] shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">{detailBot.name}</h3>
@@ -538,7 +539,7 @@ export function BotCardGrid({
               <div className="rounded-xl bg-slate-50 dark:bg-slate-900/70 p-3 border border-slate-200/70 dark:border-slate-800">
                 <div className="text-[10px] text-slate-500 uppercase">Ativo / Modo</div>
                 <div className="mt-1 font-semibold text-slate-900 dark:text-white">
-                  {detailBot.symbol} • {detailBot.operation_mode || 'BOTH'}
+                  {detailBot.symbol} • {formatOperationMode(detailBot.operation_mode || 'BOTH')}
                 </div>
               </div>
               <div className="rounded-xl bg-slate-50 dark:bg-slate-900/70 p-3 border border-slate-200/70 dark:border-slate-800">
@@ -560,7 +561,7 @@ export function BotCardGrid({
                 </div>
               </div>
               <div className="rounded-xl bg-slate-50 dark:bg-slate-900/70 p-3 border border-slate-200/70 dark:border-slate-800">
-                <div className="text-[10px] text-slate-500 uppercase">Imbalance Mín.</div>
+                <div className="text-[10px] text-slate-500 uppercase">Desequilíbrio Mín.</div>
                 <div className="mt-1 font-semibold text-slate-900 dark:text-white">
                   {formatNumber(detailBot.imbalance_threshold, 2)}
                 </div>

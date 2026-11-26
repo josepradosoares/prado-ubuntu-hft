@@ -37,6 +37,7 @@ from prado_linux.indicators import (
     INDICATOR_CATALOG,
     evaluate_indicator_model,
     evaluate_python_model,
+    required_bars_for_indicators,
 )
 from prado_linux.news_scout import NewsScout, validate_rss_url
 
@@ -154,14 +155,42 @@ class CTraderUniversalConnector:
         self._live_deals_history: list[dict[str, Any]] = []
         self._sim_daily_pnl: float = 0.0
         self._sim_balance: float = 10_000.0
-        self._tick_cache: dict[str, tuple[float, list[TickRecord]]] = {}
+        self._tick_cache: dict[str, tuple[float, list[TickRecord]] | tuple[float, list[TickRecord], int]] = {}
         self._symbols_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._balance_cache: tuple[float, float] | None = None
         self._positions_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._position_bot_map: dict[str, str] = {}
         self._recorded_deal_tickets: set[str] = set()
+        self._daily_deals_cache_ts: float = 0.0
+        self._daily_deals_synced_date: str = ""
+        self._daily_deals_from_server: bool = False
         self._last_order_ts: dict[str, float] = {}
         self._last_ping_at: float = time.time()
+
+    def _clear_live_deals_cache(self) -> None:
+        self._live_deals_history.clear()
+        self._recorded_deal_tickets.clear()
+        self._daily_deals_cache_ts = 0.0
+        self._daily_deals_synced_date = ""
+        self._daily_deals_from_server = False
+
+    def disconnect(self) -> None:
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:
+                pass
+            self._client = None
+        self._client_auth = {}
+        self._balance_cache = None
+        self._positions_cache = None
+        self._clear_live_deals_cache()
+        self.connected = False
+        self.connection_state = "DISCONNECTED"
+        self.auth_state = "UNAUTHENTICATED"
+        self.backend_name = (
+            "CTRADER_DISCONNECTED" if self.cfg.connection_mode.upper() != "SIMULATION" else "SIMULATION_FEED"
+        )
 
     def connect(
         self,
@@ -186,9 +215,14 @@ class CTraderUniversalConnector:
         )
         mode = self.cfg.connection_mode.upper()
 
+        prev_ctid = str(self._client_auth.get("ctid_account_id") or "")
         if self._client is not None:
             self._client.close()
             self._client = None
+        self._balance_cache = None
+        self._positions_cache = None
+        if mode == "SIMULATION" or not (cid and csec and tok) or (acc_id and prev_ctid and acc_id != prev_ctid):
+            self._clear_live_deals_cache()
 
         if mode != "SIMULATION" and cid and csec and tok:
             self.connection_state = "CONNECTING"
@@ -352,9 +386,21 @@ class CTraderUniversalConnector:
 
                 positions = self.get_open_positions()
                 floating = sum(float(p.get("profit", 0.0)) for p in positions)
-                realized = round(
-                    sum(float(d.get("profit", 0.0)) for d in self._live_deals_history), 2
+                self.sync_today_deals_from_server()
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                today_deals = [
+                    d for d in self._live_deals_history if str(d.get("date_str") or today_str) == today_str
+                ]
+                realized = round(sum(float(d.get("profit", 0.0)) for d in today_deals), 2)
+                daily_gross = round(
+                    sum(float(d.get("gross_profit") if d.get("gross_profit") is not None else d.get("profit", 0.0)) for d in today_deals),
+                    2,
                 )
+                daily_comm_swap = round(realized - daily_gross, 2)
+                trades_count = len(today_deals)
+                wins_count = sum(1 for d in today_deals if float(d.get("profit", 0.0)) > 0.0)
+                win_rate = round((wins_count / trades_count) * 100.0, 1) if trades_count > 0 else 0.0
+                daily_source = "CTRADER_SERVER" if self._daily_deals_from_server else "SESSION_MEMORY"
                 is_virt = bool(auth.get("is_virtual", 1))
                 acc_mode = "DEMO" if is_virt else "REAL"
                 trading_state = self._compute_trading_state(acc_mode, rl_status)
@@ -382,6 +428,13 @@ class CTraderUniversalConnector:
                     "equity": round(bal + floating, 2),
                     "profit": round(floating, 2),
                     "daily_realized": realized,
+                    "daily_gross": daily_gross,
+                    "daily_commissions_swap": daily_comm_swap,
+                    "daily_trades_count": trades_count,
+                    "daily_win_rate": win_rate,
+                    "daily_source": daily_source,
+                    "max_daily_loss_money": float(self.cfg.max_daily_loss_money or 0.0),
+                    "daily_target_money": float(self.cfg.daily_target_money or 0.0),
                     "margin_free": round(bal + floating, 2),
                     "status_note": self.last_error,
                 }
@@ -418,12 +471,27 @@ class CTraderUniversalConnector:
                 "equity": 0.0,
                 "profit": 0.0,
                 "daily_realized": 0.0,
+                "daily_gross": 0.0,
+                "daily_commissions_swap": 0.0,
+                "daily_trades_count": 0,
+                "daily_win_rate": 0.0,
+                "daily_source": "DISCONNECTED",
+                "max_daily_loss_money": float(self.cfg.max_daily_loss_money or 0.0),
+                "daily_target_money": float(self.cfg.daily_target_money or 0.0),
                 "margin_free": 0.0,
                 "status_note": self.last_error,
             }
 
         floating = sum(p.get("profit", 0.0) for p in self._sim_positions)
         acc_mode = self.cfg.active_account_type.upper() or "DEMO"
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_sim_deals = [
+            d for d in self._sim_deals_history if str(d.get("date_str") or today_str) == today_str
+        ]
+        sim_count = len(today_sim_deals)
+        sim_wins = sum(1 for d in today_sim_deals if float(d.get("profit", 0.0)) > 0.0)
+        sim_win_rate = round((sim_wins / sim_count) * 100.0, 1) if sim_count > 0 else 0.0
+        sim_realized = round(self._sim_daily_pnl, 2)
         return {
             "backend": self.backend_name,
             "connected": self.connected,
@@ -446,7 +514,14 @@ class CTraderUniversalConnector:
             "balance": round(self._sim_balance + self._sim_daily_pnl, 2),
             "equity": round(self._sim_balance + self._sim_daily_pnl + floating, 2),
             "profit": round(floating, 2),
-            "daily_realized": round(self._sim_daily_pnl, 2),
+            "daily_realized": sim_realized,
+            "daily_gross": sim_realized,
+            "daily_commissions_swap": 0.0,
+            "daily_trades_count": sim_count,
+            "daily_win_rate": sim_win_rate,
+            "daily_source": "SIMULATION",
+            "max_daily_loss_money": float(self.cfg.max_daily_loss_money or 0.0),
+            "daily_target_money": float(self.cfg.daily_target_money or 0.0),
             "margin_free": round(self._sim_balance + self._sim_daily_pnl + floating, 2),
             "status_note": self.last_error,
         }
@@ -518,21 +593,27 @@ class CTraderUniversalConnector:
         now = time.time()
         gran = int(granularity or 0)
         if self.cfg.connection_mode.upper() == "SIMULATION":
-            ticks_sim = self._generate_sim_ticks(symbol)
+            ticks_sim = self._generate_sim_ticks(symbol, min_bars=count)
             if ticks_sim:
                 self.last_tick_at = now
             return ticks_sim
 
         cache_key = symbol if gran <= 0 else f"{symbol}:{gran}"
         cached = self._tick_cache.get(cache_key)
-        if cached and (now - cached[0]) < 4.0 and len(cached[1]) >= min(count, 40):
-            return cached[1]
+        if cached:
+            cached_ts = cached[0]
+            cached_ticks = cached[1]
+            cached_req = cached[2] if len(cached) > 2 else len(cached_ticks)
+            if (now - cached_ts) < 4.0 and (
+                len(cached_ticks) >= count or (cached_req >= count and len(cached_ticks) >= min(count, 40))
+            ):
+                return cached_ticks
         client = self._client
         if client is not None:
             try:
-                ticks = client.get_ticks_history(symbol, count=min(500, count), granularity=gran)
+                ticks = client.get_ticks_history(symbol, count=min(1000, count), granularity=gran)
                 if ticks:
-                    self._tick_cache[cache_key] = (now, ticks)
+                    self._tick_cache[cache_key] = (now, ticks, int(count))
                     self.last_tick_at = now
                     return ticks
             except Exception as exc:
@@ -541,34 +622,60 @@ class CTraderUniversalConnector:
                 self.last_error = f"Erro lendo cotações cTrader ({symbol}): {exc}"
         return cached[1] if cached else []
 
-    def _generate_sim_ticks(self, symbol: str) -> list[TickRecord]:
+    def _generate_sim_ticks(self, symbol: str, min_bars: int = 280) -> list[TickRecord]:
         spec = get_symbol_spec(symbol)
         base_price = spec["base"]
         spread = spec["pip_size"] * 1.2
         step_scale = base_price * 0.00025
         history = self._sim_ticks.get(symbol)
         now_msc = int(time.time() * 1000)
+        target_init = min(1000, max(280, int(min_bars or 280)))
 
-        if not history:
-            history = []
-            p = base_price
-            rng = random.Random(hash(symbol) & 0xFFFFFFFF)
-            for i in range(240):
-                drift = math.sin(i / 18.0) * step_scale * 0.6 + rng.uniform(-step_scale, step_scale)
-                p = max(step_scale, p + drift)
-                flag = TICK_FLAG_BUY if drift >= 0 else TICK_FLAG_SELL
-                vol = rng.randint(5, 85)
-                history.append(
-                    TickRecord(
-                        time_msc=now_msc - (240 - i) * 1000,
-                        bid=round(p - spread * 0.5, 6),
-                        ask=round(p + spread * 0.5, 6),
-                        last=round(p, 6),
-                        volume_real=0.0,
-                        tick_volume=float(vol),
-                        flags=flag,
+        if not history or len(history) < target_init:
+            if not history:
+                history = []
+                p = base_price
+                rng = random.Random(hash(symbol) & 0xFFFFFFFF)
+                for i in range(target_init):
+                    drift = math.sin(i / 18.0) * step_scale * 0.6 + rng.uniform(-step_scale, step_scale)
+                    p = max(step_scale, p + drift)
+                    flag = TICK_FLAG_BUY if drift >= 0 else TICK_FLAG_SELL
+                    vol = rng.randint(5, 85)
+                    history.append(
+                        TickRecord(
+                            time_msc=now_msc - (target_init - i) * 1000,
+                            bid=round(p - spread * 0.5, 6),
+                            ask=round(p + spread * 0.5, 6),
+                            last=round(p, 6),
+                            volume_real=0.0,
+                            tick_volume=float(vol),
+                            flags=flag,
+                        )
                     )
-                )
+            else:
+                needed = target_init - len(history)
+                p = history[0].effective_price()
+                first_msc = history[0].time_msc
+                rng = random.Random((hash(symbol) + len(history)) & 0xFFFFFFFF)
+                prefix: list[TickRecord] = []
+                for idx in range(needed):
+                    drift = math.sin(idx / 18.0) * step_scale * 0.5 + rng.uniform(-step_scale, step_scale)
+                    p = max(step_scale, p - drift)
+                    flag = TICK_FLAG_BUY if drift >= 0 else TICK_FLAG_SELL
+                    vol = rng.randint(5, 85)
+                    prefix.append(
+                        TickRecord(
+                            time_msc=first_msc - (idx + 1) * 1000,
+                            bid=round(p - spread * 0.5, 6),
+                            ask=round(p + spread * 0.5, 6),
+                            last=round(p, 6),
+                            volume_real=0.0,
+                            tick_volume=float(vol),
+                            flags=flag,
+                        )
+                    )
+                prefix.reverse()
+                history = prefix + history
             self._sim_ticks[symbol] = history
 
         last_p = history[-1].effective_price()
@@ -592,8 +699,8 @@ class CTraderUniversalConnector:
             )
             last_p = new_p
 
-        if len(history) > 600:
-            self._sim_ticks[symbol] = history[-600:]
+        if len(history) > 1200:
+            self._sim_ticks[symbol] = history[-1200:]
         return self._sim_ticks[symbol]
 
     def _record_live_deal(
@@ -608,32 +715,151 @@ class CTraderUniversalConnector:
         reason: str,
         bot_name: str,
         comment: str = "",
+        *,
+        deal_id: str = "",
+        gross_profit: float | None = None,
+        swap: float = 0.0,
+        commission: float = 0.0,
+        time_msc: int | None = None,
+        date_str: str | None = None,
+        time_str: str | None = None,
+        official: bool = False,
+        overwrite: bool = False,
     ) -> bool:
-        tid = str(ticket)
-        if tid and tid in self._recorded_deal_tickets:
+        tid = str(ticket or "").strip()
+        did = str(deal_id or "").strip()
+        now_dt = datetime.now()
+        t_str = time_str or now_dt.strftime("%H:%M:%S")
+        d_str = date_str or now_dt.strftime("%Y-%m-%d")
+        t_msc = int(time_msc if time_msc is not None else int(now_dt.timestamp() * 1000))
+        gross_val = round(float(gross_profit if gross_profit is not None else profit), 2)
+        pnl_val = round(float(profit or 0.0), 2)
+
+        existing = None
+        if did:
+            existing = next((d for d in self._live_deals_history if str(d.get("deal_id") or "") == did), None)
+        if existing is None and tid:
+            existing = next(
+                (
+                    d
+                    for d in self._live_deals_history
+                    if str(d.get("ticket") or "") == tid and (not did or not d.get("deal_id"))
+                ),
+                None,
+            )
+
+        if existing is not None:
+            if overwrite or (official and not existing.get("official")):
+                cur_bname = str(existing.get("bot_name") or "")
+                chosen_bot = cur_bname if cur_bname and cur_bname != "cTrader" else (bot_name or comment or "cTrader")
+                existing["deal_id"] = did or str(existing.get("deal_id") or "")
+                existing["profit"] = pnl_val
+                existing["gross_profit"] = gross_val
+                existing["swap"] = round(float(swap or 0.0), 2)
+                existing["commission"] = round(float(commission or 0.0), 2)
+                if float(volume or 0.0) > 0:
+                    existing["volume"] = float(volume)
+                if float(price_open or 0.0) > 0:
+                    existing["price_open"] = float(price_open)
+                if float(price_close or 0.0) > 0:
+                    existing["price_close"] = float(price_close)
+                existing["time_msc"] = t_msc
+                existing["time"] = t_str
+                existing["time_str"] = t_str
+                existing["date_str"] = d_str
+                existing["bot_name"] = chosen_bot
+                existing["comment"] = str(existing.get("comment") or comment or chosen_bot)
+                existing["reason"] = reason or str(existing.get("reason") or "")
+                existing["official"] = bool(official or existing.get("official"))
+                if did:
+                    self._recorded_deal_tickets.add(f"deal:{did}")
+                if tid:
+                    self._recorded_deal_tickets.add(tid)
+                return True
             return False
+
+        if did:
+            self._recorded_deal_tickets.add(f"deal:{did}")
         if tid:
             self._recorded_deal_tickets.add(tid)
-        ts_str = datetime.now().strftime("%H:%M:%S")
         bname = bot_name or comment or "cTrader"
         self._live_deals_history.insert(
             0,
             {
                 "ticket": tid,
-                "time": ts_str,
-                "time_str": ts_str,
+                "deal_id": did,
+                "time": t_str,
+                "time_str": t_str,
+                "date_str": d_str,
+                "time_msc": t_msc,
                 "symbol": symbol or "--",
                 "type": side or "BUY",
                 "side": side or "BUY",
                 "volume": float(volume or 0.0),
                 "price_open": float(price_open or 0.0),
                 "price_close": float(price_close or 0.0),
-                "profit": round(float(profit or 0.0), 2),
+                "profit": pnl_val,
+                "gross_profit": gross_val,
+                "swap": round(float(swap or 0.0), 2),
+                "commission": round(float(commission or 0.0), 2),
                 "reason": reason,
                 "comment": comment or bname,
                 "bot_name": bname,
+                "official": official,
             },
         )
+        return True
+
+    def sync_today_deals_from_server(self, force: bool = False) -> bool:
+        if self.cfg.connection_mode.upper() == "SIMULATION" or self._client is None:
+            return False
+        get_deals_fn = getattr(self._client, "get_deals_history", None)
+        if not callable(get_deals_fn):
+            return False
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_str = today_start.strftime("%Y-%m-%d")
+        now = time.time()
+        if not force and self._daily_deals_synced_date == today_str and (now - self._daily_deals_cache_ts) < 30.0:
+            return self._daily_deals_from_server
+        try:
+            deals = get_deals_fn(int(today_start.timestamp() * 1000), int(now * 1000) + 60_000, max_rows=500)
+        except CTraderAuthError:
+            raise
+        except Exception:
+            return self._daily_deals_from_server
+
+        for deal in deals or []:
+            pid = str(deal.get("ticket") or "")
+            sym = str(deal.get("symbol") or "--")
+            bname = self._position_bot_map.get(pid) or str(deal.get("bot_name") or "") or next(
+                (str(b.get("name", "")) for b in self.cfg.bots if b.get("symbol") == sym and b.get("name")),
+                "cTrader",
+            )
+            self._record_live_deal(
+                ticket=pid,
+                symbol=sym,
+                side=str(deal.get("side") or "BUY"),
+                volume=float(deal.get("volume") or 0.0),
+                price_open=float(deal.get("price_open") or 0.0),
+                price_close=float(deal.get("price_close") or 0.0),
+                profit=float(deal.get("profit") or 0.0),
+                reason=str(deal.get("reason") or "CTRADER_SERVER_DEAL"),
+                bot_name=bname,
+                comment=str(deal.get("comment") or bname),
+                deal_id=str(deal.get("deal_id") or ""),
+                gross_profit=deal.get("gross_profit"),
+                swap=float(deal.get("swap") or 0.0),
+                commission=float(deal.get("commission") or 0.0),
+                time_msc=deal.get("time_msc"),
+                date_str=deal.get("date_str"),
+                time_str=deal.get("time_str"),
+                official=True,
+                overwrite=True,
+            )
+        self._live_deals_history.sort(key=lambda d: int(d.get("time_msc") or 0), reverse=True)
+        self._daily_deals_cache_ts = time.time()
+        self._daily_deals_synced_date = today_str
+        self._daily_deals_from_server = True
         return True
 
     def sync_closed_deals(self) -> list[dict[str, Any]]:
@@ -668,8 +894,26 @@ class CTraderUniversalConnector:
                 reason=str(deal.get("reason") or "CTRADER_AUTO_CLOSE"),
                 bot_name=bname,
                 comment=bname,
+                deal_id=str(deal.get("deal_id") or ""),
+                gross_profit=deal.get("gross_profit"),
+                swap=float(deal.get("swap") or 0.0),
+                commission=float(deal.get("commission") or 0.0),
+                time_msc=deal.get("time_msc"),
+                date_str=deal.get("date_str"),
+                time_str=deal.get("time_str"),
+                official=True,
+                overwrite=True,
             ):
-                recorded.append(self._live_deals_history[0])
+                matched = next(
+                    (
+                        d
+                        for d in self._live_deals_history
+                        if (deal.get("deal_id") and str(d.get("deal_id") or "") == str(deal.get("deal_id")))
+                        or str(d.get("ticket") or "") == pid
+                    ),
+                    self._live_deals_history[0],
+                )
+                recorded.append(matched)
         if closed_ids and self._positions_cache is not None:
             ts_c, cached_list = self._positions_cache
             self._positions_cache = (
@@ -678,6 +922,7 @@ class CTraderUniversalConnector:
             )
         if recorded:
             self._balance_cache = None
+            self._daily_deals_cache_ts = 0.0
         return recorded
 
     def get_open_positions(self) -> list[dict[str, Any]]:
@@ -719,13 +964,16 @@ class CTraderUniversalConnector:
                 hit_tp = (curr >= pos["tp"]) if is_buy else (curr <= pos["tp"])
                 hit_sl = (curr <= pos["sl"]) if is_buy else (curr >= pos["sl"])
                 if (pos["tp"] > 0 and hit_tp) or (pos["sl"] > 0 and hit_sl):
+                    now_dt = datetime.now()
                     self._sim_daily_pnl += pos["profit"]
                     self._sim_deals_history.insert(
                         0,
                         {
                             "ticket": pos["ticket"],
-                            "time": datetime.now().strftime("%H:%M:%S"),
-                            "time_str": datetime.now().strftime("%H:%M:%S"),
+                            "time": now_dt.strftime("%H:%M:%S"),
+                            "time_str": now_dt.strftime("%H:%M:%S"),
+                            "date_str": now_dt.strftime("%Y-%m-%d"),
+                            "time_msc": int(now_dt.timestamp() * 1000),
                             "symbol": sym,
                             "type": pos["type"],
                             "side": pos["type"],
@@ -847,6 +1095,10 @@ class CTraderUniversalConnector:
                         "sl": sl_price,
                         "tp": tp_price,
                         "profit": 0.0,
+                        "swap": 0.0,
+                        "commission": 0.0,
+                        "open_timestamp_ms": int(now * 1000),
+                        "open_time_str": datetime.now().strftime("%d/%m %H:%M:%S"),
                         "bot_name": bot_name,
                         "comment": f"{bot_name[:14]}_{action}",
                     }
@@ -860,6 +1112,7 @@ class CTraderUniversalConnector:
 
         sl = round(price - eff_sl_pts, 6) if is_buy else round(price + eff_sl_pts, 6)
         tp = round(price + eff_tp_pts, 6) if is_buy else round(price - eff_tp_pts, 6)
+        now_dt = datetime.now()
         ticket = int(time.time() * 1000) % 100_000_000
         side_str = "BUY" if is_buy else "SELL"
         self._sim_positions.append(
@@ -874,27 +1127,49 @@ class CTraderUniversalConnector:
                 "sl": sl,
                 "tp": tp,
                 "profit": 0.0,
+                "swap": 0.0,
+                "commission": 0.0,
+                "open_timestamp_ms": int(now_dt.timestamp() * 1000),
+                "open_time_str": now_dt.strftime("%d/%m %H:%M:%S"),
                 "bot_name": bot_name,
                 "comment": f"{bot_name[:14]}_{action}",
             }
         )
         return True, f"[{bot_name}] Ordem {action} ({lots:.2f} lote) aberta em {symbol}"
 
-    def close_all_positions(self, reason: str = "MANUAL_PANIC_FLATTEN") -> tuple[int, str]:
+    def _close_selected_positions(
+        self,
+        reason: str,
+        only_profitable: bool = False,
+    ) -> tuple[int, str]:
         if self.cfg.connection_mode.upper() != "SIMULATION":
             if self._client is None:
-                return 0, "cTrader desconectada: nenhuma posição ativa para encerrar."
+                empty_msg = (
+                    "cTrader desconectada: nenhuma posição lucrativa para encerrar."
+                    if only_profitable
+                    else "cTrader desconectada: nenhuma posição ativa para encerrar."
+                )
+                return 0, empty_msg
             self._positions_cache = None
             positions = self.get_open_positions()
+            targets = (
+                [p for p in positions if float(p.get("profit", 0.0)) > 0.0]
+                if only_profitable
+                else list(positions)
+            )
+            if only_profitable and not targets:
+                return 0, "[cTrader] Nenhuma posição lucrativa aberta no momento."
             closed = 0
+            closed_tickets: set[str] = set()
             errors: list[str] = []
-            for p in positions:
+            for p in targets:
                 try:
                     ok, err_msg = self._client.close_position(str(p["ticket"]), volume_raw=p.get("volume_raw"))
                 except Exception as exc:
                     ok, err_msg = False, str(exc)
                 if ok:
                     closed += 1
+                    closed_tickets.add(str(p["ticket"]))
                     self._record_live_deal(
                         ticket=p["ticket"],
                         symbol=p["symbol"],
@@ -909,24 +1184,40 @@ class CTraderUniversalConnector:
                     )
                 else:
                     errors.append(err_msg)
-            self._positions_cache = (time.time(), []) if not errors else None
+            if only_profitable:
+                remaining = [p for p in positions if str(p.get("ticket")) not in closed_tickets]
+                self._positions_cache = (time.time(), remaining) if not errors else None
+            else:
+                self._positions_cache = (time.time(), []) if not errors else None
             self._balance_cache = None
+            if closed:
+                self._daily_deals_cache_ts = 0.0
             if errors and closed == 0:
                 return 0, f"[cTrader] Falha ao zerar posições: {errors[0]}"
             suffix = f" ({len(errors)} erro(s))" if errors else ""
-            return closed, f"[cTrader] {closed} posição(ões) encerrada(s) ({reason}){suffix}."
+            verb = "lucrativa(s) encerrada(s)" if only_profitable else "encerrada(s)"
+            return closed, f"[cTrader] {closed} posição(ões) {verb} ({reason}){suffix}."
 
-        count = len(self._sim_positions)
-        for p in self._sim_positions:
+        targets = (
+            [p for p in list(self._sim_positions) if float(p.get("profit", 0.0)) > 0.0]
+            if only_profitable
+            else list(self._sim_positions)
+        )
+        if only_profitable and not targets:
+            return 0, "Nenhuma posição lucrativa aberta no momento."
+        for p in targets:
             pnl = float(p.get("profit", 0.0))
             self._sim_daily_pnl += pnl
-            ts_str = datetime.now().strftime("%H:%M:%S")
+            now_dt = datetime.now()
+            ts_str = now_dt.strftime("%H:%M:%S")
             self._sim_deals_history.insert(
                 0,
                 {
                     "ticket": p["ticket"],
                     "time": ts_str,
                     "time_str": ts_str,
+                    "date_str": now_dt.strftime("%Y-%m-%d"),
+                    "time_msc": int(now_dt.timestamp() * 1000),
                     "symbol": p["symbol"],
                     "type": p["type"],
                     "side": p["type"],
@@ -939,8 +1230,20 @@ class CTraderUniversalConnector:
                     "bot_name": p.get("bot_name") or p.get("comment", ""),
                 },
             )
-        self._sim_positions.clear()
+            if only_profitable:
+                self._sim_positions.remove(p)
+        if not only_profitable:
+            self._sim_positions.clear()
+        count = len(targets)
+        if only_profitable:
+            return count, f"{count} posição(ões) lucrativa(s) encerrada(s) ({reason})."
         return count, f"{count} posição(ões) zerada(s) ({reason})."
+
+    def close_all_positions(self, reason: str = "MANUAL_PANIC_FLATTEN") -> tuple[int, str]:
+        return self._close_selected_positions(reason, only_profitable=False)
+
+    def close_profitable_positions(self, reason: str = "REALIZAR_LUCRATIVAS") -> tuple[int, str]:
+        return self._close_selected_positions(reason, only_profitable=True)
 
     def close_single_position(self, ticket: int | str) -> tuple[bool, str]:
         if self.cfg.connection_mode.upper() != "SIMULATION":
@@ -976,7 +1279,9 @@ class CTraderUniversalConnector:
                     reason="FECHAMENTO_MANUAL",
                     bot_name=str(matched.get("bot_name") or matched.get("comment") or "cTrader") if matched else "cTrader",
                     comment=str(matched.get("comment", "")) if matched else "cTrader",
+                    official=False,
                 )
+                self._daily_deals_cache_ts = 0.0
             else:
                 self._positions_cache = None
             return ok, msg
@@ -985,13 +1290,16 @@ class CTraderUniversalConnector:
             if str(p["ticket"]) == str(ticket):
                 pnl = float(p.get("profit", 0.0))
                 self._sim_daily_pnl += pnl
-                ts_str = datetime.now().strftime("%H:%M:%S")
+                now_dt = datetime.now()
+                ts_str = now_dt.strftime("%H:%M:%S")
                 self._sim_deals_history.insert(
                     0,
                     {
                         "ticket": p["ticket"],
                         "time": ts_str,
                         "time_str": ts_str,
+                        "date_str": now_dt.strftime("%Y-%m-%d"),
+                        "time_msc": int(now_dt.timestamp() * 1000),
                         "symbol": p["symbol"],
                         "type": p["type"],
                         "side": p["type"],
@@ -1209,6 +1517,13 @@ class PradoTradingService:
                 account_id=str(target.get("ctid_account_id") or target["account_id"]),
                 is_live=bool(target.get("is_live", self.cfg.active_account_type == "REAL")),
             )
+            if ok and self.connector._client_auth:
+                auth = self.connector._client_auth
+                target["balance"] = float(auth.get("balance", target.get("balance", 0.0)))
+                target["currency"] = str(auth.get("currency", target.get("currency", "USD")))
+                target["broker_name"] = str(auth.get("broker_name", target.get("broker_name", "cTrader")))
+                target["trader_login"] = str(auth.get("loginid", target.get("trader_login", "---")))
+                save_config(self.cfg, self.config_path)
             self._log_event("ACCOUNT_SWITCH", f"Conta ativa alterada para [{self.cfg.active_account_type}] {target.get('label')} — {msg}")
             return {
                 k: ("********" if k in ("access_token", "refresh_token", "client_secret") and v else v)
@@ -1449,6 +1764,8 @@ class PradoTradingService:
         if not remote_accounts:
             return False, "Nenhuma conta cTrader retornada para este Access Token."
 
+        auth = self.connector._client_auth or {}
+        auth_ctid = str(auth.get("ctid_account_id") or "").strip()
         synced_count = 0
         for acc in remote_accounts:
             ctid = str(acc.get("ctid_account_id") or "").strip()
@@ -1457,6 +1774,8 @@ class PradoTradingService:
                 continue
             acc_type = str(acc.get("account_type", "DEMO")).upper()
             is_live = bool(acc.get("is_live", acc_type == "REAL"))
+            live_bal = float(auth.get("balance", acc.get("balance", 0.0))) if (ctid and ctid == auth_ctid) else float(acc.get("balance", 0.0))
+            live_cur = str(auth.get("currency", acc.get("currency", "USD"))) if (ctid and ctid == auth_ctid) else str(acc.get("currency", "USD"))
             existing = next(
                 (
                     a for a in self.cfg.accounts
@@ -1474,6 +1793,9 @@ class PradoTradingService:
                 existing["client_secret"] = self.cfg.ctrader_client_secret
                 existing["access_token"] = self.cfg.ctrader_access_token
                 existing["refresh_token"] = self.cfg.ctrader_refresh_token
+                if ctid and ctid == auth_ctid:
+                    existing["balance"] = live_bal
+                    existing["currency"] = live_cur
             else:
                 self.cfg.accounts.append(
                     {
@@ -1490,8 +1812,8 @@ class PradoTradingService:
                         "refresh_token": self.cfg.ctrader_refresh_token,
                         "default_lot_size": self.cfg.default_lot_size,
                         "connection_mode": "CTRADER_CLOUD",
-                        "balance": float(acc.get("balance", 0.0)),
-                        "currency": str(acc.get("currency", "USD")),
+                        "balance": live_bal,
+                        "currency": live_cur,
                         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     }
                 )
@@ -1565,6 +1887,13 @@ class PradoTradingService:
         with self._lock:
             for key, val in updates.items():
                 if key in self._ALLOWED_CONFIG_UPDATE_FIELDS and hasattr(self.cfg, key):
+                    if key == "active_symbols" and isinstance(val, list):
+                        cleaned: list[str] = []
+                        for item in val:
+                            sym = str(item or "").strip()
+                            if sym and sym not in cleaned:
+                                cleaned.append(sym)
+                        val = cleaned[:25]
                     setattr(self.cfg, key, val)
             if any(
                 k in updates
@@ -1590,6 +1919,12 @@ class PradoTradingService:
         with self._lock:
             count, msg = self.connector.close_all_positions(reason)
             self._log_event("RISK_GUARD", msg)
+            return count, msg
+
+    def flatten_profitable(self, reason: str = "REALIZAR_LUCRATIVAS_PAINEL") -> tuple[int, str]:
+        with self._lock:
+            count, msg = self.connector.close_profitable_positions(reason)
+            self._log_event("FLATTEN_PROFITABLE", msg)
             return count, msg
 
     def close_position(self, ticket: int | str) -> tuple[bool, str]:
@@ -1627,7 +1962,8 @@ class PradoTradingService:
             python_code = str(payload.get("python_code") or DEFAULT_PYTHON_STRATEGY_TEMPLATE)
             if mode == "INDICATORS":
                 ind_names = ", ".join(str(i.get("id", "")) for i in indicators_cfg) or "Sem indicadores"
-                formula = f"Indicadores ({combine_mode}): {ind_names}"
+                combine_label = "Todos Concordam" if combine_mode == "ALL" else "Maioria"
+                formula = f"Indicadores ({combine_label}): {ind_names}"
             else:
                 formula = "Python Customizado: def evaluate(prices, ticks, params)"
 
@@ -1639,6 +1975,11 @@ class PradoTradingService:
                 "is_custom": True,
                 "formula": formula,
                 "description": str(payload.get("description") or "Modelo matemático criado pelo usuário.").strip(),
+                "recommended_timeframe": str(
+                    payload.get("recommended_timeframe") or ("M5" if mode == "INDICATORS" else "TICKS")
+                )
+                .strip()
+                .upper(),
                 "window_ticks": max(20, int(payload.get("window_ticks") or 120)),
                 "zscore_threshold": float(payload.get("zscore_threshold") or 1.8),
                 "imbalance_threshold": float(payload.get("imbalance_threshold") or 0.35),
@@ -1662,6 +2003,16 @@ class PradoTradingService:
         with self._lock:
             if any(t["template_id"] == template_id for t in MATH_BOT_TEMPLATES):
                 raise ValueError("Modelos nativos não podem ser excluídos.")
+            in_use = [
+                str(b.get("name") or b.get("bot_id") or "Robô")
+                for b in self.cfg.bots
+                if (b.get("template_id") or b.get("bot_template_id")) == template_id
+            ]
+            if in_use:
+                raise ValueError(
+                    f"Não é possível excluir: modelo em uso pelo(s) robô(s) {', '.join(in_use)}. "
+                    "Troque o modelo ou remova esses robôs primeiro."
+                )
             before = len(self.cfg.custom_templates)
             self.cfg.custom_templates = [t for t in self.cfg.custom_templates if t.get("template_id") != template_id]
             removed = len(self.cfg.custom_templates) < before
@@ -1674,35 +2025,108 @@ class PradoTradingService:
         symbol = str(payload.get("symbol") or "EURUSD").strip()
         timeframe = str(payload.get("timeframe") or "TICKS").strip().upper()
         gran = self.connector.TIMEFRAME_GRANULARITIES.get(timeframe, 0)
-        ticks = self.connector.fetch_ticks(symbol, count=200, granularity=gran)
-        if not ticks:
-            ticks = self.connector._generate_sim_ticks(symbol)
-        prices = [float(t.effective_price()) for t in ticks]
         mode = str(payload.get("custom_mode") or "INDICATORS").strip().upper()
+        indicators_cfg = list(payload.get("indicators") or [])
+        combine_mode = str(payload.get("combine_mode") or "MAJORITY")
+        needed_bars = max(260, required_bars_for_indicators(indicators_cfg)) if mode == "INDICATORS" else 200
+        ticks = self.connector.fetch_ticks(symbol, count=needed_bars, granularity=gran)
+        if self.cfg.connection_mode.upper() == "SIMULATION":
+            data_source = "SIMULATION"
+        elif ticks:
+            data_source = "CTRADER_LIVE"
+        else:
+            data_source = "SIMULATION_FALLBACK"
+        if not ticks:
+            ticks = self.connector._generate_sim_ticks(symbol, min_bars=needed_bars)
+        prices = [float(t.effective_price()) for t in ticks]
+
         if mode == "PYTHON":
-            res = evaluate_python_model(
-                str(payload.get("python_code") or ""),
-                prices=prices,
-                ticks=ticks,
-                params=dict(payload.get("params") or {}),
-            )
+            code = str(payload.get("python_code") or "")
+            params = dict(payload.get("params") or {})
+            res = evaluate_python_model(code, prices=prices, ticks=ticks, params=params)
+            buy_count = 0
+            sell_count = 0
+            last_sig = res.get("signal", "WAIT")
+            last_sig_idx: int | None = len(ticks) if last_sig in ("BUY", "SELL") else None
+            bars_scanned = 0
+            if res.get("ok") and ticks:
+                start_idx = min(len(ticks), max(1, len(ticks) - 39))
+                scan_deadline = time.perf_counter() + 0.35
+                hist_last_sig = "WAIT"
+                hist_last_idx: int | None = None
+                for idx in range(start_idx, len(ticks) + 1):
+                    if time.perf_counter() > scan_deadline:
+                        break
+                    bars_scanned += 1
+                    hres = evaluate_python_model(code, prices=prices[:idx], ticks=ticks[:idx], params=params)
+                    hsig = hres.get("signal", "WAIT") if hres.get("ok") else "WAIT"
+                    if hsig == "BUY":
+                        buy_count += 1
+                        hist_last_sig = "BUY"
+                        hist_last_idx = idx
+                    elif hsig == "SELL":
+                        sell_count += 1
+                        hist_last_sig = "SELL"
+                        hist_last_idx = idx
+                if res.get("signal") not in ("BUY", "SELL") and hist_last_idx is not None:
+                    last_sig = hist_last_sig
+                    last_sig_idx = hist_last_idx
             res["symbol"] = symbol
+            res["data_source"] = data_source
             res["ticks_count"] = len(ticks)
+            res["bars_scanned"] = max(1, bars_scanned)
+            res["buy_signals_count"] = buy_count
+            res["sell_signals_count"] = sell_count
+            res["last_signal"] = last_sig
+            res["last_signal_bars_ago"] = (len(ticks) - last_sig_idx) if last_sig_idx is not None else None
             return res
-        ind_res = evaluate_indicator_model(
-            ticks,
-            list(payload.get("indicators") or []),
-            combine_mode=str(payload.get("combine_mode") or "MAJORITY"),
-        )
+
+        t0 = time.perf_counter()
+        ind_res = evaluate_indicator_model(ticks, indicators_cfg, combine_mode=combine_mode)
+        buy_count = 0
+        sell_count = 0
+        hist_last_sig = "WAIT"
+        hist_last_idx: int | None = None
+        bars_scanned = 0
+        if ticks:
+            start_idx = min(len(ticks), max(4, len(ticks) - 119))
+            for idx in range(start_idx, len(ticks) + 1):
+                bars_scanned += 1
+                heval = evaluate_indicator_model(ticks[:idx], indicators_cfg, combine_mode=combine_mode)
+                hsig = heval["signal"]
+                if hsig == "BUY":
+                    buy_count += 1
+                    hist_last_sig = "BUY"
+                    hist_last_idx = idx
+                elif hsig == "SELL":
+                    sell_count += 1
+                    hist_last_sig = "SELL"
+                    hist_last_idx = idx
+
+        cur_sig = ind_res["signal"]
+        if cur_sig in ("BUY", "SELL"):
+            last_sig = cur_sig
+            last_sig_bars_ago: int | None = 0
+        else:
+            last_sig = hist_last_sig
+            last_sig_bars_ago = (len(ticks) - hist_last_idx) if hist_last_idx is not None else None
+
+        elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
         return {
             "ok": True,
             "symbol": symbol,
+            "data_source": data_source,
             "ticks_count": len(ticks),
-            "signal": ind_res["signal"],
+            "signal": cur_sig,
             "buy_votes": ind_res["buy_votes"],
             "sell_votes": ind_res["sell_votes"],
             "details": ind_res["details"],
-            "elapsed_ms": 0.0,
+            "bars_scanned": max(1, bars_scanned),
+            "buy_signals_count": buy_count,
+            "sell_signals_count": sell_count,
+            "last_signal": last_sig,
+            "last_signal_bars_ago": last_sig_bars_ago,
+            "elapsed_ms": elapsed_ms,
             "stdout": "",
             "error": "",
         }
@@ -1796,29 +2220,46 @@ class PradoTradingService:
         balance = initial_capital
         peak_balance = initial_capital
         max_drawdown = 0.0
+        max_drawdown_pct = 0.0
         trades: list[dict[str, Any]] = []
         open_pos: dict[str, Any] | None = None
         grid_anchor = 0.0
 
-        step_stride = max(1, len(ticks) // 250)
-        for idx in range(40, len(ticks), step_stride):
-            sub_ticks = ticks[: idx + 1]
-            curr_price = sub_ticks[-1].effective_price()
+        base_ts = int(ticks[0].time_msc // 1000) if ticks else int(time.time())
+        last_curve_ts = base_ts
+        equity_curve: list[dict[str, Any]] = [
+            {"trade": 0, "time": base_ts, "equity": round(initial_capital, 2), "drawdown": 0.0}
+        ]
+
+        is_py_custom = bool(tpl.get("is_custom") and str(tpl.get("custom_mode") or "").upper() == "PYTHON")
+        entry_stride = max(1, len(ticks) // 500) if (is_py_custom and len(ticks) > 1000) else 1
+        eval_win = max(window_ticks, 200)
+        last_idx = len(ticks) - 1
+
+        for idx in range(40, len(ticks)):
+            curr_tick = ticks[idx]
+            curr_price = curr_tick.effective_price()
 
             if open_pos is not None:
                 is_buy = open_pos["type"] == "BUY"
                 hit_tp = (curr_price >= open_pos["tp"]) if is_buy else (curr_price <= open_pos["tp"])
                 hit_sl = (curr_price <= open_pos["sl"]) if is_buy else (curr_price >= open_pos["sl"])
-                if hit_tp or hit_sl or idx >= len(ticks) - step_stride:
+                if hit_tp or hit_sl or idx == last_idx:
                     pnl = estimate_cfd_pnl(symbol, is_buy, open_pos["entry"], curr_price, lot_size)
                     balance = round(balance + pnl, 2)
                     peak_balance = max(peak_balance, balance)
-                    max_drawdown = max(max_drawdown, round(peak_balance - balance, 2))
+                    dd_now = round(max(0.0, peak_balance - balance), 2)
+                    dd_pct_now = round((dd_now / peak_balance) * 100.0, 2) if peak_balance > 0 else 0.0
+                    max_drawdown = max(max_drawdown, dd_now)
+                    max_drawdown_pct = max(max_drawdown_pct, dd_pct_now)
+                    trade_id = len(trades) + 1
+                    exit_reason = "TP" if hit_tp else ("SL" if hit_sl else "EOD")
                     trades.append(
                         {
-                            "id": len(trades) + 1,
+                            "id": trade_id,
                             "type": open_pos["type"],
                             "signal": open_pos["signal"],
+                            "exit_reason": exit_reason,
                             "entry": round(open_pos["entry"], 6),
                             "exit": round(curr_price, 6),
                             "pnl": pnl,
@@ -1826,9 +2267,22 @@ class PradoTradingService:
                             "equity_after": balance,
                         }
                     )
+                    pt_ts = int(curr_tick.time_msc // 1000)
+                    if pt_ts <= last_curve_ts:
+                        pt_ts = last_curve_ts + 1
+                    last_curve_ts = pt_ts
+                    equity_curve.append(
+                        {
+                            "trade": trade_id,
+                            "time": pt_ts,
+                            "equity": balance,
+                            "drawdown": dd_now,
+                        }
+                    )
                     open_pos = None
 
-            if open_pos is None and idx < len(ticks) - step_stride * 2:
+            if open_pos is None and idx < last_idx - 1 and ((idx - 40) % entry_stride == 0):
+                sub_ticks = ticks[max(0, idx + 1 - eval_win) : idx + 1]
                 vwap_b = compute_intraday_vwap(sub_ticks)
                 flow = compute_flow_metrics(
                     sub_ticks,
@@ -1880,10 +2334,31 @@ class PradoTradingService:
         net_profit = round(balance - initial_capital, 2)
         win_rate = round((len(wins) / len(trades)) * 100.0, 2) if trades else 0.0
         profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (99.9 if gross_profit > 0 else 1.0)
+        avg_win = round(gross_profit / len(wins), 2) if wins else 0.0
+        avg_loss = round(-gross_loss / len(losses), 2) if losses else 0.0
+        expectancy = round(net_profit / len(trades), 2) if trades else 0.0
+        best_trade = round(max((t["pnl"] for t in trades), default=0.0), 2)
+        worst_trade = round(min((t["pnl"] for t in trades), default=0.0), 2)
+
+        max_consec_wins = 0
+        max_consec_losses = 0
+        cur_w = 0
+        cur_l = 0
+        for t in trades:
+            if t["pnl"] > 0:
+                cur_w += 1
+                cur_l = 0
+                max_consec_wins = max(max_consec_wins, cur_w)
+            else:
+                cur_l += 1
+                cur_w = 0
+                max_consec_losses = max(max_consec_losses, cur_l)
 
         report = {
             "symbol": symbol,
             "timeframe": timeframe,
+            "period": period,
+            "lot_size": round(lot_size, 4),
             "data_source": data_source,
             "bot_template_id": template_id,
             "bot_template_name": str(tpl.get("name") or template_id),
@@ -1904,12 +2379,21 @@ class PradoTradingService:
             "gross_profit": gross_profit,
             "gross_loss": gross_loss,
             "profit_factor": profit_factor,
+            "avg_win": avg_win,
+            "avg_loss": avg_loss,
+            "expectancy": expectancy,
+            "best_trade": best_trade,
+            "worst_trade": worst_trade,
+            "max_consecutive_wins": max_consec_wins,
+            "max_consecutive_losses": max_consec_losses,
             "max_drawdown": round(max_drawdown, 2),
-            "trades": trades[-30:],
+            "max_drawdown_pct": round(max_drawdown_pct, 2),
+            "equity_curve": equity_curve,
+            "trades": trades[-100:],
             "executed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
-        self.cfg.backtest_history.insert(0, {k: v for k, v in report.items() if k != "trades"})
+        self.cfg.backtest_history.insert(0, {k: v for k, v in report.items() if k not in ("trades", "equity_curve")})
         self.cfg.backtest_history = self.cfg.backtest_history[:15]
         return report
 
@@ -1928,14 +2412,47 @@ class PradoTradingService:
                 total_trades = sum(r["total_trades"] for r in reports)
                 total_wins = sum(r["winning_trades"] for r in reports)
                 total_losses = sum(r["losing_trades"] for r in reports)
+                gross_profit = round(sum(r["gross_profit"] for r in reports), 2)
+                gross_loss = round(sum(r["gross_loss"] for r in reports), 2)
                 net_profit = round(sum(r["net_profit"] for r in reports), 2)
                 initial_cap = float(reports[0]["initial_capital"]) if reports else 10000.0
                 max_dd = round(max((r["max_drawdown"] for r in reports), default=0.0), 2)
+                max_dd_pct = round(max((r["max_drawdown_pct"] for r in reports), default=0.0), 2)
                 win_rate = round((total_wins / total_trades) * 100.0, 2) if total_trades else 0.0
+                profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (99.9 if gross_profit > 0 else 1.0)
+                avg_win = round(gross_profit / total_wins, 2) if total_wins else 0.0
+                avg_loss = round(-gross_loss / total_losses, 2) if total_losses else 0.0
+                expectancy = round(net_profit / total_trades, 2) if total_trades else 0.0
+                best_trade = round(max((r["best_trade"] for r in reports), default=0.0), 2)
+                worst_trade = round(min((r["worst_trade"] for r in reports), default=0.0), 2)
+                max_cw = max((r["max_consecutive_wins"] for r in reports), default=0)
+                max_cl = max((r["max_consecutive_losses"] for r in reports), default=0)
                 sources = {r["data_source"] for r in reports}
+
+                # Build aggregated equity curve across symbols
+                base_ts = int(time.time()) - len(reports) * 60
+                running_eq = initial_cap
+                peak_eq = initial_cap
+                agg_curve: list[dict[str, Any]] = [
+                    {"trade": 0, "time": base_ts, "equity": round(initial_cap, 2), "drawdown": 0.0}
+                ]
+                for idx_r, r in enumerate(reports, start=1):
+                    running_eq = round(running_eq + r["net_profit"], 2)
+                    peak_eq = max(peak_eq, running_eq)
+                    agg_curve.append(
+                        {
+                            "trade": idx_r,
+                            "time": base_ts + idx_r * 60,
+                            "equity": running_eq,
+                            "drawdown": round(max(0.0, peak_eq - running_eq), 2),
+                        }
+                    )
+
                 summary = {
                     "symbol": f"TODOS ({len(reports)})",
                     "timeframe": reports[0]["timeframe"] if reports else "TICKS",
+                    "period": reports[0]["period"] if reports else "CUSTOM",
+                    "lot_size": reports[0]["lot_size"] if reports else 0.01,
                     "data_source": "CTRADER_REAL" if sources == {"CTRADER_REAL"} else ("SIMULATION" if "CTRADER_REAL" not in sources else "MISTO"),
                     "bot_template_id": reports[0]["bot_template_id"],
                     "bot_template_name": reports[0]["bot_template_name"],
@@ -1953,12 +2470,21 @@ class PradoTradingService:
                     "losing_trades": total_losses,
                     "win_rate_pct": win_rate,
                     "win_rate": win_rate,
-                    "gross_profit": round(sum(r["gross_profit"] for r in reports), 2),
-                    "gross_loss": round(sum(r["gross_loss"] for r in reports), 2),
-                    "profit_factor": 1.0,
+                    "gross_profit": gross_profit,
+                    "gross_loss": gross_loss,
+                    "profit_factor": profit_factor,
+                    "avg_win": avg_win,
+                    "avg_loss": avg_loss,
+                    "expectancy": expectancy,
+                    "best_trade": best_trade,
+                    "worst_trade": worst_trade,
+                    "max_consecutive_wins": max_cw,
+                    "max_consecutive_losses": max_cl,
                     "max_drawdown": max_dd,
+                    "max_drawdown_pct": max_dd_pct,
+                    "equity_curve": agg_curve,
                     "trades": [],
-                    "per_symbol": [{k: v for k, v in r.items() if k != "trades"} for r in reports],
+                    "per_symbol": [{k: v for k, v in r.items() if k not in ("trades", "equity_curve")} for r in reports],
                     "executed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
@@ -2525,9 +3051,23 @@ class PradoTradingService:
                         )
                         continue
 
+                    bot["template_id"] = bot.get("template_id") or bot.get("bot_template_id", "")
+                    bot["template_name"] = bot.get("template_name") or bot.get("bot_template_name", "")
+                    custom_tpl = next(
+                        (t for t in self.cfg.custom_templates if t.get("template_id") == bot["template_id"]),
+                        None,
+                    )
+                    bot_fetch_count = 200
+                    if (
+                        custom_tpl is not None
+                        and str(custom_tpl.get("custom_mode") or "").strip().upper() == "INDICATORS"
+                        and custom_tpl.get("indicators")
+                    ):
+                        bot_fetch_count = required_bars_for_indicators(custom_tpl.get("indicators"))
+
                     bot_tf = str(bot.get("timeframe", "TICKS")).strip().upper()
                     bot_gran = self.connector.TIMEFRAME_GRANULARITIES.get(bot_tf, 0)
-                    ticks = self.connector.fetch_ticks(bsym, count=200, granularity=bot_gran)
+                    ticks = self.connector.fetch_ticks(bsym, count=bot_fetch_count, granularity=bot_gran)
                     vwap_bands = compute_intraday_vwap(ticks)
                     bot_flow = compute_flow_metrics(
                         ticks,
@@ -2548,13 +3088,7 @@ class PradoTradingService:
                     bot["aggression_zscore"] = round(bot_flow.aggression_zscore, 4)
                     bot["imbalance_ratio"] = round(bot_flow.imbalance_ratio, 4)
                     bot["active"] = bot.get("status") == "RUNNING"
-                    bot["template_id"] = bot.get("template_id") or bot.get("bot_template_id", "")
-                    bot["template_name"] = bot.get("template_name") or bot.get("bot_template_name", "")
 
-                    custom_tpl = next(
-                        (t for t in self.cfg.custom_templates if t.get("template_id") == bot["template_id"]),
-                        None,
-                    )
                     if custom_tpl is not None:
                         custom_act = self._evaluate_custom_template(custom_tpl, ticks, bot)
                         if custom_act:

@@ -138,7 +138,7 @@ class SupabaseStore:
         return False, {"error": msg}
 
     def load_user_config(self, user_id: str, access_token: str, fallback_path: Path) -> PradoServerConfig:
-        cfg = load_config(fallback_path)
+        cfg = load_config(fallback_path, inherit_user_tokens=False)
         uid_q = quote(user_id, safe="")
 
         code, settings_rows = self._request(
@@ -443,3 +443,97 @@ class SupabaseStore:
                     bearer_token=access_token,
                     extra_headers=upsert_headers,
                 )
+
+    # ------------------------------------------------------------------
+    # SaaS Global Tables (Platform Settings, Plans, Subscriptions via service role)
+    # ------------------------------------------------------------------
+
+    def load_saas_tables(self) -> dict[str, Any] | None:
+        if not self.is_enabled or not self.cfg.service_role_key:
+            return None
+        sr = self.cfg.service_role_key
+        c_set, set_rows = self._request("GET", "/rest/v1/prado_platform_settings?id=eq.default&select=*", bearer_token=sr)
+        c_pln, pln_rows = self._request("GET", "/rest/v1/prado_plans?select=*&order=sort_order.asc", bearer_token=sr)
+        c_sub, sub_rows = self._request("GET", "/rest/v1/prado_subscriptions?select=*", bearer_token=sr)
+        if not (200 <= c_set < 300 and 200 <= c_pln < 300 and 200 <= c_sub < 300):
+            return None
+        return {
+            "settings": set_rows[0] if isinstance(set_rows, list) and set_rows else None,
+            "plans": pln_rows if isinstance(pln_rows, list) else [],
+            "subscriptions": sub_rows if isinstance(sub_rows, list) else [],
+        }
+
+    def upsert_saas_settings(self, settings_dict: dict[str, Any]) -> None:
+        if not self.is_enabled or not self.cfg.service_role_key:
+            return
+        row = {
+            "id": "default",
+            "trial_days": int(settings_dict.get("trial_days", 7)),
+            "trial_allow_real_trading": bool(settings_dict.get("trial_allow_real_trading", False)),
+            "default_trial_plan_id": str(settings_dict.get("default_trial_plan_id") or "pro"),
+            "kiwify_webhook_secret": str(settings_dict.get("kiwify_webhook_secret") or ""),
+        }
+        self._request(
+            "POST",
+            "/rest/v1/prado_platform_settings",
+            row,
+            bearer_token=self.cfg.service_role_key,
+            extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+        )
+
+    def upsert_saas_plan(self, plan_dict: dict[str, Any]) -> None:
+        if not self.is_enabled or not self.cfg.service_role_key:
+            return
+        row = {
+            "plan_id": str(plan_dict.get("plan_id") or ""),
+            "name": str(plan_dict.get("name") or ""),
+            "description": str(plan_dict.get("description") or ""),
+            "price_brl": float(plan_dict.get("price_brl") or 0.0),
+            "billing_cycle": str(plan_dict.get("billing_cycle") or "monthly"),
+            "kiwify_product_id": str(plan_dict.get("kiwify_product_id") or ""),
+            "kiwify_checkout_url": str(plan_dict.get("kiwify_checkout_url") or ""),
+            "max_bots": int(plan_dict.get("max_bots") or 1),
+            "allow_real_trading": bool(plan_dict.get("allow_real_trading", False)),
+            "allowed_features": list(plan_dict.get("allowed_features") or []),
+            "active": bool(plan_dict.get("active", True)),
+            "sort_order": int(plan_dict.get("sort_order") or 0),
+        }
+        self._request(
+            "POST",
+            "/rest/v1/prado_plans",
+            row,
+            bearer_token=self.cfg.service_role_key,
+            extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+        )
+
+    def delete_saas_plan(self, plan_id: str) -> None:
+        if not self.is_enabled or not self.cfg.service_role_key or not plan_id:
+            return
+        self._request(
+            "DELETE",
+            f"/rest/v1/prado_plans?plan_id=eq.{quote(plan_id, safe='')}",
+            bearer_token=self.cfg.service_role_key,
+        )
+
+    def upsert_saas_subscription(self, sub_dict: dict[str, Any]) -> None:
+        if not self.is_enabled or not self.cfg.service_role_key:
+            return
+        row = {
+            "email": str(sub_dict.get("email") or "").lower(),
+            "user_id": str(sub_dict.get("user_id") or ""),
+            "plan_id": str(sub_dict.get("plan_id") or "starter"),
+            "status": str(sub_dict.get("status") or "trial"),
+            "trial_ends_at": float(sub_dict.get("trial_ends_at") or 0.0),
+            "current_period_end": float(sub_dict.get("current_period_end") or 0.0),
+            "kiwify_order_id": str(sub_dict.get("kiwify_order_id") or ""),
+            "kiwify_subscription_id": str(sub_dict.get("kiwify_subscription_id") or ""),
+            "kiwify_customer_name": str(sub_dict.get("kiwify_customer_name") or ""),
+            "last_event": str(sub_dict.get("last_event") or ""),
+        }
+        self._request(
+            "POST",
+            "/rest/v1/prado_subscriptions",
+            row,
+            bearer_token=self.cfg.service_role_key,
+            extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+        )

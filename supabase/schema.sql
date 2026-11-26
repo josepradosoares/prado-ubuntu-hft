@@ -159,3 +159,87 @@ create policy "prado_backtests_owner" on public.prado_backtests
   for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 create policy "prado_logs_owner" on public.prado_logs
   for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+
+-- SaaS Commercial Platform Settings, Plans & Kiwify Subscriptions
+create table if not exists public.prado_platform_settings (
+  id text primary key default 'default',
+  trial_days integer not null default 7,
+  trial_allow_real_trading boolean not null default false,
+  default_trial_plan_id text not null default 'pro',
+  kiwify_webhook_secret text not null default '',
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.prado_plans (
+  plan_id text primary key,
+  name text not null,
+  description text not null default '',
+  price_brl double precision not null default 0,
+  billing_cycle text not null default 'monthly',
+  kiwify_product_id text not null default '',
+  kiwify_checkout_url text not null default '',
+  max_bots integer not null default 2,
+  allow_real_trading boolean not null default false,
+  allowed_features jsonb not null default '[]'::jsonb,
+  active boolean not null default true,
+  sort_order integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.prado_subscriptions (
+  email text primary key,
+  user_id text not null default '',
+  plan_id text not null default 'starter',
+  status text not null default 'trial',
+  trial_ends_at double precision not null default 0,
+  current_period_end double precision not null default 0,
+  kiwify_order_id text not null default '',
+  kiwify_subscription_id text not null default '',
+  kiwify_customer_name text not null default '',
+  last_event text not null default '',
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_prado_subscriptions_user on public.prado_subscriptions(user_id);
+
+alter table public.prado_platform_settings enable row level security;
+alter table public.prado_plans enable row level security;
+alter table public.prado_subscriptions enable row level security;
+
+drop policy if exists "prado_platform_settings_admin" on public.prado_platform_settings;
+create policy "prado_platform_settings_admin" on public.prado_platform_settings
+  for all to authenticated
+  using (exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'))
+  with check (exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'));
+
+drop policy if exists "prado_plans_read_active" on public.prado_plans;
+drop policy if exists "prado_plans_admin_all" on public.prado_plans;
+create policy "prado_plans_select" on public.prado_plans
+  for select to authenticated
+  using (active = true or exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'));
+create policy "prado_plans_admin_insert" on public.prado_plans
+  for insert to authenticated
+  with check (exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'));
+create policy "prado_plans_admin_update" on public.prado_plans
+  for update to authenticated
+  using (exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'))
+  with check (exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'));
+create policy "prado_plans_admin_delete" on public.prado_plans
+  for delete to authenticated
+  using (exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'));
+
+drop policy if exists "prado_subscriptions_read_own" on public.prado_subscriptions;
+drop policy if exists "prado_subscriptions_admin_all" on public.prado_subscriptions;
+create policy "prado_subscriptions_select" on public.prado_subscriptions
+  for select to authenticated
+  using ((select auth.uid())::text = user_id or exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'));
+create policy "prado_subscriptions_admin_insert" on public.prado_subscriptions
+  for insert to authenticated
+  with check (exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'));
+create policy "prado_subscriptions_admin_update" on public.prado_subscriptions
+  for update to authenticated
+  using (exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'))
+  with check (exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'));
+create policy "prado_subscriptions_admin_delete" on public.prado_subscriptions
+  for delete to authenticated
+  using (exists (select 1 from public.prado_settings s where s.user_id = (select auth.uid()) and s.role = 'admin'));

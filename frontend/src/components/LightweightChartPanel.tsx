@@ -4,6 +4,7 @@ import { Activity, AlertCircle } from 'lucide-react'
 import { BrokerSymbol, ChartPoint, SymbolState } from '../types'
 import { ThemeMode } from '../hooks/useTheme'
 import { formatNumber, formatPrice, formatSymbolDisplay, isFiniteNumber, sanitizeChartPoints } from '../utils/formatters'
+import { formatSignal } from '../utils/labels'
 
 interface Props {
   symbol: string
@@ -24,49 +25,49 @@ function getChartThemeOptions(theme: ThemeMode) {
     return {
       layout: {
         background: { type: ColorType.Solid, color: '#ffffff' },
-        textColor: '#475569',
+        textColor: '#595355',
         fontFamily: 'JetBrains Mono, monospace',
       },
       grid: {
-        vertLines: { color: 'rgba(226, 232, 240, 0.8)' },
-        horzLines: { color: 'rgba(226, 232, 240, 0.8)' },
+        vertLines: { color: 'rgba(226, 224, 225, 0.85)' },
+        horzLines: { color: 'rgba(226, 224, 225, 0.85)' },
       },
       rightPriceScale: {
-        borderColor: '#e2e8f0',
+        borderColor: '#e2e0e1',
       },
       timeScale: {
-        borderColor: '#e2e8f0',
+        borderColor: '#e2e0e1',
         timeVisible: true,
         secondsVisible: true,
       },
       crosshair: {
-        vertLine: { color: 'rgba(37, 99, 235, 0.35)', labelBackgroundColor: '#1e293b' },
-        horzLine: { color: 'rgba(37, 99, 235, 0.35)', labelBackgroundColor: '#1e293b' },
+        vertLine: { color: 'rgba(135, 194, 69, 0.45)', labelBackgroundColor: '#252223' },
+        horzLine: { color: 'rgba(135, 194, 69, 0.45)', labelBackgroundColor: '#252223' },
       },
     }
   }
 
   return {
     layout: {
-      background: { type: ColorType.Solid, color: '#111827' },
-      textColor: '#94a3b8',
+      background: { type: ColorType.Solid, color: '#252223' },
+      textColor: '#b5b0b2',
       fontFamily: 'JetBrains Mono, monospace',
     },
     grid: {
-      vertLines: { color: 'rgba(30, 41, 59, 0.55)' },
-      horzLines: { color: 'rgba(30, 41, 59, 0.55)' },
+      vertLines: { color: 'rgba(59, 54, 56, 0.65)' },
+      horzLines: { color: 'rgba(59, 54, 56, 0.65)' },
     },
     rightPriceScale: {
-      borderColor: '#1e293b',
+      borderColor: '#3b3638',
     },
     timeScale: {
-      borderColor: '#1e293b',
+      borderColor: '#3b3638',
       timeVisible: true,
       secondsVisible: true,
     },
     crosshair: {
-      vertLine: { color: 'rgba(59, 130, 246, 0.45)', labelBackgroundColor: '#1e293b' },
-      horzLine: { color: 'rgba(59, 130, 246, 0.45)', labelBackgroundColor: '#1e293b' },
+      vertLine: { color: 'rgba(135, 194, 69, 0.5)', labelBackgroundColor: '#252223' },
+      horzLine: { color: 'rgba(135, 194, 69, 0.5)', labelBackgroundColor: '#252223' },
     },
   }
 }
@@ -103,9 +104,9 @@ export function LightweightChartPanel({
     })
 
     const priceSeries = chart.addAreaSeries({
-      lineColor: '#38bdf8',
-      topColor: 'rgba(56, 189, 248, 0.25)',
-      bottomColor: 'rgba(56, 189, 248, 0.01)',
+      lineColor: '#87c245',
+      topColor: 'rgba(135, 194, 69, 0.28)',
+      bottomColor: 'rgba(135, 194, 69, 0.02)',
       lineWidth: 2,
       priceFormat: { type: 'price', precision: 5, minMove: 0.00001 },
     })
@@ -121,7 +122,7 @@ export function LightweightChartPanel({
       priceFormat: { type: 'price', precision: 5, minMove: 0.00001 },
     })
     const lowerSeries = chart.addLineSeries({
-      color: '#10b981',
+      color: '#b8da98',
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
       priceFormat: { type: 'price', precision: 5, minMove: 0.00001 },
@@ -179,7 +180,7 @@ export function LightweightChartPanel({
     : 'text-slate-500 dark:text-slate-400'
 
   return (
-    <section className="rounded-2xl border border-slate-200 dark:border-slate-800/90 bg-white dark:bg-[#111827] shadow-sm dark:shadow-xl dark:shadow-black/30 overflow-hidden">
+    <section className="rounded-2xl border border-slate-200 dark:border-slate-800/90 bg-white dark:bg-[#252223] shadow-sm dark:shadow-xl dark:shadow-black/30 overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800/80 px-5 py-3.5 bg-slate-50/70 dark:bg-slate-900/40">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400">
@@ -212,7 +213,7 @@ export function LightweightChartPanel({
               Z: <strong className={zColor}>{formatNumber(symbolState?.zscore, 2)}</strong>
             </span>
             <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-1 text-[11px] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
-              {symbolState?.signal || 'WAIT'}
+              {formatSignal(symbolState?.signal)}
             </span>
           </div>
 

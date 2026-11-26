@@ -29,6 +29,13 @@ export interface AccountSummary {
   equity: number
   profit: number
   daily_realized: number
+  daily_gross?: number
+  daily_commissions_swap?: number
+  daily_trades_count?: number
+  daily_win_rate?: number
+  daily_source?: 'CTRADER_SERVER' | 'SESSION_MEMORY' | 'SIMULATION' | 'DISCONNECTED' | string
+  max_daily_loss_money?: number
+  daily_target_money?: number
   margin_free: number
   status_note?: string
 }
@@ -97,6 +104,11 @@ export interface PositionItem {
   sl: number
   tp: number
   profit: number
+  swap?: number
+  commission?: number
+  used_margin?: number
+  open_timestamp_ms?: number
+  open_time_str?: string
   bot_name?: string
   comment?: string
 }
@@ -155,6 +167,8 @@ export interface Snapshot {
   timestamp: string
   auto_trading_enabled: boolean
   basket_bias: number
+  risk_locked?: boolean
+  risk_status?: string
   account: AccountSummary
   symbols: Record<string, SymbolState>
   bots: BotItem[]
@@ -205,6 +219,7 @@ export interface IndicatorMeta {
   id: string
   name: string
   category: string
+  description?: string
   default_params: Record<string, number>
 }
 
@@ -213,12 +228,24 @@ export interface CustomIndicatorItem {
   params: Record<string, number>
 }
 
+export interface StrategyRecipe {
+  id: string
+  name: string
+  style: string
+  markets: string
+  recommended_timeframe: string
+  description: string
+  combine_mode: 'MAJORITY' | 'ALL'
+  indicators: CustomIndicatorItem[]
+}
+
 export interface BotTemplate {
   template_id: string
   name: string
   operation_mode: string
   formula: string
   description: string
+  recommended_timeframe?: string
   window_ticks: number
   zscore_threshold: number
   imbalance_threshold: number
@@ -247,16 +274,57 @@ export interface BrokerSymbol {
   description: string
 }
 
+export interface BacktestTradeItem {
+  id: number
+  type: 'BUY' | 'SELL' | string
+  signal: string
+  exit_reason?: string
+  entry: number
+  exit: number
+  pnl: number
+  result: 'WIN' | 'LOSS' | string
+  equity_after: number
+}
+
+export interface BacktestEquityPoint {
+  trade: number
+  time: number
+  equity: number
+  drawdown: number
+}
+
 export interface BacktestReport {
   symbol: string
   timeframe?: string
+  period?: string
+  lot_size?: number
   data_source?: string
   template_name?: string
+  formula?: string
+  ticks_processed?: number
+  initial_capital?: number
+  final_equity?: number
+  final_capital: number
   total_trades: number
+  winning_trades?: number
+  losing_trades?: number
   win_rate: number
   net_profit: number
+  return_pct?: number
+  gross_profit?: number
+  gross_loss?: number
+  profit_factor?: number
+  avg_win?: number
+  avg_loss?: number
+  expectancy?: number
+  best_trade?: number
+  worst_trade?: number
+  max_consecutive_wins?: number
+  max_consecutive_losses?: number
   max_drawdown: number
-  final_capital: number
+  max_drawdown_pct?: number
+  equity_curve?: BacktestEquityPoint[]
+  trades?: BacktestTradeItem[]
   timestamp?: string
   per_symbol?: BacktestReport[]
 }
@@ -267,4 +335,101 @@ export interface ChartPoint {
   vwap: number
   upper_2: number
   lower_2: number
+}
+
+export type FeatureKey =
+  | 'backtest'
+  | 'custom_strategies'
+  | 'python_code'
+  | 'market_radar'
+  | 'news_bot'
+  | 'multi_accounts'
+  | 'real_trading'
+
+export interface FeatureCatalogItem {
+  key: FeatureKey
+  label: string
+  description: string
+}
+
+export interface SaasPlan {
+  plan_id: string
+  name: string
+  description: string
+  price_brl: number
+  billing_cycle: 'monthly' | 'yearly' | 'lifetime' | string
+  kiwify_product_id: string
+  kiwify_checkout_url: string
+  max_bots: number
+  allow_real_trading: boolean
+  allowed_features: FeatureKey[]
+  active: boolean
+  sort_order?: number
+}
+
+export interface PlatformSettings {
+  trial_days: number
+  trial_allow_real_trading: boolean
+  default_trial_plan_id: string
+  kiwify_webhook_secret: string
+}
+
+export interface UserEntitlements {
+  is_admin: boolean
+  has_access: boolean
+  status: 'admin' | 'trial' | 'active' | 'expired' | 'canceled' | 'blocked' | string
+  plan_id: string
+  plan_name: string
+  max_bots: number
+  allow_real_trading: boolean
+  allowed_features: FeatureKey[]
+  days_left: number | null
+  trial_ends_at?: number | null
+  current_period_end?: number | null
+  kiwify_checkout_url?: string
+}
+
+export interface MeResponse {
+  ok: boolean
+  user_id: string
+  email: string
+  is_admin: boolean
+  server_oauth_configured: boolean
+  entitlements: UserEntitlements
+  plans: SaasPlan[]
+  trial_days: number
+  feature_catalog: FeatureCatalogItem[]
+}
+
+export interface SaasSubscriptionRecord {
+  email: string
+  user_id: string
+  plan_id: string
+  plan_name?: string
+  status: string
+  effective_status?: string
+  days_left?: number
+  trial_ends_at: number
+  current_period_end: number
+  kiwify_customer_name?: string
+  last_event?: string
+  updated_at?: number
+}
+
+export interface WebhookLogItem {
+  time: string
+  event: string
+  email: string
+  plan_id: string
+  status: string
+}
+
+export interface AdminOverviewResponse {
+  ok: boolean
+  settings: PlatformSettings
+  plans: SaasPlan[]
+  subscriptions: SaasSubscriptionRecord[]
+  webhook_logs: WebhookLogItem[]
+  webhook_url: string
+  feature_catalog: FeatureCatalogItem[]
 }

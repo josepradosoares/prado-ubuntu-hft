@@ -1,4 +1,5 @@
 import { AccountSummary } from '../types'
+import { formatBackendName } from '../utils/labels'
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from './ui/Card'
 
 interface CTraderDiagnosticsCardProps {
@@ -24,62 +25,62 @@ export function CTraderDiagnosticsCard({ account }: CTraderDiagnosticsCardProps)
 
   const connLabel =
     connState === 'CONNECTED'
-      ? 'CONECTADA (5036)'
+      ? 'Conectada (porta 5036)'
       : connState === 'CONNECTING'
-        ? 'CONECTANDO'
+        ? 'Conectando'
         : connState === 'RECONNECTING'
-          ? 'RECONECTANDO'
+          ? 'Reconectando'
           : connState === 'ERROR'
-            ? 'ERRO'
-            : 'DESCONECTADA'
+            ? 'Erro'
+            : 'Desconectada'
 
   const authLabel =
     authState === 'AUTHENTICATED'
-      ? 'VALIDADA (OAuth2)'
+      ? 'Validada (OAuth 2.0)'
       : authState === 'APP_CREDENTIALS_INVALID'
-        ? 'CLIENT ID/SECRET INVÁLIDO'
+        ? 'Client ID/Secret inválido'
         : authState === 'INSUFFICIENT_SCOPE'
-          ? 'ESCOPO INSUFICIENTE'
+          ? 'Escopo insuficiente'
           : authState === 'TOKEN_EXPIRED'
-            ? 'TOKEN EXPIRADO'
+            ? 'Token expirado'
             : authState === 'TOKEN_INVALID'
-              ? 'TOKEN INVÁLIDO'
+              ? 'Token inválido'
               : authState === 'NO_DEMO_ACCOUNT'
-                ? 'SEM CONTA DEMO'
-                : 'NÃO AUTENTICADA'
+                ? 'Sem conta Demo'
+                : 'Não autenticada'
 
   const dataLabel =
     dataState === 'LIVE'
-      ? 'TEMPO REAL'
+      ? 'Tempo real'
       : dataState === 'STALE'
-        ? 'DESATUALIZADO'
+        ? 'Desatualizado'
         : dataState === 'DATA_ERROR'
-          ? 'ERRO DE DADOS'
-          : 'INDISPONÍVEL'
+          ? 'Erro de dados'
+          : 'Indisponível'
 
   const tradingLabel =
     tradingState === 'READY'
-      ? 'DISPONÍVEL'
+      ? 'Disponível'
       : tradingState === 'EXECUTING'
-        ? 'EXECUTANDO'
+        ? 'Executando'
         : tradingState === 'ERROR'
-          ? 'ERRO'
-          : 'BLOQUEADA'
+          ? 'Erro'
+          : 'Bloqueada'
 
   const brokerText = account?.broker_name
     ? `${account.broker_name}${account.leverage ? ` (1:${account.leverage})` : ''}`
     : 'cTrader'
 
   const rows = [
-    { label: 'AMBIENTE', value: `${mode} • ${brokerText}`, ok: true },
-    { label: 'CONEXÃO WS', value: connLabel, ok: connState === 'CONNECTED' },
-    { label: 'AUTENTICAÇÃO', value: authLabel, ok: authState === 'AUTHENTICATED' },
-    { label: 'CLIENT ID', value: account?.masked_client_id || '--', ok: authState !== 'APP_CREDENTIALS_INVALID' },
-    { label: 'MERCADO', value: dataLabel, ok: dataState === 'LIVE' },
-    { label: 'ÚLTIMO TICK', value: formatTickTime(account?.last_tick_at), ok: Boolean(account?.last_tick_at) },
-    { label: 'RATELIMIT', value: rlState === 'BLOCKED' ? 'BLOQUEADO' : 'NORMAL (50/s)', ok: rlState !== 'BLOCKED' },
-    { label: 'BACKEND', value: account?.backend || 'CTRADER_DISCONNECTED', ok: account?.backend !== 'CTRADER_DISCONNECTED' },
-    { label: 'NEGOCIAÇÃO', value: tradingLabel, ok: tradingState === 'READY' },
+    { label: 'Ambiente', value: `${mode} • ${brokerText}`, ok: true },
+    { label: 'Conexão WebSocket', value: connLabel, ok: connState === 'CONNECTED' },
+    { label: 'Autenticação', value: authLabel, ok: authState === 'AUTHENTICATED' },
+    { label: 'Client ID', value: account?.masked_client_id || '--', ok: authState !== 'APP_CREDENTIALS_INVALID' },
+    { label: 'Cotações', value: dataLabel, ok: dataState === 'LIVE' },
+    { label: 'Último Tick', value: formatTickTime(account?.last_tick_at), ok: Boolean(account?.last_tick_at) },
+    { label: 'Limite de Requisições', value: rlState === 'BLOCKED' ? 'Bloqueado' : 'Normal (50 req/s)', ok: rlState !== 'BLOCKED' },
+    { label: 'Motor', value: formatBackendName(account?.backend), ok: account?.backend !== 'CTRADER_DISCONNECTED' },
+    { label: 'Negociação', value: tradingLabel, ok: tradingState === 'READY' },
   ]
 
   return (
@@ -87,7 +88,7 @@ export function CTraderDiagnosticsCard({ account }: CTraderDiagnosticsCardProps)
       <CardHeader>
         <CardTitle>Diagnóstico cTrader Open API</CardTitle>
         <CardDescription>
-          Estados separados de conta cTID, autenticação OAuth 2.0, WebSocket JSON (porta 5036), cotações e RateLimit
+          Estados separados de conta cTID, autenticação OAuth 2.0, WebSocket JSON (porta 5036), cotações e limite da API
         </CardDescription>
       </CardHeader>
       <CardBody>

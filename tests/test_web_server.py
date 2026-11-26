@@ -343,7 +343,7 @@ def test_web_app_ctrader_vault_bots_categories_and_backtester(tmp_path: Path):
 
     code, html_body, _ = app.handle_request("GET", "/", headers=auth_headers, body=b"")
     assert code == 200
-    assert "Prado Institutional HFT" in html_body
+    assert "Quantix" in html_body
 
 
 def test_simulation_mode_ignores_stale_live_tick_cache():

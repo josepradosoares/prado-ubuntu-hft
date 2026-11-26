@@ -130,9 +130,15 @@ const FRIENDLY_SYMBOL_NAMES: Record<string, string> = {
   BTCUSD: 'BTC/USD',
   ETHUSD: 'ETH/USD',
   US500: 'S&P 500 (US500)',
+  SPX500: 'S&P 500 (SPX500)',
   US100: 'Nasdaq 100 (US100)',
+  USTEC: 'Nasdaq 100 (USTEC)',
+  NAS100: 'Nasdaq 100 (NAS100)',
+  'US100.cash': 'Nasdaq 100 (US100)',
   US30: 'Dow Jones 30 (US30)',
+  DJ30: 'Dow Jones 30 (DJ30)',
   DE40: 'DAX 40 (DE40)',
+  GER40: 'DAX 40 (GER40)',
 }
 
 export function formatSymbolDisplay(

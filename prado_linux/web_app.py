@@ -6,6 +6,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
+import os
 from pathlib import Path
 import threading
 from typing import Any
@@ -14,7 +15,8 @@ from urllib.parse import parse_qs, quote, urlparse
 from prado_linux.auth import create_session_token, hash_password, verify_password, verify_session_token
 from prado_linux.config import PradoServerConfig, load_config
 from prado_linux.engine import PradoTradingService
-from prado_linux.indicators import DEFAULT_PYTHON_STRATEGY_TEMPLATE, INDICATOR_CATALOG
+from prado_linux.indicators import DEFAULT_PYTHON_STRATEGY_TEMPLATE, INDICATOR_CATALOG, READY_MADE_RECIPES
+from prado_linux.saas_store import FEATURE_CATALOG, FEATURE_LABELS_PT, SaasStore
 from prado_linux.supabase_store import SupabaseStore
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -28,10 +30,96 @@ class PradoWebApp:
         self.cfg = load_config(config_path)
         self.service = PradoTradingService(self.cfg, config_path=config_path)
         self.supabase = supabase_store or SupabaseStore.from_env()
+        self.saas = SaasStore(
+            config_path.parent / "saas_state.json",
+            supabase_store=self.supabase,
+            local_admin_username=self.cfg.admin_username,
+        )
         self._user_services: dict[str, PradoTradingService] = {}
         self._user_tokens: dict[str, str] = {}
         self._user_emails: dict[str, str] = {}
         self._services_lock = threading.Lock()
+
+    def _user_email(self, user: str) -> str:
+        return self._user_emails.get(user, "")
+
+    def _server_oauth_configured(self) -> bool:
+        cid = self.cfg.ctrader_client_id or os.environ.get("CTRADER_CLIENT_ID", "").strip()
+        csec = self.cfg.ctrader_client_secret or os.environ.get("CTRADER_CLIENT_SECRET", "").strip()
+        return bool(cid and csec)
+
+    def _entitlements(self, user: str) -> dict[str, Any]:
+        return self.saas.get_entitlements(
+            user,
+            self._user_email(user),
+            supabase_enabled=self.supabase.is_enabled,
+        )
+
+    def _require_access(
+        self,
+        user: str,
+        feature: str | None = None,
+    ) -> tuple[int, str, dict[str, str]] | None:
+        ent = self._entitlements(user)
+        if ent.get("is_admin"):
+            return None
+        if not ent.get("has_access"):
+            return (
+                403,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "code": "SUBSCRIPTION_REQUIRED",
+                        "error": "Seu período grátis ou assinatura expirou. Escolha um plano para continuar operando.",
+                    },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+        if feature and feature not in ent.get("allowed_features", []):
+            label = FEATURE_LABELS_PT.get(feature, feature)
+            return (
+                403,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "code": "PLAN_FEATURE_LOCKED",
+                        "feature": feature,
+                        "error": f"O recurso '{label}' não está incluso no seu plano atual ({ent.get('plan_name', '')}). Faça upgrade para liberar.",
+                    },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+        return None
+
+    def _require_admin(self, user: str) -> tuple[int, str, dict[str, str]] | None:
+        if self.saas.is_admin(user, self._user_email(user), supabase_enabled=self.supabase.is_enabled):
+            return None
+        return (
+            403,
+            json.dumps({"ok": False, "error": "Acesso restrito ao administrador da plataforma."}, ensure_ascii=False),
+            {"Content-Type": "application/json"},
+        )
+
+    def _pause_bots_for_email(self, email: str) -> None:
+        target = str(email or "").strip().lower()
+        if not target:
+            return
+        matched_uids = [uid for uid, em in self._user_emails.items() if str(em).strip().lower() == target]
+        for uid in matched_uids:
+            with self._services_lock:
+                svc = self._user_services.get(uid)
+            if svc is None:
+                continue
+            changed = False
+            for bot in list(svc.cfg.bots):
+                if isinstance(bot, dict) and bot.get("active") and bot.get("bot_id"):
+                    svc.control_bot(str(bot["bot_id"]), "PAUSE")
+                    changed = True
+            if changed:
+                svc._log_event("SAAS", f"Robôs pausados automaticamente após alteração/cancelamento de assinatura ({target}).")
+                self._sync_user(uid, svc)
 
     def _active_service(self, user: str) -> PradoTradingService:
         if not self.supabase.is_enabled or not user or user == self.cfg.admin_username:
@@ -206,6 +294,35 @@ class PradoWebApp:
                 {"Content-Type": "application/json"},
             )
 
+        if method == "GET" and clean_path == "/api/plans/public":
+            return (
+                200,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "plans": self.saas.list_plans(active_only=True),
+                        "trial_days": self.saas.get_settings()["trial_days"],
+                    },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/webhooks/kiwify":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            tok = (
+                str(query_params.get("token", [""])[0] or "").strip()
+                or str(headers.get("X-Kiwify-Token") or headers.get("x-kiwify-token") or "").strip()
+                or str(headers.get("X-Webhook-Token") or headers.get("x-webhook-token") or "").strip()
+            )
+            w_code, w_res = self.saas.handle_kiwify_webhook(payload if isinstance(payload, dict) else {}, provided_token=tok)
+            if w_res.get("revoked"):
+                self._pause_bots_for_email(str(w_res.get("email") or ""))
+            return w_code, json.dumps(w_res, ensure_ascii=False), {"Content-Type": "application/json"}
+
         if method == "POST" and clean_path == "/api/signup":
             if not self.supabase.is_enabled:
                 return 400, json.dumps({"ok": False, "error": "Supabase nao configurado."}), {"Content-Type": "application/json"}
@@ -215,21 +332,24 @@ class PradoWebApp:
                 payload = {}
             email = str(payload.get("email") or payload.get("username") or "").strip()
             password = str(payload.get("password") or "")
+            preferred_plan = str(payload.get("plan_id") or "").strip()
             ok, res = self.supabase.sign_up(email, password)
             if not ok:
                 return 400, json.dumps({"ok": False, "error": res.get("error", "Erro ao cadastrar.")}, ensure_ascii=False), {"Content-Type": "application/json"}
             uid = res.get("user_id") or email
+            resolved_email = str(res.get("email") or email)
+            self.saas.ensure_user_subscription(uid, resolved_email, preferred_plan_id=preferred_plan)
             access_token = res.get("access_token") or ""
             if access_token:
                 self._user_tokens[uid] = access_token
-                self._user_emails[uid] = str(res.get("email") or email)
+                self._user_emails[uid] = resolved_email
                 svc = self._active_service(uid)
                 self._sync_user(uid, svc)
                 token = create_session_token(uid, self.cfg.secret_key)
                 cookie_val = f"prado_session={token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax"
                 return (
                     200,
-                    json.dumps({"ok": True, "username": res.get("email", email), "user_id": uid}),
+                    json.dumps({"ok": True, "username": resolved_email, "user_id": uid}),
                     {"Content-Type": "application/json", "Set-Cookie": cookie_val},
                 )
             return (
@@ -249,9 +369,11 @@ class PradoWebApp:
                 ok, res = self.supabase.sign_in(username, password)
                 if ok and res.get("user_id"):
                     uid = res["user_id"]
+                    resolved_email = str(res.get("email") or username)
+                    self.saas.ensure_user_subscription(uid, resolved_email)
                     with self._services_lock:
                         self._user_tokens[uid] = res["access_token"]
-                        self._user_emails[uid] = str(res.get("email") or username)
+                        self._user_emails[uid] = resolved_email
                         old_svc = self._user_services.pop(uid, None)
                     if old_svc is not None:
                         old_svc.stop_background_loop()
@@ -299,6 +421,104 @@ class PradoWebApp:
         if method == "GET" and clean_path == "/":
             return self._serve_index()
 
+        if method == "GET" and clean_path == "/api/me":
+            ent = self._entitlements(user)
+            return (
+                200,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "user_id": user,
+                        "email": self._user_email(user),
+                        "is_admin": bool(ent.get("is_admin")),
+                        "server_oauth_configured": self._server_oauth_configured(),
+                        "entitlements": ent,
+                        "plans": self.saas.list_plans(active_only=True),
+                        "trial_days": self.saas.get_settings()["trial_days"],
+                        "feature_catalog": FEATURE_CATALOG,
+                    },
+                    ensure_ascii=False,
+                ),
+                {"Content-Type": "application/json"},
+            )
+
+        if method == "POST" and clean_path == "/api/subscription/select-trial-plan":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            plan_id = str(payload.get("plan_id") or "").strip()
+            try:
+                ent = self.saas.select_trial_plan(user, self._user_email(user), plan_id)
+                return 200, json.dumps({"ok": True, "entitlements": ent}, ensure_ascii=False), {"Content-Type": "application/json"}
+            except ValueError as exc:
+                return 400, json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), {"Content-Type": "application/json"}
+
+        # Admin SaaS Routes
+        if clean_path.startswith("/api/admin/"):
+            denied = self._require_admin(user)
+            if denied is not None:
+                return denied
+            if method == "GET" and clean_path == "/api/admin/overview":
+                host = headers.get("Host") or headers.get("host") or f"localhost:{self.cfg.web_port}"
+                proto = headers.get("X-Forwarded-Proto") or headers.get("x-forwarded-proto") or "http"
+                settings = self.saas.get_settings()
+                sec = settings.get("kiwify_webhook_secret") or ""
+                wh_url = f"{proto}://{host}/api/webhooks/kiwify" + (f"?token={quote(sec)}" if sec else "")
+                return (
+                    200,
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "settings": settings,
+                            "plans": self.saas.list_plans(active_only=False),
+                            "subscriptions": self.saas.list_subscriptions(),
+                            "webhook_logs": self.saas.list_webhook_logs(),
+                            "webhook_url": wh_url,
+                            "feature_catalog": FEATURE_CATALOG,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    {"Content-Type": "application/json"},
+                )
+            if method == "POST" and clean_path == "/api/admin/settings":
+                try:
+                    payload = json.loads(body.decode("utf-8") or "{}")
+                except Exception:
+                    return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+                updated_set = self.saas.update_settings(payload if isinstance(payload, dict) else {})
+                return 200, json.dumps({"ok": True, "settings": updated_set}, ensure_ascii=False), {"Content-Type": "application/json"}
+            if method == "POST" and clean_path == "/api/admin/plans":
+                try:
+                    payload = json.loads(body.decode("utf-8") or "{}")
+                except Exception:
+                    return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+                act = str(payload.get("action") or "SAVE").strip().upper()
+                try:
+                    if act == "DELETE":
+                        self.saas.delete_plan(str(payload.get("plan_id") or "").strip())
+                    else:
+                        self.saas.save_plan(payload)
+                    return 200, json.dumps({"ok": True, "plans": self.saas.list_plans(active_only=False)}, ensure_ascii=False), {"Content-Type": "application/json"}
+                except ValueError as exc:
+                    return 400, json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), {"Content-Type": "application/json"}
+            if method == "POST" and clean_path == "/api/admin/subscriptions":
+                try:
+                    payload = json.loads(body.decode("utf-8") or "{}")
+                except Exception:
+                    return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+                try:
+                    sub = self.saas.admin_upsert_subscription(payload)
+                    if sub.get("status") in ("canceled", "expired", "blocked"):
+                        self._pause_bots_for_email(str(sub.get("email") or ""))
+                    return (
+                        200,
+                        json.dumps({"ok": True, "subscription": sub, "subscriptions": self.saas.list_subscriptions()}, ensure_ascii=False),
+                        {"Content-Type": "application/json"},
+                    )
+                except ValueError as exc:
+                    return 400, json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), {"Content-Type": "application/json"}
+
         if method == "GET" and clean_path == "/api/status":
             return 200, json.dumps(svc.get_snapshot(), ensure_ascii=False), {"Content-Type": "application/json"}
 
@@ -320,6 +540,10 @@ class PradoWebApp:
                 updates = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            if updates.get("allow_real_trading") is True:
+                denied = self._require_access(user, "real_trading")
+                if denied is not None:
+                    return denied
             new_admin_pwd = updates.pop("new_admin_password", None)
             if new_admin_pwd and str(new_admin_pwd).strip():
                 updates["admin_password_hash"] = hash_password(str(new_admin_pwd).strip())
@@ -337,6 +561,14 @@ class PradoWebApp:
 
         # cTrader OAuth 2.0 Routes
         if method == "GET" and clean_path == "/api/ctrader/oauth/start":
+            if (not svc.cfg.ctrader_client_id or not svc.cfg.ctrader_client_secret) and self._server_oauth_configured():
+                svc.update_config(
+                    {
+                        "ctrader_client_id": self.cfg.ctrader_client_id or os.environ.get("CTRADER_CLIENT_ID", "").strip(),
+                        "ctrader_client_secret": self.cfg.ctrader_client_secret or os.environ.get("CTRADER_CLIENT_SECRET", "").strip(),
+                        "ctrader_redirect_uri": self.cfg.ctrader_redirect_uri or os.environ.get("CTRADER_REDIRECT_URI", "").strip(),
+                    }
+                )
             ruri = str(query_params.get("redirect_uri", [""])[0] or "").strip() or self._default_redirect_uri(headers)
             ok, auth_url, used_ruri = svc.start_ctrader_oauth(ruri)
             if not ok:
@@ -348,6 +580,14 @@ class PradoWebApp:
             )
 
         if method == "GET" and clean_path == "/api/ctrader/oauth/callback":
+            if (not svc.cfg.ctrader_client_id or not svc.cfg.ctrader_client_secret) and self._server_oauth_configured():
+                svc.update_config(
+                    {
+                        "ctrader_client_id": self.cfg.ctrader_client_id or os.environ.get("CTRADER_CLIENT_ID", "").strip(),
+                        "ctrader_client_secret": self.cfg.ctrader_client_secret or os.environ.get("CTRADER_CLIENT_SECRET", "").strip(),
+                        "ctrader_redirect_uri": self.cfg.ctrader_redirect_uri or os.environ.get("CTRADER_REDIRECT_URI", "").strip(),
+                    }
+                )
             code = str(query_params.get("code", [""])[0] or "").strip()
             err = str(query_params.get("error_description", query_params.get("error", [""]))[0] or "").strip()
             if err:
@@ -382,6 +622,13 @@ class PradoWebApp:
                 svc.clear_all_accounts()
                 self._sync_user(user, svc)
                 return 200, json.dumps({"ok": True, "accounts": []}, ensure_ascii=False), {"Content-Type": "application/json"}
+
+            acc_id_edit = str(payload.get("account_id") or "").strip()
+            is_new_extra = (not acc_id_edit or acc_id_edit not in {str(a.get("account_id") or "") for a in cfg.accounts}) and len(cfg.accounts) >= 1
+            if is_new_extra:
+                denied = self._require_access(user, "multi_accounts")
+                if denied is not None:
+                    return denied
 
             acc, conn_msg = svc.save_ctrader_account(payload)
             safe_acc = {
@@ -482,11 +729,17 @@ class PradoWebApp:
             return 200, json.dumps({"ok": True, "categories": cats}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/news/scan":
+            denied = self._require_access(user, "news_bot")
+            if denied is not None:
+                return denied
             news_data = svc.scan_news(force=True)
             svc.step_once()
             return 200, json.dumps({"ok": True, "news": news_data}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/news/feeds":
+            denied = self._require_access(user, "news_bot")
+            if denied is not None:
+                return denied
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
@@ -512,6 +765,7 @@ class PradoWebApp:
                         "ok": True,
                         "templates": svc.get_all_templates(),
                         "indicators": INDICATOR_CATALOG,
+                        "recipes": READY_MADE_RECIPES,
                         "python_template": DEFAULT_PYTHON_STRATEGY_TEMPLATE,
                     },
                     ensure_ascii=False,
@@ -525,6 +779,15 @@ class PradoWebApp:
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
             act = str(payload.get("action") or "SAVE").strip().upper()
+            if act != "DELETE":
+                denied = self._require_access(user, "custom_strategies")
+                if denied is not None:
+                    return denied
+                mode_t = str(payload.get("custom_mode") or payload.get("engine_type") or "").strip().upper()
+                if mode_t == "PYTHON":
+                    denied_py = self._require_access(user, "python_code")
+                    if denied_py is not None:
+                        return denied_py
             try:
                 if act == "DELETE":
                     svc.delete_custom_template(str(payload.get("template_id") or "").strip())
@@ -544,6 +807,10 @@ class PradoWebApp:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            mode_t = str(payload.get("custom_mode") or payload.get("engine_type") or "").strip().upper()
+            denied = self._require_access(user, "python_code" if mode_t == "PYTHON" else "custom_strategies")
+            if denied is not None:
+                return denied
             res = svc.test_custom_template(payload)
             return 200, json.dumps(res, ensure_ascii=False), {"Content-Type": "application/json"}
 
@@ -555,6 +822,26 @@ class PradoWebApp:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
+            denied = self._require_access(user)
+            if denied is not None:
+                return denied
+            ent = self._entitlements(user)
+            editing_id = str(payload.get("bot_id") or "").strip()
+            existing_ids = {str(b.get("bot_id") or "") for b in cfg.bots if isinstance(b, dict)}
+            is_new_bot = not editing_id or editing_id not in existing_ids
+            if is_new_bot and not ent.get("is_admin") and len(cfg.bots) >= int(ent.get("max_bots") or 0):
+                return (
+                    403,
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "code": "MAX_BOTS_REACHED",
+                            "error": f"Seu plano ({ent.get('plan_name', '')}) permite até {ent.get('max_bots', 0)} robô(s). Faça upgrade para adicionar mais robôs.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    {"Content-Type": "application/json"},
+                )
             try:
                 bot = svc.create_bot(payload)
                 self._sync_user(user, svc)
@@ -569,6 +856,10 @@ class PradoWebApp:
                 return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
             bot_id = str(payload.get("bot_id", "")).strip()
             action = str(payload.get("action", "START")).strip().upper()
+            if action in ("START", "FIRE_BUY", "FIRE_SELL"):
+                denied = self._require_access(user)
+                if denied is not None:
+                    return denied
             if action == "DELETE_ALL":
                 svc.delete_all_bots()
                 self._sync_user(user, svc)
@@ -582,6 +873,9 @@ class PradoWebApp:
             return 200, json.dumps({"ok": True, "bot": updated, "bots": cfg.bots}, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/backtest":
+            denied = self._require_access(user, "backtest")
+            if denied is not None:
+                return denied
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except Exception:
@@ -599,7 +893,10 @@ class PradoWebApp:
                 ok, msg = svc.close_position(ticket)
                 svc.step_once()
                 return 200, json.dumps({"ok": ok, "message": msg}, ensure_ascii=False), {"Content-Type": "application/json"}
-            cnt, msg = svc.flatten_all("ZERAR_TUDO_PAINEL_WEB")
+            if payload.get("profitable_only"):
+                cnt, msg = svc.flatten_profitable("REALIZAR_LUCRATIVAS_PAINEL")
+            else:
+                cnt, msg = svc.flatten_all("ZERAR_TUDO_PAINEL_WEB")
             svc.step_once()
             is_err = cnt == 0 and ("desconectada" in msg.lower() or "falha" in msg.lower())
             return 200, json.dumps({"ok": not is_err, "closed": cnt, "message": msg}, ensure_ascii=False), {"Content-Type": "application/json"}

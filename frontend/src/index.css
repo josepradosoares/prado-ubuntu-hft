@@ -4,23 +4,27 @@
 
 @layer base {
   :root {
-    --bg-app: #f4f6f9;
+    --bg-app: #f2f2f2;
     --bg-surface: #ffffff;
-    --bg-subtle: #f8fafc;
-    --border-subtle: #e2e8f0;
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --accent-primary: #2563eb;
+    --bg-subtle: #e9e8e8;
+    --border-subtle: #dcdadb;
+    --text-primary: #252223;
+    --text-secondary: #595355;
+    --accent-primary: #87c245;
+    --accent-hover: #97c966;
+    --accent-soft: #b8da98;
   }
 
   .dark {
-    --bg-app: #0b0f17;
-    --bg-surface: #111827;
-    --bg-subtle: #0f1624;
-    --border-subtle: #1e293b;
-    --text-primary: #f1f5f9;
-    --text-secondary: #94a3b8;
-    --accent-primary: #3b82f6;
+    --bg-app: #1b191a;
+    --bg-surface: #252223;
+    --bg-subtle: #2e2a2c;
+    --border-subtle: #3b3638;
+    --text-primary: #f2f2f2;
+    --text-secondary: #b5b0b2;
+    --accent-primary: #87c245;
+    --accent-hover: #97c966;
+    --accent-soft: #b8da98;
   }
 
   body {
@@ -38,9 +42,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.35);
+  background: rgba(158, 153, 155, 0.35);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.55);
+  background: rgba(135, 194, 69, 0.6);
 }

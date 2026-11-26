@@ -20,17 +20,25 @@ import {
   BrokerSymbol,
   ChartPoint,
   CTraderAccount,
+  FeatureKey,
   IndicatorMeta,
+  MeResponse,
+  PositionItem,
+  SaasPlan,
   ServerConfig,
   Snapshot,
+  StrategyRecipe,
 } from './types'
 import { LightweightChartPanel } from './components/LightweightChartPanel'
+import { BacktestEquityChart } from './components/BacktestEquityChart'
 import { BotCardGrid } from './components/BotCardGrid'
 import { ModelBuilderPanel } from './components/ModelBuilderPanel'
+import { AdminPanel } from './components/AdminPanel'
 import { Sidebar, TabKey } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { MarketIndicatorsBar } from './components/MarketIndicatorsBar'
 import { CTraderDiagnosticsCard } from './components/CTraderDiagnosticsCard'
+import { VwapMatrixPanel } from './components/VwapMatrixPanel'
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from './components/ui/Card'
 import { ConfirmModal } from './components/ui/ConfirmModal'
 import { DashboardSkeleton } from './components/ui/Skeleton'
@@ -46,60 +54,124 @@ import {
   isFiniteNumber,
   sanitizeChartPoints,
 } from './utils/formatters'
+import {
+  formatDataSource,
+  formatExitReason,
+  formatLogModule,
+  formatNewsImpact,
+  formatPeriod,
+  formatRegime,
+  formatSignal,
+  formatTimeframe,
+  formatTradeSide,
+} from './utils/labels'
 
 const PAGE_META: Record<TabKey, { title: string; description: string }> = {
   overview: {
     title: 'Visão geral',
-    description: 'Resumo operacional da conta cTrader, indicadores de mercado e estado da frota HFT',
+    description: 'Resumo operacional da sua conta, indicadores de mercado e robôs em operação',
   },
   'running-bots': {
-    title: 'Mesa de execução',
-    description: 'Terminal gráfico ao vivo, frota de robôs matemáticos e posições abertas na cTrader',
+    title: 'Painel ao Vivo',
+    description: 'Gráfico em tempo real, robôs ativos e operações abertas',
   },
   'my-bots': {
     title: 'Meus robôs',
-    description: 'Gerenciamento completo, filtros, duplicação e controles operacionais dos robôs',
+    description: 'Gerencie, pause, edite ou duplique seus robôs automatizados',
   },
   'create-bot': {
-    title: 'Configurar robô matemático',
-    description: 'Parametrização quantitativa de VWAP, Z-Score, Imbalance e volume em Lotes cTrader',
+    title: 'Criar Robô',
+    description: 'Escolha a conta, o ativo, a estratégia e o gerenciamento de risco do seu robô',
   },
   templates: {
-    title: 'Modelos Matemáticos',
-    description: 'Crie estratégias próprias combinando os 21 principais indicadores ou código Python com teste ao vivo',
+    title: 'Estratégias',
+    description: 'Use estratégias prontas ou crie as suas combinando indicadores técnicos e código Python',
   },
   backtest: {
-    title: 'Backtest tick a tick',
-    description: 'Simulação histórica tick a tick com métricas de acerto, lucro líquido e drawdown',
+    title: 'Simulador',
+    description: 'Teste qualquer estratégia no histórico real com taxa de acerto, lucro e rebaixamento',
   },
   monitor: {
-    title: 'Matriz VWAP e Z-Score',
-    description: 'Leitura contínua de desvios ±2σ, Imbalance, regime de mercado e sinal quantitativo',
+    title: 'Radar de Mercado',
+    description: 'Acompanhe tendências, força de fluxo e sinais em tempo real nos ativos monitorados',
   },
   news: {
-    title: 'Pesquisa & Notícias',
-    description: 'Robô pesquisador de notícias financeiras na internet com proteção de Grid e entrada a favor da notícia',
+    title: 'Notícias',
+    description: 'Monitoramento de notícias financeiras com filtro de impacto para seus robôs',
   },
   categories: {
-    title: 'Categorias de ativos',
-    description: 'Catálogo de símbolos da corretora cTrader e agrupamentos personalizados para monitoramento',
+    title: 'Mercados',
+    description: 'Ativos disponíveis na corretora organizados por categoria',
   },
   'ctrader-config': {
-    title: 'Configuração cTrader',
-    description: 'Credenciais do App Open API (openapi.ctrader.com), autorização OAuth 2.0 e diagnóstico WebSocket',
+    title: 'Conectar Corretora',
+    description: 'Conecte sua corretora cTrader com segurança via autorização oficial OAuth 2.0',
   },
   'ctrader-accounts': {
-    title: 'Contas cTrader',
-    description: 'Cofre seguro de contas Demo e Real vinculadas ao seu cTrader ID (cTID) com alternância rápida',
+    title: 'Minhas Contas',
+    description: 'Gerencie suas contas Demo e Real e alterne rapidamente entre elas',
   },
   history: {
     title: 'Histórico',
-    description: 'Registro de operações executadas e diário do motor quantitativo',
+    description: 'Registro de operações executadas e eventos da conta',
   },
   settings: {
     title: 'Configurações',
-    description: 'Preferências visuais, segurança administrativa, trava de risco e parâmetros do sistema',
+    description: 'Preferências visuais, segurança, limites diários e parâmetros gerais',
   },
+  admin: {
+    title: 'Painel Admin',
+    description: 'Gerencie planos comerciais, dias de teste grátis, integrações Kiwify e assinaturas de clientes',
+  },
+}
+
+function formatOpenDateTime(openMs?: number, fallbackStr?: string): string {
+  if (openMs && openMs > 0) {
+    const d = new Date(openMs)
+    if (!Number.isNaN(d.getTime())) {
+      const dd = String(d.getDate()).padStart(2, '0')
+      const mm = String(d.getMonth() + 1).padStart(2, '0')
+      const hh = String(d.getHours()).padStart(2, '0')
+      const mi = String(d.getMinutes()).padStart(2, '0')
+      const ss = String(d.getSeconds()).padStart(2, '0')
+      return `${dd}/${mm} ${hh}:${mi}:${ss}`
+    }
+  }
+  return fallbackStr || '--'
+}
+
+function formatElapsedDuration(openMs?: number): string {
+  if (!openMs || openMs <= 0) return ''
+  const diffSec = Math.max(0, Math.floor((Date.now() - openMs) / 1000))
+  if (diffSec < 60) return `há ${diffSec}s`
+  const mins = Math.floor(diffSec / 60)
+  if (mins < 60) return `há ${mins}m`
+  const hrs = Math.floor(mins / 60)
+  const remMins = mins % 60
+  if (hrs < 24) return `há ${hrs}h ${String(remMins).padStart(2, '0')}m`
+  const days = Math.floor(hrs / 24)
+  return `há ${days}d ${hrs % 24}h`
+}
+
+function computeSlTpProgress(p: PositionItem): { pct: number; towardTp: boolean } | null {
+  if (!p.sl || !p.tp || p.sl <= 0 || p.tp <= 0 || p.price_open <= 0 || p.price_current <= 0) {
+    return null
+  }
+  const isBuy = p.side === 'BUY'
+  if (isBuy) {
+    if (p.price_current >= p.price_open) {
+      const span = Math.max(1e-9, p.tp - p.price_open)
+      return { pct: Math.min(100, ((p.price_current - p.price_open) / span) * 100), towardTp: true }
+    }
+    const span = Math.max(1e-9, p.price_open - p.sl)
+    return { pct: Math.min(100, ((p.price_open - p.price_current) / span) * 100), towardTp: false }
+  }
+  if (p.price_current <= p.price_open) {
+    const span = Math.max(1e-9, p.price_open - p.tp)
+    return { pct: Math.min(100, ((p.price_open - p.price_current) / span) * 100), towardTp: true }
+  }
+  const span = Math.max(1e-9, p.sl - p.price_open)
+  return { pct: Math.min(100, ((p.price_current - p.price_open) / span) * 100), towardTp: false }
 }
 
 export default function App() {
@@ -113,6 +185,10 @@ export default function App() {
   const [supabaseEnabled, setSupabaseEnabled] = useState(false)
   const [authMode, setAuthMode] = useState<'LOGIN' | 'SIGNUP'>('LOGIN')
   const [loginInfo, setLoginInfo] = useState('')
+  const [me, setMe] = useState<MeResponse | null>(null)
+  const [publicPlans, setPublicPlans] = useState<SaasPlan[]>([])
+  const [publicTrialDays, setPublicTrialDays] = useState<number>(7)
+  const [signupPlanId, setSignupPlanId] = useState<string>('')
 
   const [activeTab, setActiveTab] = useState<TabKey>('running-bots')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -122,6 +198,7 @@ export default function App() {
   const [config, setConfig] = useState<ServerConfig | null>(null)
   const [templates, setTemplates] = useState<BotTemplate[]>([])
   const [indicatorsCatalog, setIndicatorsCatalog] = useState<IndicatorMeta[]>([])
+  const [recipes, setRecipes] = useState<StrategyRecipe[]>([])
   const [defaultPythonCode, setDefaultPythonCode] = useState('')
   const [symbols, setSymbols] = useState<BrokerSymbol[]>([])
   const [symbolMode, setSymbolMode] = useState<'PRINCIPAIS' | 'TODOS'>('TODOS')
@@ -256,9 +333,21 @@ export default function App() {
     }
   }, [])
 
+  const refreshMe = useCallback(async () => {
+    try {
+      const res = await fetch('/api/me')
+      if (res.ok) {
+        const d: MeResponse = await res.json()
+        setMe(d)
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
   const loadAllInitial = useCallback(async () => {
     try {
-      const modeRes = await fetch('/api/auth/mode')
+      const [modeRes, pubRes] = await Promise.all([fetch('/api/auth/mode'), fetch('/api/plans/public')])
       if (modeRes.ok) {
         const mData = await modeRes.json()
         const sb = Boolean(mData.supabase_enabled)
@@ -267,15 +356,24 @@ export default function App() {
           setLoginUser((prev) => (prev === 'admin' ? '' : prev))
         }
       }
-      const [statusRes, cfgRes, tplRes, symRes] = await Promise.all([
+      if (pubRes.ok) {
+        const pData = await pubRes.json()
+        const plist: SaasPlan[] = Array.isArray(pData.plans) ? pData.plans : []
+        setPublicPlans(plist)
+        if (typeof pData.trial_days === 'number') setPublicTrialDays(pData.trial_days)
+        if (plist.length) setSignupPlanId((prev) => prev || plist[0].plan_id)
+      }
+      const [statusRes, cfgRes, tplRes, symRes, meRes] = await Promise.all([
         fetch('/api/status'),
         fetch('/api/config'),
         fetch('/api/bot-templates'),
         fetch(`/api/symbols?mode=${symbolModeRef.current}`),
+        fetch('/api/me'),
       ])
 
       if (statusRes.status === 401) {
         setAuthenticated(false)
+        setMe(null)
         setAuthChecked(true)
         setInitialLoading(false)
         return
@@ -284,6 +382,11 @@ export default function App() {
       setAuthenticated(true)
       setAuthChecked(true)
       setConnectionError(null)
+
+      if (meRes.ok) {
+        const meData: MeResponse = await meRes.json()
+        setMe(meData)
+      }
 
       if (statusRes.ok) {
         const snap: Snapshot = await statusRes.json()
@@ -309,6 +412,7 @@ export default function App() {
         const tData = await tplRes.json()
         setTemplates(Array.isArray(tData.templates) ? tData.templates : [])
         setIndicatorsCatalog(Array.isArray(tData.indicators) ? tData.indicators : [])
+        setRecipes(Array.isArray(tData.recipes) ? tData.recipes : [])
         if (typeof tData.python_template === 'string') setDefaultPythonCode(tData.python_template)
       }
       if (symRes.ok) {
@@ -317,7 +421,7 @@ export default function App() {
       }
     } catch {
       setAuthChecked(true)
-      setConnectionError('Não foi possível conectar ao servidor backend Prado HFT.')
+      setConnectionError('Não foi possível conectar ao servidor backend Quantix.')
     } finally {
       setInitialLoading(false)
     }
@@ -361,7 +465,12 @@ export default function App() {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: loginUser, email: loginUser, password: loginPass }),
+        body: JSON.stringify({
+          username: loginUser,
+          email: loginUser,
+          password: loginPass,
+          plan_id: authMode === 'SIGNUP' ? signupPlanId : undefined,
+        }),
       })
       const data = await res.json()
       if (res.ok && data.ok) {
@@ -385,6 +494,26 @@ export default function App() {
     await fetch('/api/logout', { method: 'POST' })
     setAuthenticated(false)
     setSnapshot(null)
+    setMe(null)
+  }
+
+  async function selectTrialPlan(planId: string) {
+    try {
+      const res = await fetch('/api/subscription/select-trial-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_id: planId }),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        setMe((prev) => (prev ? { ...prev, entitlements: d.entitlements } : prev))
+        showToast(`Plano de teste alterado para ${d.entitlements.plan_name}!`)
+      } else {
+        showToast(d.error || 'Não foi possível trocar o plano de teste.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao trocar plano de teste.', true)
+    }
   }
 
   async function refreshSymbols(mode: 'PRINCIPAIS' | 'TODOS') {
@@ -490,6 +619,50 @@ export default function App() {
     setBotTpValue(b.tp_value && b.tp_value > 0 ? b.tp_value : loadedTpMode === 'USD' ? 2.0 : loadedTpMode === 'PCT' ? 0.25 : 10)
     setBotFormDirty(false)
     setActiveTab('create-bot')
+  }
+
+  function openCreateBotForSymbol(sym: string) {
+    resetBotForm()
+    setBotSymbol(sym)
+    setActiveTab('create-bot')
+  }
+
+  function handleCreateBotWithTemplate(tpl: BotTemplate) {
+    resetBotForm()
+    setBotTemplateId(tpl.template_id)
+    setBotTimeframe(
+      tpl.recommended_timeframe || (tpl.is_custom && tpl.custom_mode === 'INDICATORS' ? 'M5' : 'TICKS'),
+    )
+    setActiveTab('create-bot')
+  }
+
+  function handleTestInBacktest(tpl: BotTemplate) {
+    setBtTemplateId(tpl.template_id)
+    setBtTimeframe(
+      tpl.recommended_timeframe || (tpl.is_custom && tpl.custom_mode === 'INDICATORS' ? 'M5' : 'TICKS'),
+    )
+    setActiveTab('backtest')
+  }
+
+  async function updateMonitoredSymbols(next: string[]) {
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active_symbols: next.slice(0, 25) }),
+      })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        if (d.config) setConfig(d.config)
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+        showToast('Lista de ativos monitorados atualizada!')
+      } else {
+        showToast(d.error || 'Falha ao atualizar ativos monitorados.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao atualizar ativos monitorados.', true)
+    }
   }
 
   async function duplicateBot(b: BotItem) {
@@ -904,7 +1077,12 @@ export default function App() {
         setAccCtidAccountId('')
         setAccToken('')
         if (config) {
-          setConfig({ ...config, accounts: d.accounts, active_account_id: d.account.account_id })
+          setConfig({
+            ...config,
+            accounts: d.accounts,
+            active_account_id: d.account.account_id,
+            active_account_type: d.account.account_type || config.active_account_type,
+          })
         }
         showToast(d.message || 'Conta cTrader salva!')
         const stRes = await fetch('/api/status')
@@ -926,7 +1104,13 @@ export default function App() {
       })
       const d = await res.json()
       if (res.ok && d.ok) {
-        if (config) setConfig({ ...config, active_account_id: accountId })
+        if (config) {
+          setConfig({
+            ...config,
+            active_account_id: accountId,
+            accounts: d.accounts || config.accounts,
+          })
+        }
         showToast(d.message || 'Conta ativada.')
         const stRes = await fetch('/api/status')
         if (stRes.ok) setSnapshot(await stRes.json())
@@ -985,11 +1169,11 @@ export default function App() {
     const isSingle = ticket !== undefined
     setConfirmModal({
       open: true,
-      title: isSingle ? `Encerrar posição #${ticket}` : 'Zerar todas as posições abertas',
+      title: isSingle ? `Encerrar operação #${ticket}` : 'Encerrar todas as operações',
       description: isSingle
-        ? `Confirmar o encerramento imediato da posição #${ticket} na cTrader?`
-        : 'Confirmar o fechamento emergencial de todas as posições abertas na conta ativa?',
-      confirmLabel: isSingle ? 'Encerrar posição' : 'Zerar tudo agora',
+        ? `Confirmar o encerramento imediato da operação #${ticket} na corretora?`
+        : 'Confirmar o encerramento imediato de todas as operações abertas na conta ativa?',
+      confirmLabel: isSingle ? 'Encerrar operação' : 'Encerrar todas agora',
       variant: 'danger',
       onConfirm: async () => {
         setConfirmModal((m) => ({ ...m, open: false }))
@@ -1009,6 +1193,37 @@ export default function App() {
           }
         } catch {
           showToast('Erro de rede ao encerrar posição na cTrader.', true)
+        }
+      },
+    })
+  }
+
+  function requestCloseProfitable(winnersCount: number, winnersTotal: number) {
+    const cur = snapshot?.account?.currency || 'USD'
+    setConfirmModal({
+      open: true,
+      title: `Realizar lucros de ${winnersCount} operação(ões)`,
+      description: `Confirmar o encerramento imediato de ${winnersCount} operação(ões) no positivo (lucro atual somado: +${formatCurrency(winnersTotal, cur)})? Operações no negativo permanecerão abertas.`,
+      confirmLabel: 'Realizar lucros agora',
+      variant: 'primary',
+      onConfirm: async () => {
+        setConfirmModal((m) => ({ ...m, open: false }))
+        try {
+          const res = await fetch('/api/flatten', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profitable_only: true }),
+          })
+          const d = await res.json().catch(() => ({ ok: false, message: `Erro HTTP ${res.status}` }))
+          if (res.ok && d.ok) {
+            showToast(d.message || 'Posições lucrativas encerradas.')
+            const stRes = await fetch('/api/status')
+            if (stRes.ok) setSnapshot(await stRes.json())
+          } else {
+            showToast(d.message || d.error || 'Nenhuma posição lucrativa fechada.', true)
+          }
+        } catch {
+          showToast('Erro de rede ao encerrar posições lucrativas na cTrader.', true)
         }
       },
     })
@@ -1074,22 +1289,22 @@ export default function App() {
   if (!authChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center text-slate-500 dark:text-slate-400 text-sm font-mono">
-        Inicializando terminal Prado Ubuntu HFT...
+        Inicializando terminal Quantix...
       </div>
     )
   }
 
   if (!authenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 bg-slate-100 dark:bg-[#0b0f17]">
-        <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-8 shadow-xl dark:shadow-2xl">
+      <div className="min-h-screen flex items-center justify-center px-4 bg-slate-100 dark:bg-[#1b191a]">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#252223] p-8 shadow-xl dark:shadow-2xl">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-xl bg-blue-600/10 border border-blue-600/25 flex items-center justify-center text-blue-600 dark:text-blue-400">
                 <ShieldCheck className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-slate-900 dark:text-white">Prado Ubuntu HFT</h1>
+                <h1 className="text-lg font-bold text-slate-900 dark:text-white">Quantix</h1>
                 <p className="text-xs text-slate-500 dark:text-slate-400">cTrader Open API • Terminal 24/7</p>
               </div>
             </div>
@@ -1163,6 +1378,28 @@ export default function App() {
                 required
               />
             </div>
+            {supabaseEnabled && authMode === 'SIGNUP' && (
+              <div className="space-y-3 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3">
+                <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                  {publicTrialDays > 0
+                    ? `Ganhe ${publicTrialDays} dias grátis para testar qualquer plano!`
+                    : 'Escolha o plano da sua assinatura'}
+                </div>
+                {publicPlans.length > 0 && (
+                  <select
+                    value={signupPlanId}
+                    onChange={(e) => setSignupPlanId(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white"
+                  >
+                    {publicPlans.map((pl) => (
+                      <option key={pl.plan_id} value={pl.plan_id}>
+                        {pl.name} • R$ {pl.price_brl.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} ({pl.max_bots} robôs)
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
             {loginInfo && (
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
                 {loginInfo}
@@ -1190,12 +1427,77 @@ export default function App() {
   const totalBots = snapshot?.bots?.length ?? 0
   const isConnected = Boolean(acc?.connected)
   const pageInfo = PAGE_META[activeTab]
+  const ent = me?.entitlements
+  const isAdmin = Boolean(me?.is_admin)
+  const hasFeature = (fk: FeatureKey) => {
+    if (isAdmin || !ent) return true
+    return Boolean(ent.has_access && ent.allowed_features.includes(fk))
+  }
+  const renderLockedFeatureCard = (featureKey: FeatureKey, title: string) => {
+    const eligiblePlans = (me?.plans || []).filter((p) => p.allowed_features.includes(featureKey))
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Lock className="h-4 w-4 text-amber-500" />
+            {title}
+          </CardTitle>
+          <CardDescription>
+            {!ent?.has_access
+              ? 'Seu período grátis ou assinatura encerrou. Assine um plano na Kiwify para liberar seu terminal.'
+              : `Este módulo não faz parte do seu plano atual (${ent?.plan_name || 'Atual'}).`}
+          </CardDescription>
+        </CardHeader>
+        <CardBody className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {(eligiblePlans.length > 0 ? eligiblePlans : me?.plans || []).map((pl) => (
+              <div
+                key={pl.plan_id}
+                className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-4 flex flex-col justify-between gap-3"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-sm text-slate-900 dark:text-white">{pl.name}</span>
+                    <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
+                      R$ {pl.price_brl.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">{pl.description}</p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {ent?.status === 'trial' && (
+                    <button
+                      type="button"
+                      onClick={() => selectTrialPlan(pl.plan_id)}
+                      className="w-full rounded-xl border border-sky-500/35 bg-sky-500/10 py-2 text-xs font-semibold text-sky-700 dark:text-sky-300"
+                    >
+                      Testar no período grátis
+                    </button>
+                  )}
+                  {pl.kiwify_checkout_url ? (
+                    <a
+                      href={pl.kiwify_checkout_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-full text-center rounded-xl bg-blue-600 hover:bg-blue-500 py-2 text-xs font-semibold text-white"
+                    >
+                      Assinar na Kiwify
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardBody>
+      </Card>
+    )
+  }
 
   const inputClass =
     'w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3.5 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:border-blue-500 focus:outline-none transition'
 
   return (
-    <div className="min-h-screen flex bg-slate-50 dark:bg-[#0b0f17] text-slate-900 dark:text-slate-100">
+    <div className="min-h-screen flex bg-slate-50 dark:bg-[#1b191a] text-slate-900 dark:text-slate-100">
       {toast && (
         <div
           className={`fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-xl border px-4 py-3 text-xs font-medium shadow-2xl ${
@@ -1221,6 +1523,8 @@ export default function App() {
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
         totalBots={totalBots}
+        isAdmin={isAdmin}
+        entitlements={ent}
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
@@ -1254,11 +1558,79 @@ export default function App() {
               <p className="text-xs text-slate-500 dark:text-slate-400">{pageInfo.description}</p>
             </div>
             {snapshot?.timestamp && (
-              <span className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] px-2.5 py-1 text-[11px] font-mono text-slate-500 dark:text-slate-400">
+              <span className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#252223] px-2.5 py-1 text-[11px] font-mono text-slate-500 dark:text-slate-400">
                 Ciclo: {snapshot.timestamp}
               </span>
             )}
           </div>
+
+          {!isAdmin && ent && ent.status === 'trial' && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-xs text-sky-800 dark:text-sky-200">
+              <div>
+                <strong>Período grátis ativo:</strong> faltam{' '}
+                <strong>{ent.days_left ?? 0} dia(s)</strong> no plano <strong>{ent.plan_name}</strong> (até{' '}
+                {ent.max_bots} robôs).
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {me?.plans && me.plans.length > 1 && (
+                  <select
+                    value={ent.plan_id}
+                    onChange={(e) => selectTrialPlan(e.target.value)}
+                    className="rounded-lg border border-sky-500/30 bg-white dark:bg-slate-900 px-2.5 py-1 text-xs font-medium text-slate-800 dark:text-slate-100"
+                  >
+                    {me.plans.map((pl) => (
+                      <option key={pl.plan_id} value={pl.plan_id}>
+                        Testar plano: {pl.name} ({pl.max_bots} robôs)
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {ent.kiwify_checkout_url && (
+                  <a
+                    href={ent.kiwify_checkout_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-lg bg-blue-600 hover:bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    Assinar na Kiwify
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!isAdmin && ent && !ent.has_access && (
+            <div className="rounded-2xl border border-rose-500/35 bg-rose-500/10 p-4 space-y-3 text-xs text-rose-800 dark:text-rose-200">
+              <div className="font-bold text-sm">
+                Seu período grátis ou assinatura expirou — escolha um plano para continuar operando
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {(me?.plans || []).map((pl) => (
+                  <div
+                    key={pl.plan_id}
+                    className="rounded-xl border border-rose-500/20 bg-white/80 dark:bg-slate-900/80 p-3 flex items-center justify-between gap-2 text-slate-900 dark:text-white"
+                  >
+                    <div>
+                      <div className="font-bold">{pl.name}</div>
+                      <div className="text-[11px] text-slate-500">
+                        R$ {pl.price_brl.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} • até {pl.max_bots} robôs
+                      </div>
+                    </div>
+                    {pl.kiwify_checkout_url && (
+                      <a
+                        href={pl.kiwify_checkout_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-lg bg-blue-600 hover:bg-blue-500 px-3 py-1.5 text-[11px] font-semibold text-white shrink-0"
+                      >
+                        Assinar
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {connectionError && (
             <div className="flex items-center justify-between gap-3 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-xs text-rose-700 dark:text-rose-300">
@@ -1282,61 +1654,189 @@ export default function App() {
           ) : (
             <>
               {(activeTab === 'overview' || activeTab === 'running-bots') && (
-                <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                  {/* Card 1: Conta cTrader */}
                   <Card hoverable>
                     <CardBody className="p-4">
-                      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                        <span>Conta cTrader conectada</span>
-                        <span
-                          className={`rounded-md px-2 py-0.5 text-[10px] font-semibold border ${
-                            acc?.account_type === 'REAL'
-                              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30'
-                              : 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30'
-                          }`}
-                        >
-                          {acc?.account_type || 'DEMO'}
-                        </span>
+                      <div className="flex items-center justify-between gap-1 text-xs text-slate-500 dark:text-slate-400">
+                        <span className="truncate">Conta Conectada</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-slate-700 dark:text-slate-200">
+                            {acc?.currency || 'USD'}
+                          </span>
+                          <span
+                            className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold border ${
+                              acc?.account_type === 'REAL'
+                                ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                                : 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30'
+                            }`}
+                          >
+                            {acc?.account_type || 'DEMO'}
+                          </span>
+                        </div>
                       </div>
                       <div className="mt-2 text-lg font-bold font-mono text-slate-900 dark:text-white truncate">
-                        {acc?.login || 'DESCONECTADO'}
+                        {!acc?.login || acc.login === 'DESCONECTADO' ? 'Desconectado' : acc.login}
                       </div>
                       <div
                         className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 truncate"
-                        title={acc?.status_note || acc?.server}
+                        title={acc?.broker_name || acc?.server}
                       >
-                        {acc?.status_note || acc?.server || 'Aguardando credenciais cTrader'}
+                        {acc?.broker_name || acc?.server || 'Aguardando credenciais cTrader'}
                       </div>
+                      {acc?.status_note && (
+                        <div
+                          className="mt-0.5 text-[10px] text-amber-600 dark:text-amber-300 truncate"
+                          title={acc.status_note}
+                        >
+                          {acc.status_note}
+                        </div>
+                      )}
                     </CardBody>
                   </Card>
 
+                  {/* Card 2: Patrimônio & Saldo */}
                   <Card hoverable>
                     <CardBody className="p-4">
-                      <div className="text-xs text-slate-500 dark:text-slate-400">Saldo / Equity</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Patrimônio</div>
                       <div className="mt-2 text-lg font-bold font-mono text-slate-900 dark:text-white">
                         {formatCurrency(acc?.equity, acc?.currency || 'USD')}
                       </div>
                       <div className="mt-1 text-[11px] font-mono text-slate-500 dark:text-slate-400">
                         Saldo base: {formatCurrency(acc?.balance, acc?.currency || 'USD')}
                       </div>
+                      <div
+                        className={`mt-0.5 text-[11px] font-mono font-semibold ${
+                          (acc?.profit ?? 0) >= 0
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-rose-600 dark:text-rose-400'
+                        }`}
+                      >
+                        Flutuante: {(acc?.profit ?? 0) > 0 ? '+' : ''}
+                        {formatCurrency(acc?.profit ?? 0, acc?.currency || 'USD')}
+                      </div>
                     </CardBody>
                   </Card>
 
+                  {/* Card 3: Resultado Hoje (Oficial cTrader + Barra de Meta/Trava) */}
+                  {(() => {
+                    const cur = acc?.currency || 'USD'
+                    const dailyRealized = Number(acc?.daily_realized ?? 0)
+                    const floatingPnl = Number(acc?.profit ?? 0)
+                    const totalDay = dailyRealized + floatingPnl
+                    const target = Number(acc?.daily_target_money ?? 0)
+                    const maxLoss = Math.abs(Number(acc?.max_daily_loss_money ?? 0))
+                    const tradesCount = acc?.daily_trades_count ?? 0
+                    const winRate = acc?.daily_win_rate ?? 0
+                    const src = acc?.daily_source
+                    const srcLabel =
+                      src === 'CTRADER_SERVER'
+                        ? 'Servidor cTrader'
+                        : src === 'SIMULATION'
+                          ? 'Simulação'
+                          : src === 'DISCONNECTED'
+                            ? 'Desconectado'
+                            : 'Sessão'
+                    const srcClass =
+                      src === 'CTRADER_SERVER'
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                        : src === 'SIMULATION'
+                          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                          : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                    const breakdownTitle =
+                      acc?.daily_gross !== undefined
+                        ? `Bruto: ${formatCurrency(acc.daily_gross, cur)} | Swap/Comissão: ${formatCurrency(acc.daily_commissions_swap ?? 0, cur)}`
+                        : undefined
+                    const showTargetBar = totalDay >= 0 && target > 0
+                    const showLossBar = totalDay < 0 && maxLoss > 0
+                    const pct = showTargetBar
+                      ? Math.min(100, (totalDay / target) * 100)
+                      : showLossBar
+                        ? Math.min(100, (Math.abs(totalDay) / maxLoss) * 100)
+                        : 0
+
+                    return (
+                      <Card hoverable>
+                        <CardBody className="p-4">
+                          <div className="flex items-center justify-between gap-1 text-xs text-slate-500 dark:text-slate-400">
+                            <span className="truncate">Resultado Hoje</span>
+                            <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold shrink-0 ${srcClass}`}>
+                              {srcLabel}
+                            </span>
+                          </div>
+                          <div
+                            title={breakdownTitle}
+                            className={`mt-2 text-lg font-bold font-mono ${
+                              dailyRealized > 0
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : dailyRealized < 0
+                                  ? 'text-rose-600 dark:text-rose-400'
+                                  : 'text-slate-900 dark:text-white'
+                            }`}
+                          >
+                            {dailyRealized > 0 ? '+' : ''}
+                            {formatCurrency(dailyRealized, cur)}
+                          </div>
+                          <div className="mt-1 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
+                            Total c/ flutuante: {totalDay > 0 ? '+' : ''}
+                            {formatCurrency(totalDay, cur)}
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                            {tradesCount} op{tradesCount === 1 ? '' : 's'} hoje • {winRate.toFixed(0)}% acerto
+                          </div>
+                          {(showTargetBar || showLossBar) && (
+                            <div className="mt-2 space-y-1">
+                              <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${
+                                    showTargetBar ? 'bg-emerald-500' : 'bg-rose-500'
+                                  }`}
+                                  style={{ width: `${pct.toFixed(1)}%` }}
+                                />
+                              </div>
+                              <div className="flex justify-between text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                                <span>{showTargetBar ? 'Meta' : 'Trava'}</span>
+                                <span>
+                                  {pct.toFixed(0)}% de{' '}
+                                  {showTargetBar
+                                    ? formatCurrency(target, cur, 0)
+                                    : formatCurrency(-maxLoss, cur, 0)}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </CardBody>
+                      </Card>
+                    )
+                  })()}
+
+                  {/* Card 4: Robôs Matemáticos */}
                   <Card hoverable>
                     <CardBody className="p-4">
-                      <div className="text-xs text-slate-500 dark:text-slate-400">Robôs matemáticos ativos</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Robôs Ativos</div>
                       <div className="mt-2 text-lg font-bold font-mono text-blue-600 dark:text-blue-400">
                         {activeBots} ativos de {totalBots}
                       </div>
-                      <div className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">
-                        Motor HFT operacional
+                      <div
+                        className={`mt-1 text-[11px] truncate ${
+                          snapshot?.risk_locked
+                            ? 'text-rose-600 dark:text-rose-400 font-semibold'
+                            : 'text-emerald-600 dark:text-emerald-400'
+                        }`}
+                        title={snapshot?.risk_status}
+                      >
+                        {snapshot?.risk_locked
+                          ? snapshot?.risk_status || 'Trava de risco ativa'
+                          : 'Motor quantitativo operacional'}
                       </div>
                     </CardBody>
                   </Card>
 
+                  {/* Card 5: Vetor de Correlação da Cesta */}
                   <Card hoverable>
                     <CardBody className="p-4">
                       <div className="text-xs text-slate-500 dark:text-slate-400">
-                        Vetor de correlação da cesta
+                        Termômetro do Mercado
                       </div>
                       <div
                         className={`mt-2 text-lg font-bold font-mono ${
@@ -1349,8 +1849,12 @@ export default function App() {
                       >
                         {formatSignedPercent(snapshot?.basket_bias, 1, true)}
                       </div>
-                      <div className="mt-1 text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                        Realizado hoje: {formatCurrency(acc?.daily_realized, acc?.currency || 'USD')}
+                      <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        {(snapshot?.basket_bias ?? 0) > 0.05
+                          ? 'Viés comprador da cesta'
+                          : (snapshot?.basket_bias ?? 0) < -0.05
+                            ? 'Viés vendedor da cesta'
+                            : 'Cesta equilibrada'}
                       </div>
                     </CardBody>
                   </Card>
@@ -1399,102 +1903,205 @@ export default function App() {
                     onDeleteAll={handleDeleteAllBots}
                   />
 
-                  <Card className="overflow-hidden">
-                    <CardHeader className="bg-slate-50/70 dark:bg-slate-900/40">
-                      <CardTitle>Posições abertas na cTrader</CardTitle>
-                      <CardDescription>
-                        Acompanhamento em tempo real com Stop Loss e Take Profit
-                      </CardDescription>
-                    </CardHeader>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead className="border-b border-slate-200 dark:border-slate-800 text-[11px] uppercase text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/40">
-                          <tr>
-                            <th className="px-4 py-3">Posição</th>
-                            <th className="px-4 py-3">Robô</th>
-                            <th className="px-4 py-3">Ativo</th>
-                            <th className="px-4 py-3">Lado</th>
-                            <th className="px-4 py-3 text-right">Lotes</th>
-                            <th className="px-4 py-3 text-right">Entrada</th>
-                            <th className="px-4 py-3 text-right">Atual</th>
-                            <th className="px-4 py-3 text-right">Lucro</th>
-                            <th className="px-4 py-3 text-right">Ação</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
-                          {!snapshot?.positions?.length ? (
-                            <tr>
-                              <td
-                                colSpan={9}
-                                className="px-4 py-8 text-center text-slate-500 font-sans"
+                  {(() => {
+                    const openPositions = (snapshot?.positions || []).filter((p) => p && p.ticket !== undefined)
+                    const totalLots = openPositions.reduce((accSum, p) => accSum + Number(p.volume || 0), 0)
+                    const totalFloat = openPositions.reduce((accSum, p) => accSum + Number(p.profit || 0), 0)
+                    const winners = openPositions.filter((p) => Number(p.profit || 0) > 0)
+                    const winnersTotal = winners.reduce((accSum, p) => accSum + Number(p.profit || 0), 0)
+                    const cur = acc?.currency || 'USD'
+
+                    return (
+                      <Card className="overflow-hidden">
+                        <CardHeader className="bg-slate-50/70 dark:bg-slate-900/40 flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <CardTitle>Operações Abertas</CardTitle>
+                            <CardDescription>
+                              Horário de abertura, duração, Stop Loss / Take Profit e lucro líquido na moeda da conta
+                            </CardDescription>
+                          </div>
+                          {openPositions.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-[11px] font-mono text-slate-700 dark:text-slate-200">
+                                {openPositions.length} aberta{openPositions.length === 1 ? '' : 's'} • {formatNumber(totalLots, 2)} lotes
+                              </span>
+                              <span
+                                className={`rounded-lg border px-2.5 py-1 text-[11px] font-mono font-semibold ${
+                                  totalFloat >= 0
+                                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                    : 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                                }`}
                               >
-                                Nenhuma posição aberta no momento.
-                              </td>
-                            </tr>
-                          ) : (
-                            snapshot.positions.map((p) => {
-                              if (!p || p.ticket === undefined) return null
-                              const profitPositive = isFiniteNumber(p.profit) && p.profit >= 0
-                              return (
-                                <tr
-                                  key={String(p.ticket)}
-                                  className="hover:bg-slate-50 dark:hover:bg-slate-900/40"
+                                Flutuante: {totalFloat > 0 ? '+' : ''}
+                                {formatCurrency(totalFloat, cur)}
+                              </span>
+                              {winners.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => requestCloseProfitable(winners.length, winnersTotal)}
+                                  className="rounded-lg border border-emerald-500/40 bg-emerald-600 hover:bg-emerald-500 px-2.5 py-1 text-[11px] font-semibold text-white transition"
                                 >
-                                  <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                                    #{p.ticket}
-                                  </td>
-                                  <td className="px-4 py-3 font-sans font-semibold text-blue-600 dark:text-blue-400">
-                                    {p.bot_name || p.comment || '--'}
-                                  </td>
-                                  <td className="px-4 py-3 font-sans font-semibold text-slate-900 dark:text-white">
-                                    {formatSymbolDisplay(p.symbol, symbols)}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <span
-                                      className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${
-                                        p.side === 'BUY'
-                                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                          : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
-                                      }`}
-                                    >
-                                      {p.side}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    {formatNumber(p.volume, 2)}
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    {formatPrice(p.price_open, 5)}
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    {formatPrice(p.price_current, 5)}
-                                  </td>
+                                  Realizar Lucros ({winners.length})
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </CardHeader>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead className="border-b border-slate-200 dark:border-slate-800 text-[11px] uppercase text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/40">
+                              <tr>
+                                <th className="px-3 py-3">Posição</th>
+                                <th className="px-3 py-3">Abertura</th>
+                                <th className="px-3 py-3">Robô</th>
+                                <th className="px-3 py-3">Ativo</th>
+                                <th className="px-3 py-3">Lado</th>
+                                <th className="px-3 py-3 text-right">Lotes</th>
+                                <th className="px-3 py-3 text-right">Entrada / Atual</th>
+                                <th className="px-3 py-3">SL / TP</th>
+                                <th className="px-3 py-3 text-right">Lucro ({cur})</th>
+                                <th className="px-3 py-3 text-right">Ação</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                              {!openPositions.length ? (
+                                <tr>
                                   <td
-                                    className={`px-4 py-3 text-right font-semibold ${
-                                      profitPositive
-                                        ? 'text-emerald-600 dark:text-emerald-400'
-                                        : 'text-rose-600 dark:text-rose-400'
-                                    }`}
+                                    colSpan={10}
+                                    className="px-4 py-8 text-center text-slate-500 font-sans"
                                   >
-                                    {formatSignedNumber(p.profit, 2)}
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    <button
-                                      type="button"
-                                      onClick={() => requestPanicFlatten(p.ticket)}
-                                      className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] text-rose-700 dark:text-rose-300 hover:bg-rose-500/20"
-                                    >
-                                      Encerrar
-                                    </button>
+                                    Nenhuma posição aberta no momento.
                                   </td>
                                 </tr>
-                              )
-                            })
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </Card>
+                              ) : (
+                                openPositions.map((p) => {
+                                  const profitPositive = isFiniteNumber(p.profit) && p.profit >= 0
+                                  const elapsed = formatElapsedDuration(p.open_timestamp_ms)
+                                  const slTpProg = computeSlTpProgress(p)
+                                  const costsTotal = Number(p.swap || 0) + Number(p.commission || 0)
+                                  const priceDiff =
+                                    p.price_open > 0 && p.price_current > 0
+                                      ? (p.side === 'BUY' ? 1 : -1) * (p.price_current - p.price_open)
+                                      : 0
+
+                                  return (
+                                    <tr
+                                      key={String(p.ticket)}
+                                      className="hover:bg-slate-50 dark:hover:bg-slate-900/40"
+                                    >
+                                      <td className="px-3 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                                        #{p.ticket}
+                                      </td>
+                                      <td className="px-3 py-3 whitespace-nowrap">
+                                        <div className="text-slate-800 dark:text-slate-200">
+                                          {formatOpenDateTime(p.open_timestamp_ms, p.open_time_str)}
+                                        </div>
+                                        {elapsed && (
+                                          <div className="text-[10px] font-sans text-slate-500 dark:text-slate-400">
+                                            {elapsed}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-3 font-sans font-semibold text-blue-600 dark:text-blue-400">
+                                        {p.bot_name || p.comment || '--'}
+                                      </td>
+                                      <td className="px-3 py-3 font-sans font-semibold">
+                                        <button
+                                          type="button"
+                                          title="Carregar ativo no gráfico acima"
+                                          onClick={() => {
+                                            setChartSymbol(p.symbol)
+                                            showToast(`Gráfico atualizado para ${formatSymbolDisplay(p.symbol, symbols)}`)
+                                            window.scrollTo({ top: 180, behavior: 'smooth' })
+                                          }}
+                                          className="text-left text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 underline decoration-dotted underline-offset-2"
+                                        >
+                                          {formatSymbolDisplay(p.symbol, symbols)}
+                                        </button>
+                                      </td>
+                                      <td className="px-3 py-3">
+                                        <span
+                                          className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${
+                                            p.side === 'BUY'
+                                              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                              : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                                          }`}
+                                        >
+                                          {formatTradeSide(p.side)}
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-3 text-right">
+                                        {formatNumber(p.volume, 2)}
+                                      </td>
+                                      <td className="px-3 py-3 text-right whitespace-nowrap">
+                                        <div className="text-slate-700 dark:text-slate-200">
+                                          {formatPrice(p.price_open, 5)}
+                                        </div>
+                                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                          {formatPrice(p.price_current, 5)}{' '}
+                                          {priceDiff !== 0 && (
+                                            <span className={priceDiff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+                                              ({priceDiff > 0 ? '+' : ''}{priceDiff.toFixed(5)})
+                                            </span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td className="px-3 py-3 min-w-[130px]">
+                                        <div className="text-[11px] space-y-0.5">
+                                          <div className="text-rose-600 dark:text-rose-400">
+                                            SL: {p.sl > 0 ? formatPrice(p.sl, 5) : '--'}
+                                          </div>
+                                          <div className="text-emerald-600 dark:text-emerald-400">
+                                            TP: {p.tp > 0 ? formatPrice(p.tp, 5) : '--'}
+                                          </div>
+                                        </div>
+                                        {slTpProg && (
+                                          <div className="mt-1 h-1 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                                            <div
+                                              className={`h-full rounded-full ${
+                                                slTpProg.towardTp ? 'bg-emerald-500' : 'bg-rose-500'
+                                              }`}
+                                              style={{ width: `${slTpProg.pct.toFixed(1)}%` }}
+                                            />
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td
+                                        className={`px-3 py-3 text-right whitespace-nowrap ${
+                                          profitPositive
+                                            ? 'text-emerald-600 dark:text-emerald-400'
+                                            : 'text-rose-600 dark:text-rose-400'
+                                        }`}
+                                      >
+                                        <div className="font-semibold">
+                                          {p.profit > 0 ? '+' : ''}
+                                          {formatCurrency(p.profit, cur)}
+                                        </div>
+                                        {costsTotal !== 0 && (
+                                          <div className="text-[10px] font-sans text-slate-500 dark:text-slate-400">
+                                            Custos: {formatCurrency(costsTotal, cur)}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-3 text-right">
+                                        <button
+                                          type="button"
+                                          onClick={() => requestPanicFlatten(p.ticket)}
+                                          className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] text-rose-700 dark:text-rose-300 hover:bg-rose-500/20"
+                                        >
+                                          Encerrar
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  )
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </Card>
+                    )
+                  })()}
                 </div>
               )}
 
@@ -1881,7 +2488,9 @@ export default function App() {
                 </Card>
               )}
 
-              {activeTab === 'backtest' && (
+              {activeTab === 'backtest' && !hasFeature('backtest') && renderLockedFeatureCard('backtest', 'Simulador Histórico (Backtest)')}
+
+              {activeTab === 'backtest' && hasFeature('backtest') && (
                 <div className="space-y-6">
                   <Card>
                     <CardHeader>
@@ -1930,7 +2539,7 @@ export default function App() {
                         </div>
                         <div>
                           <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
-                            Timeframe
+                            Tempo Gráfico
                           </label>
                           <select
                             value={btTimeframe}
@@ -2017,11 +2626,26 @@ export default function App() {
                       </form>
 
                       {btResult && (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                           <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
-                            <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-slate-700 dark:text-slate-200">
-                              {btResult.symbol} • {btResult.timeframe || 'TICKS'}
+                            <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-slate-700 dark:text-slate-200 font-semibold">
+                              {btResult.symbol} • {formatTimeframe(btResult.timeframe)}
                             </span>
+                            {btResult.period && (
+                              <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-slate-600 dark:text-slate-300">
+                                Período: {formatPeriod(btResult.period)}
+                              </span>
+                            )}
+                            {btResult.lot_size !== undefined && (
+                              <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-slate-600 dark:text-slate-300">
+                                Lote: {formatNumber(btResult.lot_size, 2)}
+                              </span>
+                            )}
+                            {btResult.ticks_processed !== undefined && (
+                              <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-slate-600 dark:text-slate-300">
+                                {btResult.ticks_processed.toLocaleString('pt-BR')} ticks
+                              </span>
+                            )}
                             <span
                               className={`rounded-md px-2 py-0.5 font-semibold ${
                                 btResult.data_source === 'CTRADER_REAL'
@@ -2029,20 +2653,28 @@ export default function App() {
                                   : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
                               }`}
                             >
-                              {btResult.data_source === 'CTRADER_REAL' ? 'Dados Reais cTrader' : 'Simulação'}
+                              {formatDataSource(btResult.data_source)}
                             </span>
                           </div>
+
+                          {/* KPIs Principais */}
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-4 font-mono text-xs">
                             <div>
-                              <span className="text-slate-500 dark:text-slate-400">Trades</span>
+                              <span className="text-slate-500 dark:text-slate-400">Operações</span>
                               <div className="text-base font-bold text-slate-900 dark:text-white mt-1">
                                 {btResult.total_trades ?? '--'}
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                {btResult.winning_trades ?? 0} ganhos / {btResult.losing_trades ?? 0} perdas
                               </div>
                             </div>
                             <div>
                               <span className="text-slate-500 dark:text-slate-400">Taxa de acerto</span>
                               <div className="text-base font-bold text-blue-600 dark:text-blue-400 mt-1">
                                 {formatPercent(btResult.win_rate, 1, false)}
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                Fator de lucro: {formatNumber(btResult.profit_factor ?? 1, 2)}
                               </div>
                             </div>
                             <div>
@@ -2054,16 +2686,167 @@ export default function App() {
                                     : 'text-rose-600 dark:text-rose-400'
                                 }`}
                               >
-                                ${formatNumber(btResult.net_profit, 2)}
+                                ${(btResult.net_profit ?? 0) >= 0 ? '+' : ''}
+                                {formatNumber(btResult.net_profit, 2)}
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                Retorno: {(btResult.return_pct ?? 0) >= 0 ? '+' : ''}
+                                {formatPercent(btResult.return_pct ?? 0, 2, false)}
                               </div>
                             </div>
                             <div>
-                              <span className="text-slate-500 dark:text-slate-400">Drawdown máx.</span>
+                              <span className="text-slate-500 dark:text-slate-400">Rebaixamento máx.</span>
                               <div className="text-base font-bold text-rose-600 dark:text-rose-400 mt-1">
                                 ${formatNumber(btResult.max_drawdown, 2)}
                               </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                {formatPercent(btResult.max_drawdown_pct ?? 0, 2, false)} do pico
+                              </div>
                             </div>
                           </div>
+
+                          {/* Estatísticas Avançadas do Teste */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#252223] p-3.5 font-mono text-xs">
+                            <div>
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400">Capital final</span>
+                              <div className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                                ${formatNumber(btResult.final_equity ?? btResult.final_capital, 2)}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400">Expectativa por operação</span>
+                              <div
+                                className={`font-semibold mt-0.5 ${
+                                  (btResult.expectancy ?? 0) >= 0
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-rose-600 dark:text-rose-400'
+                                }`}
+                              >
+                                ${(btResult.expectancy ?? 0) >= 0 ? '+' : ''}
+                                {formatNumber(btResult.expectancy ?? 0, 2)}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400">Média Ganho / Perda</span>
+                              <div className="font-semibold mt-0.5">
+                                <span className="text-emerald-600 dark:text-emerald-400">
+                                  +${formatNumber(btResult.avg_win ?? 0, 2)}
+                                </span>
+                                {' / '}
+                                <span className="text-rose-600 dark:text-rose-400">
+                                  ${formatNumber(btResult.avg_loss ?? 0, 2)}
+                                </span>
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400">Melhor / Pior operação</span>
+                              <div className="font-semibold mt-0.5">
+                                <span className="text-emerald-600 dark:text-emerald-400">
+                                  +${formatNumber(btResult.best_trade ?? 0, 2)}
+                                </span>
+                                {' / '}
+                                <span className="text-rose-600 dark:text-rose-400">
+                                  ${formatNumber(btResult.worst_trade ?? 0, 2)}
+                                </span>
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400">Lucro / Perda bruta</span>
+                              <div className="font-semibold mt-0.5">
+                                <span className="text-emerald-600 dark:text-emerald-400">
+                                  ${formatNumber(btResult.gross_profit ?? 0, 2)}
+                                </span>
+                                {' / '}
+                                <span className="text-rose-600 dark:text-rose-400">
+                                  ${formatNumber(btResult.gross_loss ?? 0, 2)}
+                                </span>
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400">Sequência máx. (G/P)</span>
+                              <div className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                                {btResult.max_consecutive_wins ?? 0}G / {btResult.max_consecutive_losses ?? 0}P
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Gráfico de Evolução do Patrimônio */}
+                          {btResult.equity_curve && btResult.equity_curve.length > 0 && (
+                            <BacktestEquityChart
+                              points={btResult.equity_curve}
+                              initialCapital={btResult.initial_capital ?? btCapital}
+                              theme={theme}
+                            />
+                          )}
+
+                          {/* Tabela de Operações (Trades) */}
+                          {btResult.trades && btResult.trades.length > 0 && (
+                            <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+                              <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-950/40 px-3 py-2 border-b border-slate-200 dark:border-slate-800 text-xs">
+                                <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                  Operações Executadas ({btResult.trades.length})
+                                </span>
+                                <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                  Últimas {btResult.trades.length} operações do teste
+                                </span>
+                              </div>
+                              <div className="max-h-72 overflow-y-auto overflow-x-auto">
+                                <table className="w-full text-left text-xs font-mono">
+                                  <thead className="sticky top-0 bg-slate-50 dark:bg-slate-950/90 text-[11px] uppercase text-slate-500 border-b border-slate-200 dark:border-slate-800">
+                                    <tr>
+                                      <th className="px-3 py-2">#</th>
+                                      <th className="px-3 py-2">Tipo</th>
+                                      <th className="px-3 py-2">Sinal</th>
+                                      <th className="px-3 py-2">Motivo da Saída</th>
+                                      <th className="px-3 py-2 text-right">Entrada</th>
+                                      <th className="px-3 py-2 text-right">Fechamento</th>
+                                      <th className="px-3 py-2 text-right">Resultado ($)</th>
+                                      <th className="px-3 py-2 text-right">Patrimônio ($)</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                                    {btResult.trades.map((tr) => (
+                                      <tr key={tr.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
+                                        <td className="px-3 py-1.5 text-slate-500">{tr.id}</td>
+                                        <td className="px-3 py-1.5">
+                                          <span
+                                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                              tr.type === 'BUY'
+                                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                                : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                                            }`}
+                                          >
+                                            {formatTradeSide(tr.type)}
+                                          </span>
+                                        </td>
+                                        <td className="px-3 py-1.5 font-sans text-slate-600 dark:text-slate-300">
+                                          {formatSignal(tr.signal)}
+                                        </td>
+                                        <td className="px-3 py-1.5 font-sans text-slate-500 dark:text-slate-400">
+                                          {formatExitReason(tr.exit_reason || tr.result)}
+                                        </td>
+                                        <td className="px-3 py-1.5 text-right">{formatNumber(tr.entry, 5)}</td>
+                                        <td className="px-3 py-1.5 text-right">{formatNumber(tr.exit, 5)}</td>
+                                        <td
+                                          className={`px-3 py-1.5 text-right font-semibold ${
+                                            tr.pnl >= 0
+                                              ? 'text-emerald-600 dark:text-emerald-400'
+                                              : 'text-rose-600 dark:text-rose-400'
+                                          }`}
+                                        >
+                                          {tr.pnl >= 0 ? '+' : ''}${formatNumber(tr.pnl, 2)}
+                                        </td>
+                                        <td className="px-3 py-1.5 text-right text-slate-700 dark:text-slate-200">
+                                          ${formatNumber(tr.equity_after, 2)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
                           {btResult.per_symbol && btResult.per_symbol.length > 0 && (
                             <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                               <table className="w-full text-left text-xs font-mono">
@@ -2071,17 +2854,17 @@ export default function App() {
                                   <tr>
                                     <th className="px-3 py-2">Ativo</th>
                                     <th className="px-3 py-2">Fonte</th>
-                                    <th className="px-3 py-2 text-right">Trades</th>
+                                    <th className="px-3 py-2 text-right">Operações</th>
                                     <th className="px-3 py-2 text-right">Acerto</th>
                                     <th className="px-3 py-2 text-right">Lucro</th>
-                                    <th className="px-3 py-2 text-right">Drawdown</th>
+                                    <th className="px-3 py-2 text-right">Rebaixamento</th>
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                                   {btResult.per_symbol.map((ps, idx) => (
                                     <tr key={idx}>
                                       <td className="px-3 py-2 font-semibold">{ps.symbol}</td>
-                                      <td className="px-3 py-2">{ps.data_source || '--'}</td>
+                                      <td className="px-3 py-2 font-sans">{formatDataSource(ps.data_source)}</td>
                                       <td className="px-3 py-2 text-right">{ps.total_trades}</td>
                                       <td className="px-3 py-2 text-right">{formatPercent(ps.win_rate, 1, false)}</td>
                                       <td className="px-3 py-2 text-right">${formatNumber(ps.net_profit, 2)}</td>
@@ -2107,10 +2890,10 @@ export default function App() {
                           <tr>
                             <th className="px-4 py-3">Ativo</th>
                             <th className="px-4 py-3">Modelo</th>
-                            <th className="px-4 py-3 text-right">Trades</th>
+                            <th className="px-4 py-3 text-right">Operações</th>
                             <th className="px-4 py-3 text-right">Acerto</th>
                             <th className="px-4 py-3 text-right">Lucro</th>
-                            <th className="px-4 py-3 text-right">Drawdown</th>
+                            <th className="px-4 py-3 text-right">Rebaixamento</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
@@ -2310,9 +3093,45 @@ export default function App() {
                 <div className="space-y-6">
                   <CTraderDiagnosticsCard account={snapshot?.account} />
 
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Como obter suas credenciais da cTrader Open API</CardTitle>
+                  {me?.server_oauth_configured && (
+                    <Card className="border-emerald-500/35">
+                      <CardHeader>
+                        <CardTitle>Conectar sua corretora cTrader em 1 clique</CardTitle>
+                        <CardDescription>
+                          Autorize suas contas Demo e Real de qualquer corretora compatível com cTrader (IC Markets, Pepperstone, FP Markets, FTMO, FxPro e outras) direto no portal oficial cTrader ID
+                        </CardDescription>
+                      </CardHeader>
+                      <CardBody className="space-y-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={startCTraderOAuth}
+                            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-5 py-3 text-xs font-semibold text-white shadow-lg shadow-emerald-600/20"
+                          >
+                            <KeyRound className="h-4 w-4" />
+                            Conectar minha conta cTrader
+                          </button>
+                          <button
+                            type="button"
+                            onClick={syncCTraderAccounts}
+                            disabled={syncingAccounts}
+                            className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            {syncingAccounts ? 'Sincronizando...' : 'Atualizar minhas contas'}
+                          </button>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Sua senha da corretora nunca é informada ao Quantix. O login ocorre com segurança no site oficial da cTrader e suas contas aparecerão automaticamente em <strong>Minhas Contas</strong>.
+                        </p>
+                      </CardBody>
+                    </Card>
+                  )}
+
+                  {(!me?.server_oauth_configured || isAdmin) && (
+                    <>
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Como obter suas credenciais da cTrader Open API</CardTitle>
                       <CardDescription>
                         Siga estes 4 passos no portal oficial da Spotware para conectar qualquer corretora cTrader
                       </CardDescription>
@@ -2409,7 +3228,7 @@ export default function App() {
                             className={inputClass}
                           >
                             <option value="CTRADER_CLOUD">
-                              cTrader Open API Live (wss porta 5036)
+                              cTrader Nuvem — Demo e Real (wss porta 5036)
                             </option>
                             <option value="SIMULATION">Simulador Quantitativo Interno (Lotes CFD)</option>
                           </select>
@@ -2465,6 +3284,8 @@ export default function App() {
                       </form>
                     </CardBody>
                   </Card>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -2604,7 +3425,7 @@ export default function App() {
                             onChange={(e) => setAccConnMode(e.target.value)}
                             className={inputClass}
                           >
-                            <option value="CTRADER_CLOUD">cTrader Open API Live</option>
+                            <option value="CTRADER_CLOUD">cTrader Nuvem (Demo / Real)</option>
                             <option value="SIMULATION">Simulador Quant (CFD Lotes)</option>
                           </select>
                         </div>
@@ -2714,15 +3535,21 @@ export default function App() {
                 <ModelBuilderPanel
                   templates={templates}
                   indicators={indicatorsCatalog}
+                  recipes={recipes}
+                  bots={snapshot?.bots || config?.bots || []}
                   defaultPythonCode={defaultPythonCode}
                   symbols={symbols}
                   inputClass={inputClass}
                   onTemplatesUpdated={setTemplates}
+                  onCreateBotWithTemplate={handleCreateBotWithTemplate}
+                  onTestInBacktest={handleTestInBacktest}
                   showToast={showToast}
                 />
               )}
 
-              {activeTab === 'news' && (
+              {activeTab === 'news' && !hasFeature('news_bot') && renderLockedFeatureCard('news_bot', 'Monitor e Robô de Notícias')}
+
+              {activeTab === 'news' && hasFeature('news_bot') && (
                 <div className="space-y-6">
                   <Card>
                     <CardHeader className="flex flex-wrap items-center justify-between gap-3">
@@ -2956,7 +3783,7 @@ export default function App() {
                                       : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
                                   }`}
                                 >
-                                  {it.impact === 'HIGH' ? 'ALTO IMPACTO' : it.impact}
+                                  {formatNewsImpact(it.impact)}
                                 </span>
                                 <span
                                   className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
@@ -2993,95 +3820,23 @@ export default function App() {
                 </div>
               )}
 
-              {activeTab === 'monitor' && (
-                <Card className="overflow-hidden">
-                  <CardHeader>
-                    <CardTitle>Matriz matemática — VWAP, Bandas (±2σ) e Z-Score</CardTitle>
-                    <CardDescription>
-                      Cálculo contínuo sobre os ativos monitorados na cTrader
-                    </CardDescription>
-                  </CardHeader>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="border-b border-slate-200 dark:border-slate-800 text-[11px] uppercase text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/40">
-                        <tr>
-                          <th className="px-4 py-3">Ativo</th>
-                          <th className="px-4 py-3 text-right">Preço (P)</th>
-                          <th className="px-4 py-3 text-right">VWAP</th>
-                          <th className="px-4 py-3 text-right">Banda -2σ</th>
-                          <th className="px-4 py-3 text-right">Banda +2σ</th>
-                          <th className="px-4 py-3 text-right">Imbalance</th>
-                          <th className="px-4 py-3 text-right">Z-Score</th>
-                          <th className="px-4 py-3">Regime</th>
-                          <th className="px-4 py-3">Sinal</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
-                        {!Object.keys(snapshot?.symbols || {}).length ? (
-                          <tr>
-                            <td colSpan={9} className="px-4 py-8 text-center text-slate-500 font-sans">
-                              Aguardando cotações da cTrader para preencher a matriz.
-                            </td>
-                          </tr>
-                        ) : (
-                          Object.values(snapshot?.symbols || {}).map((s) => {
-                            if (!s || !s.symbol) return null
-                            const imbPos = isFiniteNumber(s.imbalance) && s.imbalance >= 0
-                            const zPos = isFiniteNumber(s.zscore) && s.zscore >= 0
-                            return (
-                              <tr
-                                key={s.symbol}
-                                className="hover:bg-slate-50 dark:hover:bg-slate-900/40"
-                              >
-                                <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">
-                                  {s.symbol}
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                  {formatPrice(s.price, 5)}
-                                </td>
-                                <td className="px-4 py-3 text-right text-amber-600 dark:text-amber-300">
-                                  {formatPrice(s.vwap, 5)}
-                                </td>
-                                <td className="px-4 py-3 text-right text-emerald-600 dark:text-emerald-400">
-                                  {formatPrice(s.lower_2, 5)}
-                                </td>
-                                <td className="px-4 py-3 text-right text-rose-600 dark:text-rose-400">
-                                  {formatPrice(s.upper_2, 5)}
-                                </td>
-                                <td
-                                  className={`px-4 py-3 text-right ${
-                                    imbPos
-                                      ? 'text-emerald-600 dark:text-emerald-400'
-                                      : 'text-rose-600 dark:text-rose-400'
-                                  }`}
-                                >
-                                  {formatPercent(s.imbalance, 1, true)}
-                                </td>
-                                <td
-                                  className={`px-4 py-3 text-right font-semibold ${
-                                    zPos
-                                      ? 'text-emerald-600 dark:text-emerald-400'
-                                      : 'text-rose-600 dark:text-rose-400'
-                                  }`}
-                                >
-                                  {formatNumber(s.zscore, 2)}
-                                </td>
-                                <td className="px-4 py-3 text-slate-600 dark:text-slate-300 font-sans">
-                                  {s.regime || '--'}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] text-slate-700 dark:text-slate-200">
-                                    {s.signal || 'WAIT'}
-                                  </span>
-                                </td>
-                              </tr>
-                            )
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </Card>
+              {activeTab === 'monitor' && !hasFeature('market_radar') && renderLockedFeatureCard('market_radar', 'Radar de Mercado (VWAP / Z-Score)')}
+
+              {activeTab === 'monitor' && hasFeature('market_radar') && (
+                <VwapMatrixPanel
+                  symbolsData={snapshot?.symbols || {}}
+                  activeSymbols={config?.active_symbols || []}
+                  symbolCatalog={symbols}
+                  bots={snapshot?.bots || []}
+                  basketBias={snapshot?.basket_bias}
+                  customCategories={config?.custom_categories || {}}
+                  onUpdateActiveSymbols={updateMonitoredSymbols}
+                  onOpenChart={(sym) => {
+                    setChartSymbol(sym)
+                    setActiveTab('running-bots')
+                  }}
+                  onCreateBotForSymbol={openCreateBotForSymbol}
+                />
               )}
 
               {activeTab === 'history' && (
@@ -3118,7 +3873,7 @@ export default function App() {
                                 <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
                                   <td className="px-4 py-2.5 text-slate-500">{d.time_str || '--'}</td>
                                   <td className="px-4 py-2.5 font-semibold">{d.symbol || '--'}</td>
-                                  <td className="px-4 py-2.5">{d.side || '--'}</td>
+                                  <td className="px-4 py-2.5 font-sans">{formatTradeSide(d.side)}</td>
                                   <td className="px-4 py-2.5 text-right">{formatNumber(d.volume, 2)}</td>
                                   <td className="px-4 py-2.5 text-right">{formatPrice(d.price_open, 5)}</td>
                                   <td className="px-4 py-2.5 text-right">{formatPrice(d.price_close, 5)}</td>
@@ -3155,8 +3910,8 @@ export default function App() {
                           return (
                             <div key={idx} className="flex items-start gap-3 px-5 py-2.5">
                               <span className="shrink-0 text-slate-400">{l.time || '--'}</span>
-                              <span className="shrink-0 rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] text-blue-600 dark:text-blue-300">
-                                {l.module || '--'}
+                              <span className="shrink-0 rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-sans text-blue-600 dark:text-blue-300">
+                                {formatLogModule(l.module)}
                               </span>
                               <span className="text-slate-700 dark:text-slate-300">{l.message || ''}</span>
                             </div>
@@ -3172,7 +3927,7 @@ export default function App() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <Card>
                     <CardHeader>
-                      <CardTitle>Aparência (Light / Dark Mode)</CardTitle>
+                      <CardTitle>Aparência (Tema Claro / Escuro)</CardTitle>
                       <CardDescription>
                         A preferência é salva localmente sem afetar os robôs em execução
                       </CardDescription>
@@ -3243,6 +3998,13 @@ export default function App() {
                     </CardBody>
                   </Card>
                 </div>
+              )}
+              {activeTab === 'admin' && isAdmin && (
+                <AdminPanel
+                  inputClass={inputClass}
+                  showToast={showToast}
+                  onPlansChanged={refreshMe}
+                />
               )}
             </>
           )}

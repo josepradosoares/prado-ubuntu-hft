@@ -13,30 +13,277 @@ from prado_linux.flow_math import TickRecord, compute_flow_metrics, compute_intr
 
 INDICATOR_CATALOG: list[dict[str, Any]] = [
     # Tendência (7)
-    {"id": "SMA", "name": "SMA (Média Móvel Simples)", "category": "Tendência", "default_params": {"period": 20}},
-    {"id": "EMA", "name": "EMA (Cruzamento Rápida/Lenta)", "category": "Tendência", "default_params": {"fast": 9, "slow": 21}},
-    {"id": "WMA", "name": "WMA (Média Móvel Ponderada)", "category": "Tendência", "default_params": {"period": 20}},
-    {"id": "DEMA", "name": "DEMA (Dupla EMA)", "category": "Tendência", "default_params": {"period": 20}},
-    {"id": "MACD", "name": "MACD (12, 26, 9)", "category": "Tendência", "default_params": {"fast": 12, "slow": 26, "signal": 9}},
-    {"id": "ADX", "name": "ADX / +DI / -DI", "category": "Tendência", "default_params": {"period": 14, "min_adx": 20.0}},
-    {"id": "PARABOLIC_SAR", "name": "Parabolic SAR", "category": "Tendência", "default_params": {"step": 0.02, "max_step": 0.2}},
+    {
+        "id": "SMA",
+        "name": "SMA (Média Móvel Simples)",
+        "category": "Tendência",
+        "description": "Com Média Lenta = 0 compara Preço × Média; com Média Lenta > 0 (ex.: 50×200) opera cruzamento entre as duas SMAs.",
+        "default_params": {"period": 20, "slow": 0, "crossover_only": 0},
+    },
+    {
+        "id": "EMA",
+        "name": "EMA (Cruzamento Rápida/Lenta)",
+        "category": "Tendência",
+        "description": "Compra quando a média rápida fica/cruza acima da lenta; vende abaixo.",
+        "default_params": {"fast": 9, "slow": 21, "crossover_only": 0},
+    },
+    {
+        "id": "WMA",
+        "name": "WMA (Média Móvel Ponderada)",
+        "category": "Tendência",
+        "description": "Com Média Lenta = 0 compara Preço × WMA; com Média Lenta > 0 opera cruzamento entre duas WMAs.",
+        "default_params": {"period": 20, "slow": 0, "crossover_only": 0},
+    },
+    {
+        "id": "DEMA",
+        "name": "DEMA (Dupla EMA)",
+        "category": "Tendência",
+        "description": "Média dupla com menor atraso; use Média Lenta = 0 (Preço × DEMA) ou > 0 para cruzar duas DEMAs.",
+        "default_params": {"period": 20, "slow": 0, "crossover_only": 0},
+    },
+    {
+        "id": "MACD",
+        "name": "MACD (12, 26, 9)",
+        "category": "Tendência",
+        "description": "Mede força da tendência pelo histograma; compra acima de 0 (ou no cruzamento) e vende abaixo.",
+        "default_params": {"fast": 12, "slow": 26, "signal": 9, "crossover_only": 0},
+    },
+    {
+        "id": "ADX",
+        "name": "ADX / +DI / -DI",
+        "category": "Tendência",
+        "description": "Exige ADX ≥ mínimo; opera posição ou apenas o cruzamento de +DI sobre -DI.",
+        "default_params": {"period": 14, "min_adx": 20.0, "crossover_only": 0},
+    },
+    {
+        "id": "PARABOLIC_SAR",
+        "name": "Parabolic SAR",
+        "category": "Tendência",
+        "description": "Acompanha tendência pelo SAR; opera posição atual ou apenas a virada (flip) dos pontos.",
+        "default_params": {"step": 0.02, "max_step": 0.2, "crossover_only": 0},
+    },
     # Momento / Osciladores (7)
-    {"id": "RSI", "name": "RSI (Índice de Força Relativa)", "category": "Momento", "default_params": {"period": 14, "oversold": 30.0, "overbought": 70.0}},
-    {"id": "STOCHASTIC", "name": "Estocástico (%K / %D)", "category": "Momento", "default_params": {"period": 14, "oversold": 20.0, "overbought": 80.0}},
-    {"id": "CCI", "name": "CCI (Commodity Channel Index)", "category": "Momento", "default_params": {"period": 20, "threshold": 100.0}},
-    {"id": "WILLIAMS_R", "name": "Williams %R", "category": "Momento", "default_params": {"period": 14, "oversold": -80.0, "overbought": -20.0}},
-    {"id": "ROC", "name": "ROC (Rate of Change)", "category": "Momento", "default_params": {"period": 12, "threshold": 0.0}},
-    {"id": "MOMENTUM", "name": "Momentum", "category": "Momento", "default_params": {"period": 10}},
-    {"id": "MFI", "name": "MFI (Money Flow Index)", "category": "Momento", "default_params": {"period": 14, "oversold": 25.0, "overbought": 75.0}},
+    {
+        "id": "RSI",
+        "name": "RSI (Índice de Força Relativa)",
+        "category": "Momento",
+        "description": "Suporta 3 modos: Reversão (≤30/≥70), Tendência (>50/<50) ou Cruzamento (saindo de 30/70).",
+        "default_params": {"period": 14, "oversold": 30.0, "overbought": 70.0, "trend_mode": 0},
+    },
+    {
+        "id": "STOCHASTIC",
+        "name": "Estocástico (%K / %D)",
+        "category": "Momento",
+        "description": "Oscilador de curto prazo; opera zona extrema (20/80) ou cruzamento de %K sobre %D na zona.",
+        "default_params": {"period": 14, "d_period": 3, "oversold": 20.0, "overbought": 80.0, "crossover_only": 0},
+    },
+    {
+        "id": "CCI",
+        "name": "CCI (Commodity Channel Index)",
+        "category": "Momento",
+        "description": "Detecta desvios cíclicos extremos; compra ≤ -limite e vende ≥ +limite.",
+        "default_params": {"period": 20, "threshold": 100.0},
+    },
+    {
+        "id": "WILLIAMS_R",
+        "name": "Williams %R",
+        "category": "Momento",
+        "description": "Mede posição do fechamento na máxima/mínima; compra ≤ -80 e vende ≥ -20.",
+        "default_params": {"period": 14, "oversold": -80.0, "overbought": -20.0},
+    },
+    {
+        "id": "ROC",
+        "name": "ROC (Rate of Change)",
+        "category": "Momento",
+        "description": "Variação percentual do preço; compra se aceleração positiva > limite e vende se negativa.",
+        "default_params": {"period": 12, "threshold": 0.0},
+    },
+    {
+        "id": "MOMENTUM",
+        "name": "Momentum",
+        "category": "Momento",
+        "description": "Diferença direta para o preço anterior; compra com momentum positivo e vende com negativo.",
+        "default_params": {"period": 10},
+    },
+    {
+        "id": "MFI",
+        "name": "MFI (Money Flow Index)",
+        "category": "Momento",
+        "description": "RSI ponderado pelo volume; compra em fluxo sobrevendido e vende em sobrecomprado.",
+        "default_params": {"period": 14, "oversold": 25.0, "overbought": 75.0},
+    },
     # Volatilidade / Canais (4)
-    {"id": "BOLLINGER", "name": "Bandas de Bollinger", "category": "Volatilidade", "default_params": {"period": 20, "std_mult": 2.0}},
-    {"id": "ATR", "name": "ATR (Filtro de Volatilidade)", "category": "Volatilidade", "default_params": {"period": 14}},
-    {"id": "KELTNER", "name": "Canais de Keltner", "category": "Volatilidade", "default_params": {"period": 20, "atr_mult": 1.5}},
-    {"id": "DONCHIAN", "name": "Canais de Donchian (Rompimento)", "category": "Volatilidade", "default_params": {"period": 20}},
+    {
+        "id": "BOLLINGER",
+        "name": "Bandas de Bollinger",
+        "category": "Volatilidade",
+        "description": "Retorno à média nas bandas externas; compra na banda inferior e vende na superior.",
+        "default_params": {"period": 20, "std_mult": 2.0},
+    },
+    {
+        "id": "ATR",
+        "name": "ATR (Filtro de Volatilidade)",
+        "category": "Volatilidade",
+        "description": "Confirma presença de volatilidade (ATR > 0) e vota na direção do último movimento.",
+        "default_params": {"period": 14},
+    },
+    {
+        "id": "KELTNER",
+        "name": "Canais de Keltner",
+        "category": "Volatilidade",
+        "description": "Envelope EMA ± ATR; compra ao tocar banda inferior e vende na banda superior.",
+        "default_params": {"period": 20, "atr_mult": 1.5},
+    },
+    {
+        "id": "DONCHIAN",
+        "name": "Canais de Donchian (Rompimento)",
+        "category": "Volatilidade",
+        "description": "Segue rompimentos; compra acima da máxima da janela e vende abaixo da mínima.",
+        "default_params": {"period": 20},
+    },
     # Institucional / Fluxo (3)
-    {"id": "VWAP", "name": "VWAP Intraday (±σ)", "category": "Institucional", "default_params": {"sigma_mult": 1.5}},
-    {"id": "ZSCORE", "name": "Z-Score de Agressão", "category": "Institucional", "default_params": {"window": 60, "threshold": 1.8}},
-    {"id": "IMBALANCE", "name": "Imbalance de Fluxo", "category": "Institucional", "default_params": {"window": 60, "threshold": 0.35}},
+    {
+        "id": "VWAP",
+        "name": "VWAP Intraday (±σ)",
+        "category": "Institucional",
+        "description": "Retorno ao preço justo institucional; compra em -k·σ e vende em +k·σ da VWAP.",
+        "default_params": {"sigma_mult": 1.5},
+    },
+    {
+        "id": "ZSCORE",
+        "name": "Z-Score de Agressão",
+        "category": "Institucional",
+        "description": "Mede força estatística das agressões; compra em Z ≥ limite e vende em Z ≤ -limite.",
+        "default_params": {"window": 60, "threshold": 1.8},
+    },
+    {
+        "id": "IMBALANCE",
+        "name": "Imbalance de Fluxo",
+        "category": "Institucional",
+        "description": "Saldo líquido comprador vs vendedor; compra com fluxo positivo forte e vende com negativo.",
+        "default_params": {"window": 60, "threshold": 0.35},
+    },
+]
+
+READY_MADE_RECIPES: list[dict[str, Any]] = [
+    {
+        "id": "RECIPE_EMA_ADX_TREND",
+        "name": "Cruzamento EMA 9×21 + Filtro ADX",
+        "style": "Tendência",
+        "markets": "US100, XAUUSD, EURUSD",
+        "recommended_timeframe": "M5",
+        "description": "Entra no cruzamento das EMAs 9×21 apenas quando o ADX confirma tendência firme (≥ 20).",
+        "combine_mode": "ALL",
+        "indicators": [
+            {"id": "EMA", "params": {"fast": 9, "slow": 21, "crossover_only": 1}},
+            {"id": "ADX", "params": {"period": 14, "min_adx": 20.0}},
+        ],
+    },
+    {
+        "id": "RECIPE_MACRO_MICRO_EMA",
+        "name": "Tendência Macro (EMA 50×200) + Gatilho (EMA 9×21)",
+        "style": "Tendência",
+        "markets": "US100, US500, XAUUSD",
+        "recommended_timeframe": "M5",
+        "description": "Usa EMA 50×200 para filtrar a direção principal e o cruzamento EMA 9×21 como gatilho de entrada.",
+        "combine_mode": "ALL",
+        "indicators": [
+            {"id": "EMA", "params": {"fast": 50, "slow": 200, "crossover_only": 0}},
+            {"id": "EMA", "params": {"fast": 9, "slow": 21, "crossover_only": 1}},
+        ],
+    },
+    {
+        "id": "RECIPE_MACD_RSI_TREND",
+        "name": "MACD Cruzamento + Força RSI > 50",
+        "style": "Momentum",
+        "markets": "EURUSD, GBPUSD, US100",
+        "recommended_timeframe": "M5",
+        "description": "Captura viradas do histograma MACD confirmadas pelo RSI em modo Tendência (> 50 compra, < 50 vende).",
+        "combine_mode": "ALL",
+        "indicators": [
+            {"id": "MACD", "params": {"fast": 12, "slow": 26, "signal": 9, "crossover_only": 1}},
+            {"id": "RSI", "params": {"period": 14, "oversold": 30.0, "overbought": 70.0, "trend_mode": 1}},
+        ],
+    },
+    {
+        "id": "RECIPE_DONCHIAN_ADX_BREAKOUT",
+        "name": "Rompimento Donchian + ADX",
+        "style": "Rompimento",
+        "markets": "US100, XAUUSD, BTCUSD",
+        "recommended_timeframe": "M15",
+        "description": "Opera rompimentos de máxima/mínima dos últimos 20 candles filtrados por ADX ≥ 22.",
+        "combine_mode": "ALL",
+        "indicators": [
+            {"id": "DONCHIAN", "params": {"period": 20}},
+            {"id": "ADX", "params": {"period": 14, "min_adx": 22.0}},
+        ],
+    },
+    {
+        "id": "RECIPE_BOLLINGER_RSI_REVERT",
+        "name": "Reversão Bollinger + RSI 30/70",
+        "style": "Reversão",
+        "markets": "EURUSD, GBPUSD, USDCHF",
+        "recommended_timeframe": "M5",
+        "description": "Compra toques na banda inferior de Bollinger com RSI sobrevendido (≤ 30) e vende nos extremos opostos.",
+        "combine_mode": "ALL",
+        "indicators": [
+            {"id": "BOLLINGER", "params": {"period": 20, "std_mult": 2.0}},
+            {"id": "RSI", "params": {"period": 14, "oversold": 30.0, "overbought": 70.0, "trend_mode": 0}},
+        ],
+    },
+    {
+        "id": "RECIPE_STOCH_VWAP_REVERT",
+        "name": "Reversão Estocástico + VWAP ±1.5σ",
+        "style": "Reversão",
+        "markets": "EURUSD, XAUUSD",
+        "recommended_timeframe": "M5",
+        "description": "Busca retorno à VWAP quando o preço estica ±1.5σ e o Estocástico marca exaustão (20/80).",
+        "combine_mode": "ALL",
+        "indicators": [
+            {"id": "STOCHASTIC", "params": {"period": 14, "oversold": 20.0, "overbought": 80.0}},
+            {"id": "VWAP", "params": {"sigma_mult": 1.5}},
+        ],
+    },
+    {
+        "id": "RECIPE_PSAR_EMA_PULLBACK",
+        "name": "Pullback Parabolic SAR + SMA 21",
+        "style": "Pullback",
+        "markets": "US100, XAUUSD, GBPUSD",
+        "recommended_timeframe": "M5",
+        "description": "Entra em continuação de movimento quando Parabolic SAR e preço ficam do mesmo lado da SMA 21.",
+        "combine_mode": "ALL",
+        "indicators": [
+            {"id": "PARABOLIC_SAR", "params": {"step": 0.02, "max_step": 0.2}},
+            {"id": "SMA", "params": {"period": 21, "crossover_only": 0}},
+        ],
+    },
+    {
+        "id": "RECIPE_INSTITUTIONAL_FLOW",
+        "name": "Scalping Institucional (VWAP + Z-Score + Fluxo)",
+        "style": "Scalping Fluxo",
+        "markets": "XAUUSD, US100, BTCUSD",
+        "recommended_timeframe": "M1",
+        "description": "Combina VWAP, Z-Score de agressão e Imbalance por maioria para surfar acelerações rápidas de fluxo.",
+        "combine_mode": "MAJORITY",
+        "indicators": [
+            {"id": "VWAP", "params": {"sigma_mult": 1.5}},
+            {"id": "ZSCORE", "params": {"window": 60, "threshold": 1.8}},
+            {"id": "IMBALANCE", "params": {"window": 60, "threshold": 0.35}},
+        ],
+    },
+    {
+        "id": "RECIPE_GOLDEN_CROSS_SMA_ADX",
+        "name": "Golden Cross SMA 50×200 + Filtro ADX",
+        "style": "Tendência",
+        "markets": "US100, US500, XAUUSD",
+        "recommended_timeframe": "H1",
+        "description": "Clássico institucional de tendência longa: entra no cruzamento da SMA 50 sobre a SMA 200 confirmado por ADX ≥ 20.",
+        "combine_mode": "ALL",
+        "indicators": [
+            {"id": "SMA", "params": {"period": 50, "slow": 200, "crossover_only": 1}},
+            {"id": "ADX", "params": {"period": 14, "min_adx": 20.0, "crossover_only": 0}},
+        ],
+    },
 ]
 
 DEFAULT_PYTHON_STRATEGY_TEMPLATE = '''def evaluate(prices, ticks, params):
@@ -83,6 +330,49 @@ def _true_ranges(prices: list[float]) -> list[float]:
     return [abs(prices[i] - prices[i - 1]) for i in range(1, len(prices))]
 
 
+def _crossover_or_position_vote(
+    curr_diff: float,
+    prev_diff: float,
+    crossover_only: bool,
+    display_value: float,
+) -> tuple[int, float]:
+    """Return +1/-1/0 either on zero-crossing only or on current positive/negative position."""
+    val = round(display_value, 6)
+    if crossover_only:
+        if prev_diff <= 0.0 and curr_diff > 0.0:
+            return 1, val
+        if prev_diff >= 0.0 and curr_diff < 0.0:
+            return -1, val
+        return 0, val
+    return (1 if curr_diff > 0.0 else (-1 if curr_diff < 0.0 else 0)), val
+
+
+def _dema_series(values: list[float], period: int) -> list[float]:
+    e1 = _ema_series(values, period)
+    e2 = _ema_series(e1, period)
+    return [2.0 * a - b for a, b in zip(e1, e2)]
+
+
+def _calc_rsi(prices: list[float], period: int) -> float:
+    if len(prices) < period + 1:
+        return 50.0
+    deltas = [prices[i] - prices[i - 1] for i in range(-period, 0)]
+    gains = sum(d for d in deltas if d > 0) / period
+    losses = sum(-d for d in deltas if d < 0) / period
+    if losses == 0:
+        return 100.0 if gains > 0 else 50.0
+    rs = gains / losses
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
+def _calc_stoch_k(prices: list[float], period: int) -> float:
+    win = prices[-period:]
+    hi, lo = max(win), min(win)
+    if hi == lo:
+        return 50.0
+    return 100.0 * (prices[-1] - lo) / (hi - lo)
+
+
 def evaluate_single_indicator(
     ind_id: str,
     ticks: list[TickRecord],
@@ -96,55 +386,77 @@ def evaluate_single_indicator(
     last = prices[-1]
     ind = str(ind_id or "").strip().upper()
 
-    if ind == "SMA":
+    if ind in ("SMA", "WMA", "DEMA"):
         period = max(2, int(p.get("period", 20)))
-        if len(prices) < period:
+        slow = max(0, int(p.get("slow", 0) or 0))
+        crossover_only = bool(int(p.get("crossover_only", 0) or 0))
+        req_p = max(period + 1, slow) if slow > 0 else period
+        if len(prices) < req_p + (1 if crossover_only else 0):
             return 0, last
-        val = sum(prices[-period:]) / period
-        return (1 if last > val else (-1 if last < val else 0)), round(val, 6)
+
+        if ind == "SMA":
+            fast_cur = sum(prices[-period:]) / period
+            fast_prev = sum(prices[-period - 1 : -1]) / period if crossover_only else 0.0
+            slow_cur = sum(prices[-req_p:]) / req_p if slow > 0 else fast_cur
+            slow_prev = sum(prices[-req_p - 1 : -1]) / req_p if (slow > 0 and crossover_only) else 0.0
+        elif ind == "WMA":
+            fast_cur = _wma(prices, period)
+            fast_prev = _wma(prices[:-1], period) if crossover_only else 0.0
+            slow_cur = _wma(prices, req_p) if slow > 0 else fast_cur
+            slow_prev = _wma(prices[:-1], req_p) if (slow > 0 and crossover_only) else 0.0
+        else:
+            f_series = _dema_series(prices, period)
+            fast_cur = f_series[-1]
+            fast_prev = f_series[-2] if crossover_only else 0.0
+            if slow > 0:
+                s_series = _dema_series(prices, req_p)
+                slow_cur = s_series[-1]
+                slow_prev = s_series[-2] if crossover_only else 0.0
+            else:
+                slow_cur = fast_cur
+                slow_prev = fast_prev
+
+        if slow > 0:
+            curr_diff = fast_cur - slow_cur
+            prev_diff = fast_prev - slow_prev
+            return _crossover_or_position_vote(curr_diff, prev_diff, crossover_only, curr_diff)
+
+        curr_diff = last - fast_cur
+        prev_diff = prices[-2] - fast_prev
+        return _crossover_or_position_vote(curr_diff, prev_diff, crossover_only, fast_cur)
 
     if ind == "EMA":
         fast = max(2, int(p.get("fast", 9)))
         slow = max(fast + 1, int(p.get("slow", 21)))
-        if len(prices) < slow:
+        crossover_only = bool(int(p.get("crossover_only", 0) or 0))
+        if len(prices) < slow + (1 if crossover_only else 0):
             return 0, last
-        ef = _ema_series(prices, fast)[-1]
-        es = _ema_series(prices, slow)[-1]
-        return (1 if ef > es else (-1 if ef < es else 0)), round(ef - es, 6)
-
-    if ind == "WMA":
-        period = max(2, int(p.get("period", 20)))
-        if len(prices) < period:
-            return 0, last
-        val = _wma(prices, period)
-        return (1 if last > val else (-1 if last < val else 0)), round(val, 6)
-
-    if ind == "DEMA":
-        period = max(2, int(p.get("period", 20)))
-        if len(prices) < period:
-            return 0, last
-        e1 = _ema_series(prices, period)
-        e2 = _ema_series(e1, period)
-        val = 2.0 * e1[-1] - e2[-1]
-        return (1 if last > val else (-1 if last < val else 0)), round(val, 6)
+        ef_series = _ema_series(prices, fast)
+        es_series = _ema_series(prices, slow)
+        curr_diff = ef_series[-1] - es_series[-1]
+        prev_diff = (ef_series[-2] - es_series[-2]) if crossover_only else 0.0
+        return _crossover_or_position_vote(curr_diff, prev_diff, crossover_only, curr_diff)
 
     if ind == "MACD":
         fast = max(2, int(p.get("fast", 12)))
         slow = max(fast + 1, int(p.get("slow", 26)))
         sig_p = max(2, int(p.get("signal", 9)))
-        if len(prices) < slow + sig_p:
+        crossover_only = bool(int(p.get("crossover_only", 0) or 0))
+        if len(prices) < slow + sig_p + (1 if crossover_only else 0):
             return 0, 0.0
         ef = _ema_series(prices, fast)
         es = _ema_series(prices, slow)
         macd_line = [a - b for a, b in zip(ef, es)]
         sig_line = _ema_series(macd_line, sig_p)
         hist = macd_line[-1] - sig_line[-1]
-        return (1 if hist > 0 else (-1 if hist < 0 else 0)), round(hist, 6)
+        prev_hist = (macd_line[-2] - sig_line[-2]) if crossover_only else 0.0
+        return _crossover_or_position_vote(hist, prev_hist, crossover_only, hist)
 
     if ind == "ADX":
         period = max(2, int(p.get("period", 14)))
         min_adx = float(p.get("min_adx", 20.0))
-        if len(prices) < period + 2:
+        crossover_only = bool(int(p.get("crossover_only", 0) or 0))
+        if len(prices) < period + 2 + (1 if crossover_only else 0):
             return 0, 0.0
         plus_dm = []
         minus_dm = []
@@ -160,16 +472,31 @@ def evaluate_single_indicator(
         dx = 100.0 * abs(p_di - m_di) / max(1e-9, p_di + m_di)
         if dx < min_adx:
             return 0, round(dx, 2)
+        if crossover_only:
+            prev_tr = sum(trs[-period - 1 : -1])
+            prev_p = 100.0 * sum(plus_dm[-period - 1 : -1]) / max(1e-9, prev_tr)
+            prev_m = 100.0 * sum(minus_dm[-period - 1 : -1]) / max(1e-9, prev_tr)
+            prev_diff = prev_p - prev_m
+            curr_diff = p_di - m_di
+            if prev_diff <= 0.0 and curr_diff > 0.0:
+                return 1, round(dx, 2)
+            if prev_diff >= 0.0 and curr_diff < 0.0:
+                return -1, round(dx, 2)
+            return 0, round(dx, 2)
         return (1 if p_di > m_di else (-1 if m_di > p_di else 0)), round(dx, 2)
 
     if ind == "PARABOLIC_SAR":
         step = float(p.get("step", 0.02))
         max_step = float(p.get("max_step", 0.2))
+        crossover_only = bool(int(p.get("crossover_only", 0) or 0))
         bull = prices[-1] >= prices[0]
         sar = prices[0]
         ep = prices[0]
         af = step
+        prev_side = 1 if prices[0] >= sar else -1
+        curr_side = prev_side
         for pr in prices[1:]:
+            prev_side = curr_side
             sar = sar + af * (ep - sar)
             if bull:
                 if pr > ep:
@@ -189,22 +516,36 @@ def evaluate_single_indicator(
                     sar = ep
                     ep = pr
                     af = step
+            curr_side = 1 if pr > sar else -1
+        if crossover_only:
+            if prev_side < 0 and curr_side > 0:
+                return 1, round(sar, 6)
+            if prev_side > 0 and curr_side < 0:
+                return -1, round(sar, 6)
+            return 0, round(sar, 6)
         return (1 if last > sar else -1), round(sar, 6)
 
     if ind == "RSI":
         period = max(2, int(p.get("period", 14)))
         oversold = float(p.get("oversold", 30.0))
         overbought = float(p.get("overbought", 70.0))
-        if len(prices) < period + 1:
+        trend_mode = int(p.get("trend_mode", 0) or 0)
+        if len(prices) < period + (2 if trend_mode == 2 else 1):
             return 0, 50.0
-        deltas = [prices[i] - prices[i - 1] for i in range(-period, 0)]
-        gains = sum(d for d in deltas if d > 0) / period
-        losses = sum(-d for d in deltas if d < 0) / period
-        if losses == 0:
-            rsi = 100.0 if gains > 0 else 50.0
-        else:
-            rs = gains / losses
-            rsi = 100.0 - (100.0 / (1.0 + rs))
+        rsi = _calc_rsi(prices, period)
+        if trend_mode == 1:
+            if rsi > 50.0:
+                return 1, round(rsi, 2)
+            if rsi < 50.0:
+                return -1, round(rsi, 2)
+            return 0, round(rsi, 2)
+        if trend_mode == 2:
+            prev_rsi = _calc_rsi(prices[:-1], period)
+            if prev_rsi <= oversold and rsi > oversold:
+                return 1, round(rsi, 2)
+            if prev_rsi >= overbought and rsi < overbought:
+                return -1, round(rsi, 2)
+            return 0, round(rsi, 2)
         if rsi <= oversold:
             return 1, round(rsi, 2)
         if rsi >= overbought:
@@ -213,18 +554,34 @@ def evaluate_single_indicator(
 
     if ind == "STOCHASTIC":
         period = max(2, int(p.get("period", 14)))
+        d_period = max(2, int(p.get("d_period", 3) or 3))
         oversold = float(p.get("oversold", 20.0))
         overbought = float(p.get("overbought", 80.0))
-        if len(prices) < period:
+        crossover_only = bool(int(p.get("crossover_only", 0) or 0))
+        if not crossover_only:
+            if len(prices) < period:
+                return 0, 50.0
+            k = _calc_stoch_k(prices, period)
+            if k <= oversold:
+                return 1, round(k, 2)
+            if k >= overbought:
+                return -1, round(k, 2)
+            return 0, round(k, 2)
+        if len(prices) < period + d_period:
             return 0, 50.0
-        win = prices[-period:]
-        hi, lo = max(win), min(win)
-        k = 50.0 if hi == lo else 100.0 * (last - lo) / (hi - lo)
-        if k <= oversold:
-            return 1, round(k, 2)
-        if k >= overbought:
-            return -1, round(k, 2)
-        return 0, round(k, 2)
+        k_vals = [
+            _calc_stoch_k(prices[: idx + 1], period)
+            for idx in range(len(prices) - d_period - 1, len(prices))
+        ]
+        prev_k = k_vals[-2]
+        curr_k = k_vals[-1]
+        prev_d = sum(k_vals[-d_period - 1 : -1]) / d_period
+        curr_d = sum(k_vals[-d_period:]) / d_period
+        if prev_k <= prev_d and curr_k > curr_d and (prev_k <= oversold or curr_k <= oversold):
+            return 1, round(curr_k, 2)
+        if prev_k >= prev_d and curr_k < curr_d and (prev_k >= overbought or curr_k >= overbought):
+            return -1, round(curr_k, 2)
+        return 0, round(curr_k, 2)
 
     if ind == "CCI":
         period = max(2, int(p.get("period", 20)))
@@ -391,6 +748,32 @@ def evaluate_single_indicator(
         return 0, round(imb, 4)
 
     return 0, 0.0
+
+
+def required_bars_for_indicators(indicators_cfg: list[dict[str, Any]] | None) -> int:
+    """Compute minimum historical bars/ticks needed so long-period indicators (e.g., EMA 200) evaluate reliably."""
+    if not indicators_cfg:
+        return 200
+    max_p = 0
+    for item in indicators_cfg:
+        p = item.get("params") or {}
+        ind_id = str(item.get("id", "")).strip().upper()
+        for key in ("period", "slow", "fast", "window"):
+            try:
+                val = int(float(p.get(key, 0) or 0))
+            except (TypeError, ValueError):
+                val = 0
+            if val > max_p:
+                max_p = val
+        if ind_id == "MACD":
+            try:
+                slow_v = int(float(p.get("slow", 26) or 26))
+                sig_v = int(float(p.get("signal", 9) or 9))
+                if slow_v + sig_v > max_p:
+                    max_p = slow_v + sig_v
+            except (TypeError, ValueError):
+                pass
+    return min(1000, max(200, max_p + 40))
 
 
 def evaluate_indicator_model(
