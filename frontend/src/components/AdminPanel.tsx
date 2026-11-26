@@ -326,10 +326,10 @@ export function AdminPanel({ inputClass, showToast, onPlansChanged }: AdminPanel
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-xs font-bold text-slate-900 dark:text-white">
-                    Inteligência Artificial nas Notícias (Opcional — Gemini ou OpenAI)
+                    Inteligência Artificial Global (Opcional — Fallback da Plataforma)
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Interpreta contexto real, negação e correlação do dólar em cada manchete nova (com cache para gastar quase zero). Se desligado, usa as regras gratuitas locais.
+                    Usada apenas para assinantes que não configurarem a própria API Key direto na aba Notícias. Se desligado, usa as regras gratuitas locais.
                   </div>
                 </div>
                 <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">

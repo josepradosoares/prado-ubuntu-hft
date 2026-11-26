@@ -244,6 +244,11 @@ class PradoServerConfig:
     news_calendar_shield_enabled: bool = True
     news_calendar_pause_minutes: int = 15
     news_filter_only: bool = True
+    news_ai_enabled: bool = False
+    news_ai_provider: str = "gemini"
+    news_ai_model: str = "gemini-2.0-flash"
+    news_ai_api_key: str = ""
+    news_ai_base_url: str = ""
     news_feeds: list[dict[str, str]] = field(default_factory=lambda: [dict(f) for f in DEFAULT_NEWS_FEEDS])
 
 

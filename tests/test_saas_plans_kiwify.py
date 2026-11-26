@@ -460,6 +460,15 @@ def test_admin_overview_handles_supabase_iso_timestamps_and_malformed_values(tmp
                         "updated_at": "2026-11-26 14:40:50.05518+00",
                     },
                     {
+                        "email": "vip@teste.com",
+                        "user_id": "uid-vip",
+                        "plan_id": "pro",
+                        "status": "trial",
+                        "trial_ends_at": 1796308849.99375,
+                        "current_period_end": 0,
+                        "updated_at": "2026-11-26 14:40:50.05518+00",
+                    },
+                    {
                         "email": "cliente@teste.com",
                         "user_id": "uid-client",
                         "plan_id": "pro",
@@ -493,9 +502,10 @@ def test_admin_overview_handles_supabase_iso_timestamps_and_malformed_values(tmp
     assert len(body["subscriptions"]) == 3
     assert [s["email"] for s in body["subscriptions"]] == [
         "cliente@teste.com",
-        "sitepixer@gmail.com",
+        "vip@teste.com",
         "antigo@teste.com",
     ]
+    assert all(s["email"] != "sitepixer@gmail.com" for s in body["subscriptions"])
     for sub in body["subscriptions"]:
         assert isinstance(sub["updated_at"], float)
         assert sub["updated_at"] >= 0.0
@@ -508,8 +518,8 @@ def test_admin_overview_handles_supabase_iso_timestamps_and_malformed_values(tmp
                 "settings": {"trial_days": 7},
                 "plans": [],
                 "subscriptions": {
-                    "sitepixer@gmail.com": {
-                        "email": "sitepixer@gmail.com",
+                    "vip@teste.com": {
+                        "email": "vip@teste.com",
                         "plan_id": "pro",
                         "status": "trial",
                         "trial_ends_at": "2026-12-03T15:10:00+00:00",

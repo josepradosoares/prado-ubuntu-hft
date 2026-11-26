@@ -195,6 +195,16 @@ export interface NewsItem {
   ai_reason?: string
 }
 
+export interface AIProviderCatalogItem {
+  id: string
+  name: string
+  default_model: string
+  models: string[]
+  needs_base_url?: boolean
+  endpoint_hint?: string
+  key_placeholder?: string
+}
+
 export interface NewsSnapshot {
   enabled: boolean
   pause_grid_on_high_impact: boolean
@@ -205,8 +215,13 @@ export interface NewsSnapshot {
   calendar_pause_minutes?: number
   news_filter_only?: boolean
   ai_enabled?: boolean
+  ai_active?: boolean
   ai_provider?: string
   ai_model?: string
+  ai_base_url?: string
+  ai_api_key_set?: boolean
+  ai_last_error?: string
+  ai_providers?: AIProviderCatalogItem[]
   last_scan_at: number
   last_error?: string
   feeds?: NewsFeed[]

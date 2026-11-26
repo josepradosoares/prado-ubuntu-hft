@@ -39,7 +39,14 @@ from prado_linux.indicators import (
     evaluate_python_model,
     required_bars_for_indicators,
 )
-from prado_linux.news_scout import CURATED_NEWS_CATALOG, EconomicCalendarScout, NewsScout, validate_rss_url
+from prado_linux.news_scout import (
+    AI_PROVIDER_CATALOG,
+    CURATED_NEWS_CATALOG,
+    EconomicCalendarScout,
+    NewsScout,
+    normalize_ai_provider,
+    validate_rss_url,
+)
 
 
 def _normalize_distance_config(
@@ -1356,6 +1363,7 @@ class PradoTradingService:
         self.connector = CTraderUniversalConnector(cfg)
         self.connector.connect()
         self.news_scout = NewsScout()
+        self.sync_news_ai()
         self.economic_calendar = EconomicCalendarScout(
             cache_path=config_path.parent / "economic_calendar_cache.json"
         )
@@ -1924,12 +1932,59 @@ class PradoTradingService:
         "news_calendar_shield_enabled",
         "news_calendar_pause_minutes",
         "news_filter_only",
+        "news_ai_enabled",
+        "news_ai_provider",
+        "news_ai_model",
+        "news_ai_api_key",
+        "news_ai_base_url",
     })
+
+    def sync_news_ai(self, fallback_settings: dict[str, Any] | None = None) -> None:
+        user_enabled = bool(getattr(self.cfg, "news_ai_enabled", False))
+        user_key = str(getattr(self.cfg, "news_ai_api_key", "") or "").strip()
+        if user_enabled and user_key:
+            self.news_scout.configure_ai(
+                enabled=True,
+                provider=str(getattr(self.cfg, "news_ai_provider", "gemini") or "gemini"),
+                api_key=user_key,
+                model=str(getattr(self.cfg, "news_ai_model", "gemini-2.0-flash") or "gemini-2.0-flash"),
+                base_url=str(getattr(self.cfg, "news_ai_base_url", "") or ""),
+            )
+            return
+        if (
+            not user_enabled
+            and isinstance(fallback_settings, dict)
+            and fallback_settings.get("ai_news_enabled")
+            and str(fallback_settings.get("ai_news_api_key") or "").strip()
+        ):
+            self.news_scout.configure_ai(
+                enabled=True,
+                provider=str(fallback_settings.get("ai_news_provider") or "gemini"),
+                api_key=str(fallback_settings.get("ai_news_api_key") or ""),
+                model=str(fallback_settings.get("ai_news_model") or "gemini-2.0-flash"),
+                base_url=str(fallback_settings.get("ai_news_base_url") or ""),
+            )
+            return
+        self.news_scout.configure_ai(
+            enabled=False,
+            provider=str(getattr(self.cfg, "news_ai_provider", "gemini") or "gemini"),
+            api_key="",
+            model=str(getattr(self.cfg, "news_ai_model", "gemini-2.0-flash") or "gemini-2.0-flash"),
+            base_url=str(getattr(self.cfg, "news_ai_base_url", "") or ""),
+        )
+
+    _sync_news_ai_from_cfg = sync_news_ai
 
     def update_config(self, updates: dict[str, Any]) -> PradoServerConfig:
         with self._lock:
+            ai_keys_touched = bool(updates.get("clear_news_ai_api_key"))
+            if updates.get("clear_news_ai_api_key"):
+                self.cfg.news_ai_api_key = ""
             for key, val in updates.items():
+                if key == "news_ai_api_key" and val == "********":
+                    continue
                 if key in self._ALLOWED_CONFIG_UPDATE_FIELDS and hasattr(self.cfg, key):
+                    ai_keys_touched = ai_keys_touched or key.startswith("news_ai_")
                     if key == "active_symbols" and isinstance(val, list):
                         cleaned: list[str] = []
                         for item in val:
@@ -1937,7 +1992,13 @@ class PradoTradingService:
                             if sym and sym not in cleaned:
                                 cleaned.append(sym)
                         val = cleaned[:25]
+                    elif key == "news_ai_provider":
+                        val = normalize_ai_provider(str(val or "gemini"))
+                    elif key in ("news_ai_model", "news_ai_api_key", "news_ai_base_url"):
+                        val = str(val or "").strip()
                     setattr(self.cfg, key, val)
+            if ai_keys_touched:
+                self.sync_news_ai()
             if any(
                 k in updates
                 for k in (
@@ -2773,9 +2834,14 @@ class PradoTradingService:
             "calendar_shield_enabled": bool(getattr(self.cfg, "news_calendar_shield_enabled", True)),
             "calendar_pause_minutes": pause_mins,
             "news_filter_only": bool(getattr(self.cfg, "news_filter_only", True)),
-            "ai_enabled": bool(getattr(ai_cfg, "enabled", False)) if ai_cfg else False,
-            "ai_provider": str(getattr(ai_cfg, "provider", "gemini")) if ai_cfg else "gemini",
-            "ai_model": str(getattr(ai_cfg, "model", "gemini-2.0-flash")) if ai_cfg else "gemini-2.0-flash",
+            "ai_enabled": bool(getattr(self.cfg, "news_ai_enabled", False)),
+            "ai_active": bool(getattr(ai_cfg, "enabled", False) and getattr(ai_cfg, "api_key", "")) if ai_cfg else False,
+            "ai_provider": str(getattr(self.cfg, "news_ai_provider", "") or (ai_cfg.provider if ai_cfg else "gemini")),
+            "ai_model": str(getattr(self.cfg, "news_ai_model", "") or (ai_cfg.model if ai_cfg else "gemini-2.0-flash")),
+            "ai_base_url": str(getattr(self.cfg, "news_ai_base_url", "") or ""),
+            "ai_api_key_set": bool(str(getattr(self.cfg, "news_ai_api_key", "") or "").strip()),
+            "ai_last_error": str(getattr(ai_cfg, "last_error", "") or "") if ai_cfg else "",
+            "ai_providers": [dict(p) for p in AI_PROVIDER_CATALOG],
             "last_scan_at": self.news_scout.last_scan_at,
             "last_error": self.news_scout.last_error,
             "feeds": list(getattr(self.cfg, "news_feeds", [])),

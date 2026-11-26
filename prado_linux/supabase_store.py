@@ -165,6 +165,32 @@ class SupabaseStore:
                 cfg.custom_categories = dict(s["custom_categories"])
             else:
                 cfg.custom_categories = dict(DEFAULT_CATEGORIES)
+            nc = s.get("news_config")
+            if isinstance(nc, dict):
+                if "news_bot_enabled" in nc:
+                    cfg.news_bot_enabled = bool(nc.get("news_bot_enabled"))
+                if "news_pause_grid_on_high_impact" in nc:
+                    cfg.news_pause_grid_on_high_impact = bool(nc.get("news_pause_grid_on_high_impact"))
+                if "news_auto_trade_enabled" in nc:
+                    cfg.news_auto_trade_enabled = bool(nc.get("news_auto_trade_enabled"))
+                if nc.get("news_poll_interval_sec") is not None:
+                    cfg.news_poll_interval_sec = max(30, int(nc.get("news_poll_interval_sec") or 90))
+                if "news_calendar_shield_enabled" in nc:
+                    cfg.news_calendar_shield_enabled = bool(nc.get("news_calendar_shield_enabled"))
+                if nc.get("news_calendar_pause_minutes") is not None:
+                    cfg.news_calendar_pause_minutes = max(5, min(60, int(nc.get("news_calendar_pause_minutes") or 15)))
+                if "news_filter_only" in nc:
+                    cfg.news_filter_only = bool(nc.get("news_filter_only"))
+                if "news_ai_enabled" in nc:
+                    cfg.news_ai_enabled = bool(nc.get("news_ai_enabled"))
+                if nc.get("news_ai_provider"):
+                    cfg.news_ai_provider = str(nc.get("news_ai_provider") or "gemini")
+                if nc.get("news_ai_model"):
+                    cfg.news_ai_model = str(nc.get("news_ai_model") or "gemini-2.0-flash")
+                if "news_ai_api_key" in nc:
+                    cfg.news_ai_api_key = str(nc.get("news_ai_api_key") or "")
+                if "news_ai_base_url" in nc:
+                    cfg.news_ai_base_url = str(nc.get("news_ai_base_url") or "")
 
         code_acc, acc_rows = self._request(
             "GET",
@@ -320,6 +346,15 @@ class SupabaseStore:
                     "news_bot_enabled": cfg.news_bot_enabled,
                     "news_pause_grid_on_high_impact": cfg.news_pause_grid_on_high_impact,
                     "news_auto_trade_enabled": cfg.news_auto_trade_enabled,
+                    "news_poll_interval_sec": cfg.news_poll_interval_sec,
+                    "news_calendar_shield_enabled": cfg.news_calendar_shield_enabled,
+                    "news_calendar_pause_minutes": cfg.news_calendar_pause_minutes,
+                    "news_filter_only": cfg.news_filter_only,
+                    "news_ai_enabled": cfg.news_ai_enabled,
+                    "news_ai_provider": cfg.news_ai_provider,
+                    "news_ai_model": cfg.news_ai_model,
+                    "news_ai_api_key": cfg.news_ai_api_key,
+                    "news_ai_base_url": cfg.news_ai_base_url,
                 },
             },
             bearer_token=access_token,

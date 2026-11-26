@@ -17,6 +17,7 @@ from prado_linux.auth import create_session_token, hash_password, verify_passwor
 from prado_linux.config import PradoServerConfig, load_config
 from prado_linux.engine import PradoTradingService
 from prado_linux.indicators import DEFAULT_PYTHON_STRATEGY_TEMPLATE, INDICATOR_CATALOG, READY_MADE_RECIPES
+from prado_linux.news_scout import AINewsAnalyzer, normalize_ai_provider, validate_rss_url
 from prado_linux.saas_store import FEATURE_CATALOG, FEATURE_LABELS_PT, SaasStore
 from prado_linux.supabase_store import SupabaseStore
 
@@ -46,13 +47,7 @@ class PradoWebApp:
         self._apply_ai_news_settings(self.service)
 
     def _apply_ai_news_settings(self, svc: PradoTradingService) -> None:
-        settings = self.saas.get_settings()
-        svc.news_scout.configure_ai(
-            enabled=bool(settings.get("ai_news_enabled", False)),
-            provider=str(settings.get("ai_news_provider") or "gemini"),
-            api_key=str(settings.get("ai_news_api_key") or ""),
-            model=str(settings.get("ai_news_model") or "gemini-2.0-flash"),
-        )
+        svc.sync_news_ai(fallback_settings=self.saas.get_settings())
 
     def _user_email(self, user: str) -> str:
         return self._user_emails.get(user, "")
@@ -211,7 +206,7 @@ class PradoWebApp:
         d = asdict(cfg_obj or self.cfg)
         d.pop("admin_password_hash", None)
         d.pop("secret_key", None)
-        for sec_field in ("ctrader_client_secret", "ctrader_access_token", "ctrader_refresh_token"):
+        for sec_field in ("ctrader_client_secret", "ctrader_access_token", "ctrader_refresh_token", "news_ai_api_key"):
             if d.get(sec_field):
                 d[f"{sec_field}_set"] = True
                 d[sec_field] = "********"
@@ -234,9 +229,14 @@ class PradoWebApp:
 
     def _serve_index(self) -> tuple[int, str, dict[str, str]]:
         idx = STATIC_DIR / "index.html"
+        no_cache = {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        }
         if idx.exists():
-            return 200, idx.read_text(encoding="utf-8"), {"Content-Type": "text/html; charset=utf-8"}
-        return 200, "<!doctype html><html><body>Prado HFT Static Build Missing</body></html>", {"Content-Type": "text/html; charset=utf-8"}
+            return 200, idx.read_text(encoding="utf-8"), no_cache
+        return 200, "<!doctype html><html><body>Prado HFT Static Build Missing</body></html>", no_cache
 
     def _serve_static_file(self, rel_path: str) -> tuple[int, str | bytes, dict[str, str]] | None:
         rel = rel_path.lstrip("/")
@@ -356,7 +356,8 @@ class PradoWebApp:
                 return 400, json.dumps({"ok": False, "error": res.get("error", "Erro ao cadastrar.")}, ensure_ascii=False), {"Content-Type": "application/json"}
             uid = res.get("user_id") or email
             resolved_email = str(res.get("email") or email)
-            self.saas.ensure_user_subscription(uid, resolved_email, preferred_plan_id=preferred_plan)
+            if not self.saas.is_admin(uid, resolved_email, supabase_enabled=self.supabase.is_enabled):
+                self.saas.ensure_user_subscription(uid, resolved_email, preferred_plan_id=preferred_plan)
             access_token = res.get("access_token") or ""
             if access_token:
                 self._user_tokens[uid] = access_token
@@ -388,7 +389,8 @@ class PradoWebApp:
                 if ok and res.get("user_id"):
                     uid = res["user_id"]
                     resolved_email = str(res.get("email") or username)
-                    self.saas.ensure_user_subscription(uid, resolved_email)
+                    if not self.saas.is_admin(uid, resolved_email, supabase_enabled=self.supabase.is_enabled):
+                        self.saas.ensure_user_subscription(uid, resolved_email)
                     with self._services_lock:
                         self._user_tokens[uid] = res["access_token"]
                         self._user_emails[uid] = resolved_email
@@ -566,13 +568,24 @@ class PradoWebApp:
                 denied = self._require_access(user, "real_trading")
                 if denied is not None:
                     return denied
+            if any(k.startswith("news_ai_") for k in updates) or updates.get("clear_news_ai_api_key"):
+                denied_news = self._require_access(user, "news_bot")
+                if denied_news is not None:
+                    return denied_news
+                eff_prov = normalize_ai_provider(str(updates.get("news_ai_provider") or cfg.news_ai_provider or "gemini"))
+                eff_base = str(updates.get("news_ai_base_url") if "news_ai_base_url" in updates else cfg.news_ai_base_url).strip()
+                if eff_prov == "custom" and eff_base:
+                    ok_url, err_url = validate_rss_url(eff_base)
+                    if not ok_url:
+                        return 400, json.dumps({"ok": False, "error": f"URL base da IA inválida: {err_url}"}, ensure_ascii=False), {"Content-Type": "application/json"}
             new_admin_pwd = updates.pop("new_admin_password", None)
             if new_admin_pwd and str(new_admin_pwd).strip():
                 updates["admin_password_hash"] = hash_password(str(new_admin_pwd).strip())
-            for sec_key in ("ctrader_client_secret", "ctrader_access_token", "ctrader_refresh_token"):
+            for sec_key in ("ctrader_client_secret", "ctrader_access_token", "ctrader_refresh_token", "news_ai_api_key"):
                 if updates.get(sec_key) == "********":
                     updates.pop(sec_key, None)
             svc.update_config(updates)
+            self._apply_ai_news_settings(svc)
             svc.step_once()
             self._sync_user(user, svc)
             return (
@@ -765,6 +778,33 @@ class PradoWebApp:
             cal_data = svc.refresh_economic_calendar(force=True)
             svc.step_once()
             return 200, json.dumps({"ok": True, "calendar": cal_data}, ensure_ascii=False), {"Content-Type": "application/json"}
+
+        if method == "POST" and clean_path == "/api/news/ai-test":
+            denied = self._require_access(user, "news_bot")
+            if denied is not None:
+                return denied
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                payload = {}
+            prov = normalize_ai_provider(str(payload.get("provider") or cfg.news_ai_provider or "gemini"))
+            model = str(payload.get("model") or cfg.news_ai_model or "").strip()
+            base_url = str(payload.get("base_url") if "base_url" in payload else cfg.news_ai_base_url).strip()
+            cand_key = str(payload.get("api_key") or "").strip()
+            raw_key = cfg.news_ai_api_key if (not cand_key or cand_key == "********") else cand_key
+            if prov == "custom":
+                ok_url, err_url = validate_rss_url(base_url)
+                if not ok_url:
+                    return 400, json.dumps({"ok": False, "error": f"URL base da IA inválida: {err_url}"}, ensure_ascii=False), {"Content-Type": "application/json"}
+            analyzer = AINewsAnalyzer(
+                enabled=True,
+                provider=prov,
+                api_key=raw_key,
+                model=model,
+                base_url=base_url,
+            )
+            test_res = analyzer.test_connection()
+            return 200 if test_res.get("ok") else 400, json.dumps(test_res, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/news/feeds":
             denied = self._require_admin(user)

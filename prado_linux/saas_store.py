@@ -13,6 +13,8 @@ import threading
 import time
 from typing import Any
 
+from prado_linux.news_scout import AI_PROVIDER_MAP, normalize_ai_provider
+
 DEFAULT_ADMIN_EMAILS: set[str] = {"sitepixer@gmail.com"}
 
 ALL_FEATURES: tuple[str, ...] = (
@@ -295,13 +297,13 @@ class SaasStore:
             if not s.get("kiwify_webhook_secret"):
                 s["kiwify_webhook_secret"] = os.environ.get("KIWIFY_WEBHOOK_SECRET", "").strip()
             s["ai_news_enabled"] = bool(s.get("ai_news_enabled", False))
-            prov = str(s.get("ai_news_provider") or "gemini").strip().lower()
-            s["ai_news_provider"] = prov if prov in ("gemini", "openai") else "gemini"
-            default_model = "gemini-2.0-flash" if s["ai_news_provider"] == "gemini" else "gpt-4o-mini"
+            prov = normalize_ai_provider(str(s.get("ai_news_provider") or "gemini"))
+            s["ai_news_provider"] = prov
+            default_model = str(AI_PROVIDER_MAP[prov]["default_model"])
             s["ai_news_model"] = str(s.get("ai_news_model") or default_model).strip() or default_model
             raw_key = str(s.get("ai_news_api_key") or "").strip()
-            if not raw_key:
-                env_name = "GEMINI_API_KEY" if s["ai_news_provider"] == "gemini" else "OPENAI_API_KEY"
+            if not raw_key and prov in ("gemini", "openai"):
+                env_name = "GEMINI_API_KEY" if prov == "gemini" else "OPENAI_API_KEY"
                 raw_key = os.environ.get(env_name, "").strip()
             s["ai_news_api_key"] = raw_key
             return s
@@ -327,9 +329,7 @@ class SaasStore:
             if "ai_news_enabled" in updates:
                 s["ai_news_enabled"] = bool(updates["ai_news_enabled"])
             if "ai_news_provider" in updates:
-                prov = str(updates["ai_news_provider"] or "gemini").strip().lower()
-                if prov in ("gemini", "openai"):
-                    s["ai_news_provider"] = prov
+                s["ai_news_provider"] = normalize_ai_provider(str(updates["ai_news_provider"] or "gemini"))
             if "ai_news_model" in updates and str(updates["ai_news_model"]).strip():
                 s["ai_news_model"] = str(updates["ai_news_model"]).strip()
             if updates.get("clear_ai_api_key"):
@@ -593,9 +593,12 @@ class SaasStore:
     def list_subscriptions(self) -> list[dict[str, Any]]:
         with self._lock:
             now = time.time()
+            admins = self.admin_emails()
             out: list[dict[str, Any]] = []
             for key, sub in self._state["subscriptions"].items():
                 rec = self._normalize_subscription(sub, str(key))
+                if rec["email"] in admins:
+                    continue
                 plan = self._get_plan(str(rec.get("plan_id") or ""))
                 rec["plan_name"] = plan["name"] if plan else rec.get("plan_id", "")
                 st = str(rec.get("status") or "expired")

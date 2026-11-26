@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Bot,
@@ -10,12 +10,15 @@ import {
   Globe,
   Plus,
   RefreshCw,
+  Save,
   Search,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
+  Trash2,
   XCircle,
 } from 'lucide-react'
-import { BotItem, BrokerSymbol, NewsFeed, NewsSnapshot } from '../types'
+import { AIProviderCatalogItem, BotItem, BrokerSymbol, NewsFeed, NewsSnapshot } from '../types'
 import { formatSymbolDisplay } from '../utils/formatters'
 import { formatNewsImpact } from '../utils/labels'
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from './ui/Card'
@@ -31,11 +34,91 @@ interface NewsPanelProps {
   onScanNews: () => void
   onRefreshCalendar: () => void
   onUpdateNewsConfig: (updates: Record<string, unknown>) => Promise<void>
+  onTestNewsAi: (payload: {
+    provider: string
+    model: string
+    api_key?: string
+    base_url?: string
+  }) => Promise<{ ok: boolean; bias?: string; impact?: string; reason?: string; latency_ms?: number; error?: string }>
   onSaveFeed: (payload: { feed_id?: string; source: string; url: string; default_symbol: string }) => Promise<boolean>
   onDeleteFeed: (feedId: string) => Promise<void>
   onResetFeeds: () => Promise<void>
   onLoadAllSymbols: () => Promise<void>
 }
+
+const FALLBACK_AI_PROVIDERS: AIProviderCatalogItem[] = [
+  {
+    id: 'gemini',
+    name: 'Google Gemini',
+    default_model: 'gemini-2.0-flash',
+    models: ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+    needs_base_url: false,
+    key_placeholder: 'AIza...',
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI (ChatGPT)',
+    default_model: 'gpt-4o-mini',
+    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1', 'o4-mini'],
+    needs_base_url: false,
+    key_placeholder: 'sk-...',
+  },
+  {
+    id: 'claude',
+    name: 'Anthropic Claude',
+    default_model: 'claude-3-5-haiku-latest',
+    models: ['claude-3-5-haiku-latest', 'claude-3-5-sonnet-latest', 'claude-3-7-sonnet-latest', 'claude-sonnet-4-20250514'],
+    needs_base_url: false,
+    key_placeholder: 'sk-ant-...',
+  },
+  {
+    id: 'openrouter',
+    name: 'OpenRouter (Todos os modelos)',
+    default_model: 'google/gemini-2.0-flash-001',
+    models: [
+      'google/gemini-2.0-flash-001',
+      'openai/gpt-4o-mini',
+      'anthropic/claude-3.5-haiku',
+      'deepseek/deepseek-chat-v3-0324',
+      'meta-llama/llama-3.3-70b-instruct',
+      'qwen/qwen-2.5-72b-instruct',
+    ],
+    needs_base_url: false,
+    key_placeholder: 'sk-or-v1-...',
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    default_model: 'deepseek-chat',
+    models: ['deepseek-chat', 'deepseek-reasoner'],
+    needs_base_url: false,
+    key_placeholder: 'sk-...',
+  },
+  {
+    id: 'groq',
+    name: 'Groq (Ultra-rápido)',
+    default_model: 'llama-3.3-70b-versatile',
+    models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'deepseek-r1-distill-llama-70b'],
+    needs_base_url: false,
+    key_placeholder: 'gsk_...',
+  },
+  {
+    id: 'xai',
+    name: 'xAI (Grok)',
+    default_model: 'grok-3-mini',
+    models: ['grok-3-mini', 'grok-3', 'grok-2-latest'],
+    needs_base_url: false,
+    key_placeholder: 'xai-...',
+  },
+  {
+    id: 'custom',
+    name: 'Outro Provedor (Compatível OpenAI)',
+    default_model: 'gpt-4o-mini',
+    models: [],
+    needs_base_url: true,
+    key_placeholder: 'Cole sua API Key',
+  },
+]
 
 function formatLastTime(ts?: number): string {
   if (!ts || ts <= 0) return 'Ainda não executado'
@@ -55,6 +138,7 @@ export function NewsPanel({
   onScanNews,
   onRefreshCalendar,
   onUpdateNewsConfig,
+  onTestNewsAi,
   onSaveFeed,
   onDeleteFeed,
   onResetFeeds,
@@ -78,6 +162,47 @@ export function NewsPanel({
   const [feedSource, setFeedSource] = useState('')
   const [feedUrl, setFeedUrl] = useState('')
   const [feedSymbol, setFeedSymbol] = useState('ALL')
+
+  // Per-subscriber BYOK AI config state
+  const aiProviders = useMemo(
+    () => (news?.ai_providers && news.ai_providers.length > 0 ? news.ai_providers : FALLBACK_AI_PROVIDERS),
+    [news?.ai_providers],
+  )
+  const aiDirtyRef = useRef(false)
+  const [aiEnabled, setAiEnabled] = useState<boolean>(Boolean(news?.ai_enabled))
+  const [aiProvider, setAiProvider] = useState<string>(news?.ai_provider || 'gemini')
+  const [aiModel, setAiModel] = useState<string>(news?.ai_model || 'gemini-2.0-flash')
+  const [aiCustomModelMode, setAiCustomModelMode] = useState<boolean>(false)
+  const [aiBaseUrl, setAiBaseUrl] = useState<string>(news?.ai_base_url || '')
+  const [aiApiKey, setAiApiKey] = useState<string>('')
+  const [aiSaving, setAiSaving] = useState(false)
+  const [aiTesting, setAiTesting] = useState(false)
+  const [aiTestResult, setAiTestResult] = useState<{
+    ok: boolean
+    bias?: string
+    impact?: string
+    reason?: string
+    latency_ms?: number
+    error?: string
+  } | null>(null)
+
+  const selectedProviderMeta = useMemo(
+    () => aiProviders.find((p) => p.id === aiProvider) || aiProviders[0],
+    [aiProviders, aiProvider],
+  )
+
+  useEffect(() => {
+    if (aiDirtyRef.current || !news) return
+    const nextProv = news.ai_provider || 'gemini'
+    const nextModel = news.ai_model || 'gemini-2.0-flash'
+    const meta = aiProviders.find((p) => p.id === nextProv)
+    const knownModels = meta?.models || []
+    setAiEnabled(Boolean(news.ai_enabled))
+    setAiProvider(nextProv)
+    setAiModel(nextModel)
+    setAiBaseUrl(news.ai_base_url || '')
+    setAiCustomModelMode(knownModels.length === 0 || (Boolean(nextModel) && !knownModels.includes(nextModel)))
+  }, [news, aiProviders])
 
   const connectedBots = useMemo(() => bots.filter((b) => Boolean(b.news_assisted)), [bots])
   const feeds = useMemo(() => news?.feeds || [], [news])
@@ -146,6 +271,70 @@ export function NewsPanel({
       setFeedUrl('')
       setFeedSymbol('ALL')
       setShowCustomForm(false)
+    }
+  }
+
+  function handleProviderChange(nextProv: string) {
+    aiDirtyRef.current = true
+    setAiTestResult(null)
+    setAiProvider(nextProv)
+    const meta = aiProviders.find((p) => p.id === nextProv)
+    const defModel = meta?.default_model || 'gpt-4o-mini'
+    setAiModel(defModel)
+    setAiCustomModelMode((meta?.models || []).length === 0)
+  }
+
+  async function handleSaveAiConfig(e: FormEvent) {
+    e.preventDefault()
+    setAiSaving(true)
+    setAiTestResult(null)
+    try {
+      const payload: Record<string, unknown> = {
+        news_ai_enabled: aiEnabled,
+        news_ai_provider: aiProvider,
+        news_ai_model: aiModel.trim() || selectedProviderMeta?.default_model || 'gemini-2.0-flash',
+        news_ai_base_url: aiBaseUrl.trim(),
+      }
+      if (aiApiKey.trim()) {
+        payload.news_ai_api_key = aiApiKey.trim()
+      }
+      await onUpdateNewsConfig(payload)
+      setAiApiKey('')
+      aiDirtyRef.current = false
+      if (aiEnabled) {
+        onScanNews()
+      }
+    } finally {
+      setAiSaving(false)
+    }
+  }
+
+  async function handleClearAiKey() {
+    setAiSaving(true)
+    setAiTestResult(null)
+    try {
+      await onUpdateNewsConfig({ clear_news_ai_api_key: true, news_ai_enabled: false })
+      setAiApiKey('')
+      setAiEnabled(false)
+      aiDirtyRef.current = false
+    } finally {
+      setAiSaving(false)
+    }
+  }
+
+  async function handleTestAiConnection() {
+    setAiTesting(true)
+    setAiTestResult(null)
+    try {
+      const res = await onTestNewsAi({
+        provider: aiProvider,
+        model: aiModel.trim() || selectedProviderMeta?.default_model || 'gemini-2.0-flash',
+        api_key: aiApiKey.trim() || undefined,
+        base_url: aiBaseUrl.trim() || undefined,
+      })
+      setAiTestResult(res)
+    } finally {
+      setAiTesting(false)
     }
   }
 
@@ -240,7 +429,7 @@ export function NewsPanel({
                 </span>
               </div>
               <div className="text-[11px] opacity-80 mt-1">
-                Busca contínua nas fontes oficiais ({news?.ai_enabled ? `IA ${(news?.ai_provider || 'GEMINI').toUpperCase()} ativa` : 'Regras Locais PT/EN + Dólar Inverso'})
+                Busca contínua nas fontes oficiais ({news?.ai_active ? `IA ${(news?.ai_provider || 'GEMINI').toUpperCase()} ativa` : 'Regras Locais PT/EN + Dólar Inverso'})
               </div>
             </button>
 
@@ -385,6 +574,221 @@ export function NewsPanel({
               </button>
             ))}
           </div>
+        </CardBody>
+      </Card>
+
+      {/* 1B. Inteligência Artificial nas Notícias (Sua API Key — Todos os Provedores) */}
+      <Card className="border-violet-500/25">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-violet-500" />
+              Inteligência Artificial nas Notícias (Sua API Key)
+            </CardTitle>
+            <CardDescription>
+              Escolha seu provedor favorito (Google Gemini, OpenAI ChatGPT, Anthropic Claude, OpenRouter, DeepSeek, Groq, xAI Grok ou API compatível), selecione qualquer modelo e cole sua própria API Key.
+            </CardDescription>
+          </div>
+          <span
+            className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold ${
+              news?.ai_active
+                ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+            }`}
+          >
+            {news?.ai_active
+              ? `IA ATIVA • ${(news?.ai_provider || 'gemini').toUpperCase()} (${news?.ai_model || ''})`
+              : 'Usando Regras Locais Gratuitas'}
+          </span>
+        </CardHeader>
+        <CardBody>
+          <form onSubmit={handleSaveAiConfig} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-start">
+              <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-3 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={aiEnabled}
+                  onChange={(e) => {
+                    aiDirtyRef.current = true
+                    setAiEnabled(e.target.checked)
+                  }}
+                  className="mt-0.5 rounded"
+                />
+                <span>
+                  <strong className="block text-slate-900 dark:text-white">
+                    {aiEnabled ? 'Análise por IA Ligada' : 'Ativar Análise por IA'}
+                  </strong>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Analisa contexto, negação e dólar em cada manchete nova (com cache)
+                  </span>
+                </span>
+              </label>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">Provedor de IA</label>
+                <select
+                  value={aiProvider}
+                  onChange={(e) => handleProviderChange(e.target.value)}
+                  className={inputClass}
+                >
+                  {aiProviders.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                {selectedProviderMeta?.endpoint_hint && (
+                  <span className="mt-1 block text-[10px] font-mono text-slate-400 truncate">
+                    {selectedProviderMeta.endpoint_hint}
+                  </span>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">Modelo</label>
+                {(selectedProviderMeta?.models || []).length > 0 && (
+                  <select
+                    value={aiCustomModelMode ? '__CUSTOM__' : aiModel}
+                    onChange={(e) => {
+                      aiDirtyRef.current = true
+                      const v = e.target.value
+                      if (v === '__CUSTOM__') {
+                        setAiCustomModelMode(true)
+                      } else {
+                        setAiCustomModelMode(false)
+                        setAiModel(v)
+                      }
+                    }}
+                    className={inputClass}
+                  >
+                    {(selectedProviderMeta?.models || []).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                    <option value="__CUSTOM__">Outro modelo (digitar ID manualmente)</option>
+                  </select>
+                )}
+                {(aiCustomModelMode || (selectedProviderMeta?.models || []).length === 0) && (
+                  <input
+                    type="text"
+                    value={aiModel}
+                    onChange={(e) => {
+                      aiDirtyRef.current = true
+                      setAiModel(e.target.value)
+                    }}
+                    placeholder={selectedProviderMeta?.default_model || 'Ex: anthropic/claude-sonnet-4'}
+                    className={`${inputClass} font-mono ${(selectedProviderMeta?.models || []).length > 0 ? 'mt-1.5' : ''}`}
+                    required
+                  />
+                )}
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                  Sua API Key ({news?.ai_api_key_set ? 'Salva na sua conta' : 'Não configurada'})
+                </label>
+                <input
+                  type="password"
+                  value={aiApiKey}
+                  onChange={(e) => {
+                    aiDirtyRef.current = true
+                    setAiApiKey(e.target.value)
+                  }}
+                  placeholder={
+                    news?.ai_api_key_set
+                      ? 'Chave salva (cole outra para trocar)'
+                      : selectedProviderMeta?.key_placeholder || 'Cole sua API Key'
+                  }
+                  className={`${inputClass} font-mono`}
+                />
+                {news?.ai_api_key_set && (
+                  <button
+                    type="button"
+                    onClick={handleClearAiKey}
+                    disabled={aiSaving}
+                    className="mt-1 inline-flex items-center gap-1 text-[11px] text-rose-600 dark:text-rose-400 hover:underline"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Remover chave salva
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {selectedProviderMeta?.needs_base_url && (
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                  URL Base da API (Compatível com OpenAI /chat/completions)
+                </label>
+                <input
+                  type="url"
+                  value={aiBaseUrl}
+                  onChange={(e) => {
+                    aiDirtyRef.current = true
+                    setAiBaseUrl(e.target.value)
+                  }}
+                  placeholder="https://api.mistral.ai/v1/chat/completions"
+                  className={`${inputClass} font-mono`}
+                  required
+                />
+              </div>
+            )}
+
+            {news?.ai_last_error && (
+              <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                <strong>Último aviso da IA:</strong> <span className="font-mono text-[11px]">{news.ai_last_error}</span>
+              </div>
+            )}
+
+            {aiTestResult && (
+              <div
+                className={`rounded-xl border px-3 py-2.5 text-xs ${
+                  aiTestResult.ok
+                    ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                    : 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                }`}
+              >
+                {aiTestResult.ok ? (
+                  <div>
+                    <strong>Conexão validada ({aiTestResult.latency_ms}ms)!</strong> Teste em manchete macro:{' '}
+                    <span className="font-mono font-bold">{aiTestResult.bias}</span> ({aiTestResult.impact}) —{' '}
+                    {aiTestResult.reason}
+                  </div>
+                ) : (
+                  <div>
+                    <strong>Falha ao conectar com a IA:</strong>{' '}
+                    <span className="font-mono text-[11px]">{aiTestResult.error}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                Privacidade: sua API Key fica salva exclusivamente na sua conta e é enviada direto para o provedor escolhido.
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleTestAiConnection}
+                  disabled={aiTesting || (!aiApiKey.trim() && !news?.ai_api_key_set)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-violet-500/35 bg-violet-500/10 hover:bg-violet-500/20 px-4 py-2 text-xs font-semibold text-violet-700 dark:text-violet-300 disabled:opacity-50"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {aiTesting ? 'Testando...' : 'Testar Conexão com IA'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={aiSaving}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  {aiSaving ? 'Salvando...' : 'Salvar e Aplicar IA'}
+                </button>
+              </div>
+            </div>
+          </form>
         </CardBody>
       </Card>
 

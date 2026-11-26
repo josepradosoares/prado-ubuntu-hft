@@ -11,6 +11,7 @@ import pytest
 from prado_linux.config import load_config
 from prado_linux.engine import PradoTradingService
 from prado_linux.news_scout import (
+    AI_PROVIDER_CATALOG,
     AINewsAnalyzer,
     EconomicCalendarScout,
     NewsScout,
@@ -249,3 +250,266 @@ def test_admin_ai_settings_masking_and_persistence(tmp_path: Path) -> None:
     assert ov["settings"]["ai_news_enabled"] is True
     assert ov["settings"]["ai_news_api_key_set"] is True
     assert ov["settings"]["ai_news_api_key"] == ""
+
+
+def test_ai_news_analyzer_claude_openrouter_deepseek_groq_xai_custom_and_test_connection() -> None:
+    provider_ids = {p["id"] for p in AI_PROVIDER_CATALOG}
+    assert {"gemini", "openai", "claude", "openrouter", "deepseek", "groq", "xai", "custom"} <= provider_ids
+    for p in AI_PROVIDER_CATALOG:
+        assert {"id", "name", "default_model", "models", "needs_base_url"} <= set(p.keys())
+
+    # 1. Anthropic Claude
+    claude_calls: list[tuple[str, dict, dict]] = []
+
+    def _claude_poster(url: str, headers: dict, body: dict) -> dict:
+        claude_calls.append((url, headers, body))
+        iid = body["messages"][0]["content"].split("ID=")[1].split(" ")[0]
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "```json\n"
+                    + json.dumps(
+                        [
+                            {
+                                "id": iid,
+                                "symbol": "EURUSD",
+                                "impact": "HIGH",
+                                "bias": "BULLISH",
+                                "score": 0.72,
+                                "reason": "BCE mantém tom firme e fortalece o euro.",
+                            }
+                        ]
+                    )
+                    + "\n```",
+                }
+            ]
+        }
+
+    analyzer = AINewsAnalyzer(
+        enabled=True,
+        provider="claude",
+        api_key="sk-ant-test",
+        model="claude-3-5-haiku-latest",
+        http_poster=_claude_poster,
+    )
+    res_cl = analyzer.enrich_items(
+        [{"id": "c1", "title": "ECB turns hawkish", "symbol": "EURUSD", "impact": "LOW", "bias": "NEUTRAL", "score": 0.0}]
+    )
+    assert res_cl[0]["analysis_source"] == "AI_CLAUDE"
+    assert res_cl[0]["bias"] == "BULLISH"
+    assert claude_calls[0][0] == "https://api.anthropic.com/v1/messages"
+    assert claude_calls[0][1]["x-api-key"] == "sk-ant-test"
+    assert claude_calls[0][1]["anthropic-version"] == "2023-06-01"
+
+    # Cache invalidation when configure switches provider/model
+    oai_compat_calls: list[tuple[str, dict, dict]] = []
+
+    def _compat_poster(url: str, headers: dict, body: dict) -> dict:
+        oai_compat_calls.append((url, headers, body))
+        iid = body["messages"][1]["content"].split("ID=")[1].split(" ")[0]
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            [
+                                {
+                                    "id": iid,
+                                    "symbol": "XAUUSD",
+                                    "impact": "HIGH",
+                                    "bias": "BEARISH",
+                                    "score": -0.65,
+                                    "reason": "Dólar forte pressiona o ouro.",
+                                }
+                            ]
+                        )
+                    }
+                }
+            ]
+        }
+
+    analyzer.configure(
+        enabled=True,
+        provider="openrouter",
+        api_key="sk-or-test",
+        model="anthropic/claude-3.5-haiku",
+        http_poster=_compat_poster,
+    )
+    assert analyzer._cache == {}
+    res_or = analyzer.enrich_items(
+        [{"id": "c1", "title": "ECB turns hawkish", "symbol": "EURUSD", "impact": "LOW", "bias": "NEUTRAL", "score": 0.0}]
+    )
+    assert res_or[0]["analysis_source"] == "AI_OPENROUTER"
+    assert oai_compat_calls[-1][0] == "https://openrouter.ai/api/v1/chat/completions"
+    assert "response_format" not in oai_compat_calls[-1][2]
+    assert oai_compat_calls[-1][1]["HTTP-Referer"]
+
+    # DeepSeek, Groq, xAI, Custom base_url
+    for prov, expected_url, expected_tag in (
+        ("deepseek", "https://api.deepseek.com/chat/completions", "AI_DEEPSEEK"),
+        ("groq", "https://api.groq.com/openai/v1/chat/completions", "AI_GROQ"),
+        ("xai", "https://api.x.ai/v1/chat/completions", "AI_XAI"),
+    ):
+        analyzer.configure(enabled=True, provider=prov, api_key="sk-x", model="m1", http_poster=_compat_poster)
+        out = analyzer.enrich_items([{"id": f"id_{prov}", "title": "Fed speaks", "symbol": "ALL"}])
+        assert out[0]["analysis_source"] == expected_tag
+        assert oai_compat_calls[-1][0] == expected_url
+
+    analyzer.configure(
+        enabled=True,
+        provider="custom",
+        api_key="sk-mistral",
+        model="mistral-small-latest",
+        base_url="https://api.mistral.ai/v1",
+        http_poster=_compat_poster,
+    )
+    out_custom = analyzer.enrich_items([{"id": "id_cust", "title": "US CPI beats", "symbol": "EURUSD"}])
+    assert out_custom[0]["analysis_source"] == "AI_CUSTOM"
+    assert oai_compat_calls[-1][0] == "https://api.mistral.ai/v1/chat/completions"
+
+    # OpenAI reasoning model omits temperature
+    analyzer.configure(enabled=True, provider="openai", api_key="sk-oa", model="o4-mini", http_poster=_compat_poster)
+    analyzer.enrich_items([{"id": "id_o4", "title": "NFP release", "symbol": "EURUSD"}])
+    assert "temperature" not in oai_compat_calls[-1][2]
+
+    # test_connection success & failures
+    ok_conn = analyzer.test_connection()
+    assert ok_conn["ok"] is True
+    assert ok_conn["provider"] == "openai"
+    assert ok_conn["model"] == "o4-mini"
+    assert ok_conn["bias"] in ("BULLISH", "BEARISH", "NEUTRAL")
+    assert isinstance(ok_conn["latency_ms"], int)
+
+    no_key = AINewsAnalyzer(enabled=True, provider="openai", api_key="")
+    assert no_key.test_connection()["ok"] is False
+
+    err_ai = AINewsAnalyzer(
+        enabled=True,
+        provider="openai",
+        api_key="bad",
+        http_poster=lambda *_a: (_ for _ in ()).throw(RuntimeError("HTTP 401: Unauthorized")),
+    )
+    err_conn = err_ai.test_connection()
+    assert err_conn["ok"] is False
+    assert "401" in err_conn["error"]
+
+
+def test_subscriber_byok_ai_config_isolation_and_test_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.test_saas_plans_kiwify import _FakeMultiTenantSupabase, _login_cookie
+
+    fake_sb = _FakeMultiTenantSupabase()
+    app = PradoWebApp(config_path=tmp_path / "cfg_byok.json", supabase_store=fake_sb)  # type: ignore[arg-type]
+
+    admin_cookie = _login_cookie(app, "sitepixer@gmail.com")
+    # Grant Elite (includes news_bot) to cliente@teste.com
+    c_grant, _, _ = app.handle_request(
+        "POST",
+        "/api/admin/subscriptions",
+        {"Cookie": admin_cookie},
+        json.dumps({"email": "cliente@teste.com", "plan_id": "institutional", "status": "active", "duration_days": 30}).encode(),
+    )
+    assert c_grant == 200
+    client_cookie = _login_cookie(app, "cliente@teste.com")
+
+    # 1. GET / serves Cache-Control: no-store
+    c_idx, _, idx_headers = app.handle_request("GET", "/", {"Cookie": client_cookie})
+    assert c_idx == 200
+    assert "no-store" in idx_headers.get("Cache-Control", "")
+
+    # 2. Subscriber saves BYOK config
+    c_cfg, b_cfg, _ = app.handle_request(
+        "POST",
+        "/api/config",
+        {"Cookie": client_cookie},
+        json.dumps(
+            {
+                "news_ai_enabled": True,
+                "news_ai_provider": "openrouter",
+                "news_ai_model": "anthropic/claude-3.5-haiku",
+                "news_ai_api_key": "sk-or-user-secret-123",
+            }
+        ).encode(),
+    )
+    assert c_cfg == 200
+    cfg_resp = json.loads(b_cfg)["config"]
+    assert cfg_resp["news_ai_api_key"] == "********"
+    assert cfg_resp["news_ai_api_key_set"] is True
+
+    # 3. GET /api/status exposes catalog & metadata without leaking secret
+    c_st, b_st, _ = app.handle_request("GET", "/api/status", {"Cookie": client_cookie})
+    assert c_st == 200
+    assert "sk-or-user-secret-123" not in b_st
+    news_st = json.loads(b_st)["news"]
+    assert news_st["ai_enabled"] is True
+    assert news_st["ai_active"] is True
+    assert news_st["ai_provider"] == "openrouter"
+    assert news_st["ai_model"] == "anthropic/claude-3.5-haiku"
+    assert news_st["ai_api_key_set"] is True
+    assert len(news_st["ai_providers"]) >= 8
+
+    # 4. Updating another setting with masked key preserves real key
+    app.handle_request(
+        "POST",
+        "/api/config",
+        {"Cookie": client_cookie},
+        json.dumps({"news_ai_api_key": "********", "news_filter_only": False}).encode(),
+    )
+    assert app._active_service("uid-client").cfg.news_ai_api_key == "sk-or-user-secret-123"
+
+    # 5. SSRF protection rejects localhost base URL for custom provider
+    c_ssrf, b_ssrf, _ = app.handle_request(
+        "POST",
+        "/api/config",
+        {"Cookie": client_cookie},
+        json.dumps({"news_ai_provider": "custom", "news_ai_base_url": "http://127.0.0.1:8081/v1"}).encode(),
+    )
+    assert c_ssrf == 400
+    assert json.loads(b_ssrf)["ok"] is False
+
+    # 6. POST /api/news/ai-test works for authorized user and blocks plan without news_bot
+    def _mock_post(self, url: str, headers: dict, body: dict) -> dict:
+        iid = body["messages"][1]["content"].split("ID=")[1].split(" ")[0]
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            [
+                                {
+                                    "id": iid,
+                                    "symbol": "EURUSD",
+                                    "impact": "HIGH",
+                                    "bias": "BULLISH",
+                                    "score": 0.8,
+                                    "reason": "Fed dovish favorece EURUSD.",
+                                }
+                            ]
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(AINewsAnalyzer, "_default_post_json", _mock_post)
+    c_test, b_test, _ = app.handle_request(
+        "POST",
+        "/api/news/ai-test",
+        {"Cookie": client_cookie},
+        json.dumps({"provider": "openrouter", "model": "anthropic/claude-3.5-haiku", "api_key": "********"}).encode(),
+    )
+    assert c_test == 200
+    t_res = json.loads(b_test)
+    assert t_res["ok"] is True
+    assert t_res["bias"] == "BULLISH"
+
+    # Restrict semconta@teste.com to Starter (without news_bot) -> 403 on ai-test
+    app.handle_request(
+        "POST",
+        "/api/admin/subscriptions",
+        {"Cookie": admin_cookie},
+        json.dumps({"email": "semconta@teste.com", "plan_id": "starter", "status": "active", "duration_days": 30}).encode(),
+    )
+    locked_cookie = _login_cookie(app, "semconta@teste.com")
+    c_lock, _, _ = app.handle_request("POST", "/api/news/ai-test", {"Cookie": locked_cookie}, b"{}")
+    assert c_lock == 403

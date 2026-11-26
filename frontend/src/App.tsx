@@ -958,6 +958,32 @@ export default function App() {
     }
   }
 
+  async function testNewsAi(payload: {
+    provider: string
+    model: string
+    api_key?: string
+    base_url?: string
+  }): Promise<{ ok: boolean; bias?: string; impact?: string; reason?: string; latency_ms?: number; error?: string }> {
+    try {
+      const res = await fetch('/api/news/ai-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const d = await res.json()
+      return {
+        ok: Boolean(res.ok && d.ok),
+        bias: d.bias,
+        impact: d.impact,
+        reason: d.reason,
+        latency_ms: d.latency_ms,
+        error: d.error,
+      }
+    } catch {
+      return { ok: false, error: 'Erro de rede ao testar conexão com a IA.' }
+    }
+  }
+
   async function saveNewsFeed(payload: {
     feed_id?: string
     source: string
@@ -3640,6 +3666,7 @@ export default function App() {
                   onScanNews={scanNewsNow}
                   onRefreshCalendar={refreshCalendarNow}
                   onUpdateNewsConfig={updateNewsConfig}
+                  onTestNewsAi={testNewsAi}
                   onSaveFeed={saveNewsFeed}
                   onDeleteFeed={deleteNewsFeed}
                   onResetFeeds={resetNewsFeeds}

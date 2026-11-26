@@ -14,9 +14,124 @@ import tempfile
 import threading
 import time
 from typing import Any, Callable
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+
+AI_PROVIDER_CATALOG: list[dict[str, Any]] = [
+    {
+        "id": "gemini",
+        "name": "Google Gemini",
+        "default_model": "gemini-2.0-flash",
+        "models": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"],
+        "needs_base_url": False,
+        "endpoint_hint": "https://generativelanguage.googleapis.com/v1beta",
+        "key_placeholder": "AIza...",
+    },
+    {
+        "id": "openai",
+        "name": "OpenAI (ChatGPT)",
+        "default_model": "gpt-4o-mini",
+        "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "o4-mini"],
+        "needs_base_url": False,
+        "endpoint_hint": "https://api.openai.com/v1/chat/completions",
+        "key_placeholder": "sk-...",
+    },
+    {
+        "id": "claude",
+        "name": "Anthropic Claude",
+        "default_model": "claude-3-5-haiku-latest",
+        "models": ["claude-3-5-haiku-latest", "claude-3-5-sonnet-latest", "claude-3-7-sonnet-latest", "claude-sonnet-4-20250514"],
+        "needs_base_url": False,
+        "endpoint_hint": "https://api.anthropic.com/v1/messages",
+        "key_placeholder": "sk-ant-...",
+    },
+    {
+        "id": "openrouter",
+        "name": "OpenRouter (Todos os modelos)",
+        "default_model": "google/gemini-2.0-flash-001",
+        "models": [
+            "google/gemini-2.0-flash-001",
+            "openai/gpt-4o-mini",
+            "anthropic/claude-3.5-haiku",
+            "deepseek/deepseek-chat-v3-0324",
+            "meta-llama/llama-3.3-70b-instruct",
+            "qwen/qwen-2.5-72b-instruct",
+        ],
+        "needs_base_url": False,
+        "endpoint_hint": "https://openrouter.ai/api/v1/chat/completions",
+        "key_placeholder": "sk-or-v1-...",
+    },
+    {
+        "id": "deepseek",
+        "name": "DeepSeek",
+        "default_model": "deepseek-chat",
+        "models": ["deepseek-chat", "deepseek-reasoner"],
+        "needs_base_url": False,
+        "endpoint_hint": "https://api.deepseek.com/chat/completions",
+        "key_placeholder": "sk-...",
+    },
+    {
+        "id": "groq",
+        "name": "Groq (Ultra-rápido)",
+        "default_model": "llama-3.3-70b-versatile",
+        "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "deepseek-r1-distill-llama-70b"],
+        "needs_base_url": False,
+        "endpoint_hint": "https://api.groq.com/openai/v1/chat/completions",
+        "key_placeholder": "gsk_...",
+    },
+    {
+        "id": "xai",
+        "name": "xAI (Grok)",
+        "default_model": "grok-3-mini",
+        "models": ["grok-3-mini", "grok-3", "grok-2-latest"],
+        "needs_base_url": False,
+        "endpoint_hint": "https://api.x.ai/v1/chat/completions",
+        "key_placeholder": "xai-...",
+    },
+    {
+        "id": "custom",
+        "name": "Outro Provedor (Compatível OpenAI)",
+        "default_model": "gpt-4o-mini",
+        "models": [],
+        "needs_base_url": True,
+        "endpoint_hint": "https://api.provedor.com/v1/chat/completions",
+        "key_placeholder": "Cole sua API Key",
+    },
+]
+
+AI_PROVIDER_MAP: dict[str, dict[str, Any]] = {p["id"]: p for p in AI_PROVIDER_CATALOG}
+
+
+def normalize_ai_provider(provider: str) -> str:
+    clean = str(provider or "").strip().lower()
+    if clean in ("anthropic",):
+        clean = "claude"
+    elif clean in ("google",):
+        clean = "gemini"
+    elif clean in ("chatgpt",):
+        clean = "openai"
+    return clean if clean in AI_PROVIDER_MAP else "gemini"
+
+
+def _extract_json_payload(raw_text: str) -> Any:
+    clean = str(raw_text or "").strip()
+    if clean.startswith("```"):
+        clean = re.sub(r"^```(?:json)?\s*|\s*```$", "", clean, flags=re.DOTALL).strip()
+    try:
+        return json.loads(clean or "[]")
+    except Exception:
+        pass
+    for start_ch, end_ch in (("[", "]"), ("{", "}")):
+        s_idx = clean.find(start_ch)
+        e_idx = clean.rfind(end_ch)
+        if s_idx != -1 and e_idx > s_idx:
+            try:
+                return json.loads(clean[s_idx : e_idx + 1])
+            except Exception:
+                continue
+    raise ValueError("Resposta da IA não retornou JSON válido.")
 
 RSS_FEEDS: list[dict[str, str]] = [
     {
@@ -403,7 +518,15 @@ def _recency_weight(published_ts: float, now_ts: float) -> float:
 
 
 class AINewsAnalyzer:
-    """Optional semantic news analyzer via Gemini or OpenAI REST API with per-item cache and safe fallback."""
+    """Optional semantic news analyzer via Gemini, OpenAI, Claude, OpenRouter, DeepSeek, Groq, xAI or Custom endpoint."""
+
+    _OPENAI_COMPAT_URLS: dict[str, str] = {
+        "openai": "https://api.openai.com/v1/chat/completions",
+        "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+        "deepseek": "https://api.deepseek.com/chat/completions",
+        "groq": "https://api.groq.com/openai/v1/chat/completions",
+        "xai": "https://api.x.ai/v1/chat/completions",
+    }
 
     def __init__(
         self,
@@ -411,12 +534,15 @@ class AINewsAnalyzer:
         provider: str = "gemini",
         api_key: str = "",
         model: str = "gemini-2.0-flash",
+        base_url: str = "",
         http_poster: Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
         self.enabled = bool(enabled)
-        self.provider = provider if provider in ("gemini", "openai") else "gemini"
+        self.provider = normalize_ai_provider(provider)
+        default_m = str(AI_PROVIDER_MAP[self.provider]["default_model"])
         self.api_key = str(api_key or "").strip()
-        self.model = str(model or ("gemini-2.0-flash" if self.provider == "gemini" else "gpt-4o-mini")).strip()
+        self.model = str(model or default_m).strip() or default_m
+        self.base_url = str(base_url or "").strip()
         self._http_poster = http_poster or self._default_post_json
         self._cache: dict[str, dict[str, Any]] = {}
         self.last_error: str = ""
@@ -428,8 +554,16 @@ class AINewsAnalyzer:
             headers={"Content-Type": "application/json", **headers},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            return json.loads(resp.read().decode("utf-8", errors="ignore") or "{}")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8", errors="ignore") or "{}")
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8", errors="ignore").strip()[:240]
+            except Exception:
+                pass
+            raise RuntimeError(f"HTTP {exc.code}: {detail or exc.reason}") from exc
 
     def configure(
         self,
@@ -437,15 +571,115 @@ class AINewsAnalyzer:
         provider: str,
         api_key: str,
         model: str = "",
+        base_url: str = "",
         http_poster: Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
+        new_prov = normalize_ai_provider(provider)
+        default_m = str(AI_PROVIDER_MAP[new_prov]["default_model"])
+        new_key = str(api_key or "").strip()
+        new_model = str(model or default_m).strip() or default_m
+        new_base = str(base_url or "").strip()
+        if (
+            new_prov != self.provider
+            or new_model != self.model
+            or new_base != self.base_url
+            or new_key != self.api_key
+        ):
+            self._cache.clear()
         self.enabled = bool(enabled)
-        self.provider = provider if provider in ("gemini", "openai") else "gemini"
-        self.api_key = str(api_key or "").strip()
-        default_m = "gemini-2.0-flash" if self.provider == "gemini" else "gpt-4o-mini"
-        self.model = str(model or default_m).strip() or default_m
+        self.provider = new_prov
+        self.api_key = new_key
+        self.model = new_model
+        self.base_url = new_base
+        self.last_error = ""
         if http_poster is not None:
             self._http_poster = http_poster
+
+    def _resolve_openai_compat_url(self) -> str:
+        if self.provider in self._OPENAI_COMPAT_URLS:
+            return self._OPENAI_COMPAT_URLS[self.provider]
+        raw = str(self.base_url or "").strip().rstrip("/")
+        ok, err = validate_rss_url(raw)
+        if not ok:
+            raise ValueError(f"URL base da IA inválida: {err}")
+        if not raw.endswith("/chat/completions"):
+            raw = f"{raw}/chat/completions"
+        return raw
+
+    def _call_provider(self, prompt: str) -> str:
+        if self.provider == "gemini":
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(self.model)}:generateContent?key={urllib.parse.quote(self.api_key)}"
+            resp = self._http_poster(
+                url,
+                {},
+                {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1},
+                },
+            )
+            cands = resp.get("candidates") or []
+            if cands and isinstance(cands[0], dict):
+                parts = ((cands[0].get("content") or {}).get("parts")) or []
+                if parts and isinstance(parts[0], dict):
+                    return str(parts[0].get("text") or "")
+            return ""
+
+        if self.provider == "claude":
+            resp = self._http_poster(
+                "https://api.anthropic.com/v1/messages",
+                {"x-api-key": self.api_key, "anthropic-version": "2023-06-01"},
+                {
+                    "model": self.model,
+                    "max_tokens": 1024,
+                    "temperature": 0.1,
+                    "system": "Responda sempre exclusivamente com JSON válido.",
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            blocks = resp.get("content") or []
+            texts = [str(b.get("text") or "") for b in blocks if isinstance(b, dict) and b.get("text")]
+            return "\n".join(texts)
+
+        url = self._resolve_openai_compat_url()
+        req_headers = {"Authorization": f"Bearer {self.api_key}"}
+        if self.provider == "openrouter":
+            req_headers["HTTP-Referer"] = "https://quantix.hft"
+            req_headers["X-Title"] = "Quantix HFT"
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "Responda sempre exclusivamente com JSON válido."},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        model_low = self.model.lower()
+        if not model_low.startswith(("o1", "o3", "o4", "gpt-5")):
+            body["temperature"] = 0.1
+        if self.provider == "openai" and not model_low.startswith("o1"):
+            body["response_format"] = {"type": "json_object"}
+
+        resp = self._http_poster(url, req_headers, body)
+        choices = resp.get("choices") or []
+        if choices and isinstance(choices[0], dict):
+            return str(((choices[0].get("message") or {}).get("content")) or "")
+        return ""
+
+    def _build_prompt(self, pending: list[dict[str, Any]]) -> str:
+        lines = "\n".join(
+            f"ID={it['id']} SYMBOL_HINT={it.get('symbol', 'ALL')} TITLE={str(it.get('title', ''))[:160]}"
+            for it in pending
+        )
+        return (
+            "Você é um analista quantitativo de Forex, Índices, Ouro e Cripto.\n"
+            "Classifique cada manchete abaixo em JSON (lista de objetos, ou objeto {\"items\": [...]}) com as chaves exatas:\n"
+            "- id: string com o codigo da manchete\n"
+            "- symbol: ativo mais afetado entre EURUSD, GBPUSD, USDJPY, XAUUSD, US100, US500, BTCUSD, ETHUSD ou ALL\n"
+            "- impact: HIGH, MEDIUM ou LOW\n"
+            "- bias: BULLISH (sobe o ativo), BEARISH (cai o ativo) ou NEUTRAL (lembre que dólar forte derruba EURUSD e XAUUSD!)\n"
+            "- score: numero entre -1.0 e 1.0\n"
+            "- reason: frase curta em portugues explicando o motivo\n\n"
+            f"Manchetes:\n{lines}"
+        )
 
     def enrich_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not self.enabled or not self.api_key or not items:
@@ -464,66 +698,16 @@ class AINewsAnalyzer:
         if not pending:
             return out
 
-        lines = "\n".join(
-            f"ID={it['id']} SYMBOL_HINT={it.get('symbol', 'ALL')} TITLE={str(it.get('title', ''))[:160]}"
-            for it in pending
-        )
-        prompt = (
-            "Você é um analista quantitativo de Forex, Índices, Ouro e Cripto.\n"
-            "Classifique cada manchete abaixo em JSON (lista de objetos, ou objeto {\"items\": [...]}) com as chaves exatas:\n"
-            "- id: string com o codigo da manchete\n"
-            "- symbol: ativo mais afetado entre EURUSD, GBPUSD, USDJPY, XAUUSD, US100, US500, BTCUSD, ETHUSD ou ALL\n"
-            "- impact: HIGH, MEDIUM ou LOW\n"
-            "- bias: BULLISH (sobe o ativo), BEARISH (cai o ativo) ou NEUTRAL (lembre que dólar forte derruba EURUSD e XAUUSD!)\n"
-            "- score: numero entre -1.0 e 1.0\n"
-            "- reason: frase curta em portugues explicando o motivo\n\n"
-            f"Manchetes:\n{lines}"
-        )
+        prompt = self._build_prompt(pending)
 
         try:
-            raw_text = ""
-            if self.provider == "gemini":
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(self.model)}:generateContent?key={urllib.parse.quote(self.api_key)}"
-                resp = self._http_poster(
-                    url,
-                    {},
-                    {
-                        "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1},
-                    },
-                )
-                cands = resp.get("candidates") or []
-                if cands and isinstance(cands[0], dict):
-                    parts = ((cands[0].get("content") or {}).get("parts")) or []
-                    if parts and isinstance(parts[0], dict):
-                        raw_text = str(parts[0].get("text") or "")
-            else:
-                resp = self._http_poster(
-                    "https://api.openai.com/v1/chat/completions",
-                    {"Authorization": f"Bearer {self.api_key}"},
-                    {
-                        "model": self.model,
-                        "temperature": 0.1,
-                        "response_format": {"type": "json_object"},
-                        "messages": [
-                            {"role": "system", "content": "Responda sempre com JSON valido."},
-                            {"role": "user", "content": prompt},
-                        ],
-                    },
-                )
-                choices = resp.get("choices") or []
-                if choices and isinstance(choices[0], dict):
-                    raw_text = str(((choices[0].get("message") or {}).get("content")) or "")
-
-            clean_json = raw_text.strip()
-            if clean_json.startswith("```"):
-                clean_json = re.sub(r"^```(?:json)?\s*|\s*```$", "", clean_json, flags=re.DOTALL).strip()
-            parsed = json.loads(clean_json or "[]")
+            raw_text = self._call_provider(prompt)
+            parsed = _extract_json_payload(raw_text)
             rows = parsed.get("items") if isinstance(parsed, dict) else parsed
             if not isinstance(rows, list):
                 return out
 
-            source_tag = "AI_GEMINI" if self.provider == "gemini" else "AI_OPENAI"
+            source_tag = f"AI_{self.provider.upper()}"
             by_id: dict[str, dict[str, Any]] = {}
             for row in rows:
                 if not isinstance(row, dict) or not row.get("id"):
@@ -556,6 +740,58 @@ class AINewsAnalyzer:
             self.last_error = str(exc)
         return out
 
+    def test_connection(self) -> dict[str, Any]:
+        if not self.api_key:
+            return {
+                "ok": False,
+                "provider": self.provider,
+                "model": self.model,
+                "error": "Informe a API Key antes de testar.",
+            }
+        started = time.time()
+        try:
+            prompt = self._build_prompt(
+                [
+                    {
+                        "id": "test_1",
+                        "symbol": "EURUSD",
+                        "title": "Federal Reserve signals rate cut as inflation cools and US dollar drops",
+                    }
+                ]
+            )
+            raw_text = self._call_provider(prompt)
+            parsed = _extract_json_payload(raw_text)
+            rows = parsed.get("items") if isinstance(parsed, dict) else parsed
+            if isinstance(parsed, dict) and "bias" in parsed and not isinstance(rows, list):
+                rows = [parsed]
+            if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+                raise ValueError("A IA respondeu, mas sem a lista JSON esperada.")
+            row = rows[0]
+            bias = str(row.get("bias") or "NEUTRAL").upper()
+            if bias not in ("BULLISH", "BEARISH", "NEUTRAL"):
+                bias = "NEUTRAL"
+            imp = str(row.get("impact") or "MEDIUM").upper()
+            if imp not in ("HIGH", "MEDIUM", "LOW"):
+                imp = "MEDIUM"
+            return {
+                "ok": True,
+                "provider": self.provider,
+                "model": self.model,
+                "symbol": str(row.get("symbol") or "EURUSD").upper(),
+                "bias": bias,
+                "impact": imp,
+                "score": round(max(-1.0, min(1.0, float(row.get("score") or 0.0))), 2),
+                "reason": str(row.get("reason") or "Conexão validada com sucesso.").strip()[:180],
+                "latency_ms": max(1, int((time.time() - started) * 1000)),
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "provider": self.provider,
+                "model": self.model,
+                "error": str(exc),
+            }
+
 
 class NewsScout:
     """Periodic RSS/Atom news researcher that tracks seen items, feed health, optional AI & recency sentiment."""
@@ -575,6 +811,7 @@ class NewsScout:
         provider: str,
         api_key: str,
         model: str = "",
+        base_url: str = "",
         http_poster: Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
         self._ai_analyzer.configure(
@@ -582,6 +819,7 @@ class NewsScout:
             provider=provider,
             api_key=api_key,
             model=model,
+            base_url=base_url,
             http_poster=http_poster,
         )
 
