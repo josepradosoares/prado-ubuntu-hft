@@ -42,7 +42,7 @@ export function AdminPanel({ inputClass, showToast, onPlansChanged }: AdminPanel
     kiwify_webhook_secret: '',
     ai_news_enabled: false,
     ai_news_provider: 'gemini',
-    ai_news_model: 'gemini-2.0-flash',
+    ai_news_model: 'gemini-3.5-flash-lite',
     ai_news_api_key: '',
     ai_news_api_key_set: false,
   })
@@ -352,7 +352,7 @@ export function AdminPanel({ inputClass, showToast, onPlansChanged }: AdminPanel
                       setSettings((s) => ({
                         ...s,
                         ai_news_provider: prov,
-                        ai_news_model: prov === 'openai' ? 'gpt-4o-mini' : 'gemini-2.0-flash',
+                        ai_news_model: prov === 'openai' ? 'gpt-4o-mini' : 'gemini-3.5-flash-lite',
                       }))
                     }}
                     className={inputClass}
@@ -367,7 +367,7 @@ export function AdminPanel({ inputClass, showToast, onPlansChanged }: AdminPanel
                     type="text"
                     value={settings.ai_news_model || ''}
                     onChange={(e) => setSettings((s) => ({ ...s, ai_news_model: e.target.value }))}
-                    placeholder="gemini-2.0-flash"
+                    placeholder="gemini-3.5-flash-lite"
                     className={`${inputClass} font-mono`}
                   />
                 </div>

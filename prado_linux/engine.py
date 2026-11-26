@@ -1947,7 +1947,7 @@ class PradoTradingService:
                 enabled=True,
                 provider=str(getattr(self.cfg, "news_ai_provider", "gemini") or "gemini"),
                 api_key=user_key,
-                model=str(getattr(self.cfg, "news_ai_model", "gemini-2.0-flash") or "gemini-2.0-flash"),
+                model=str(getattr(self.cfg, "news_ai_model", "gemini-3.5-flash-lite") or "gemini-3.5-flash-lite"),
                 base_url=str(getattr(self.cfg, "news_ai_base_url", "") or ""),
             )
             return
@@ -1961,7 +1961,7 @@ class PradoTradingService:
                 enabled=True,
                 provider=str(fallback_settings.get("ai_news_provider") or "gemini"),
                 api_key=str(fallback_settings.get("ai_news_api_key") or ""),
-                model=str(fallback_settings.get("ai_news_model") or "gemini-2.0-flash"),
+                model=str(fallback_settings.get("ai_news_model") or "gemini-3.5-flash-lite"),
                 base_url=str(fallback_settings.get("ai_news_base_url") or ""),
             )
             return
@@ -1969,7 +1969,7 @@ class PradoTradingService:
             enabled=False,
             provider=str(getattr(self.cfg, "news_ai_provider", "gemini") or "gemini"),
             api_key="",
-            model=str(getattr(self.cfg, "news_ai_model", "gemini-2.0-flash") or "gemini-2.0-flash"),
+            model=str(getattr(self.cfg, "news_ai_model", "gemini-3.5-flash-lite") or "gemini-3.5-flash-lite"),
             base_url=str(getattr(self.cfg, "news_ai_base_url", "") or ""),
         )
 
@@ -2837,7 +2837,7 @@ class PradoTradingService:
             "ai_enabled": bool(getattr(self.cfg, "news_ai_enabled", False)),
             "ai_active": bool(getattr(ai_cfg, "enabled", False) and getattr(ai_cfg, "api_key", "")) if ai_cfg else False,
             "ai_provider": str(getattr(self.cfg, "news_ai_provider", "") or (ai_cfg.provider if ai_cfg else "gemini")),
-            "ai_model": str(getattr(self.cfg, "news_ai_model", "") or (ai_cfg.model if ai_cfg else "gemini-2.0-flash")),
+            "ai_model": str(getattr(self.cfg, "news_ai_model", "") or (ai_cfg.model if ai_cfg else "gemini-3.5-flash-lite")),
             "ai_base_url": str(getattr(self.cfg, "news_ai_base_url", "") or ""),
             "ai_api_key_set": bool(str(getattr(self.cfg, "news_ai_api_key", "") or "").strip()),
             "ai_last_error": str(getattr(ai_cfg, "last_error", "") or "") if ai_cfg else "",

@@ -186,7 +186,7 @@ class SupabaseStore:
                 if nc.get("news_ai_provider"):
                     cfg.news_ai_provider = str(nc.get("news_ai_provider") or "gemini")
                 if nc.get("news_ai_model"):
-                    cfg.news_ai_model = str(nc.get("news_ai_model") or "gemini-2.0-flash")
+                    cfg.news_ai_model = str(nc.get("news_ai_model") or "gemini-3.5-flash-lite")
                 if "news_ai_api_key" in nc:
                     cfg.news_ai_api_key = str(nc.get("news_ai_api_key") or "")
                 if "news_ai_base_url" in nc:
@@ -510,7 +510,7 @@ class SupabaseStore:
             "news_feeds": list(settings_dict.get("news_feeds") or []),
             "ai_news_enabled": bool(settings_dict.get("ai_news_enabled", False)),
             "ai_news_provider": str(settings_dict.get("ai_news_provider") or "gemini"),
-            "ai_news_model": str(settings_dict.get("ai_news_model") or "gemini-2.0-flash"),
+            "ai_news_model": str(settings_dict.get("ai_news_model") or "gemini-3.5-flash-lite"),
             "ai_news_api_key": str(settings_dict.get("ai_news_api_key") or ""),
         }
         self._request(

@@ -17,7 +17,7 @@ from prado_linux.auth import create_session_token, hash_password, verify_passwor
 from prado_linux.config import PradoServerConfig, load_config
 from prado_linux.engine import PradoTradingService
 from prado_linux.indicators import DEFAULT_PYTHON_STRATEGY_TEMPLATE, INDICATOR_CATALOG, READY_MADE_RECIPES
-from prado_linux.news_scout import AINewsAnalyzer, normalize_ai_provider, validate_rss_url
+from prado_linux.news_scout import AINewsAnalyzer, list_ai_provider_models, normalize_ai_provider, validate_rss_url
 from prado_linux.saas_store import FEATURE_CATALOG, FEATURE_LABELS_PT, SaasStore
 from prado_linux.supabase_store import SupabaseStore
 
@@ -805,6 +805,21 @@ class PradoWebApp:
             )
             test_res = analyzer.test_connection()
             return 200 if test_res.get("ok") else 400, json.dumps(test_res, ensure_ascii=False), {"Content-Type": "application/json"}
+
+        if method == "POST" and clean_path == "/api/news/ai-models":
+            denied = self._require_access(user, "news_bot")
+            if denied is not None:
+                return denied
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                payload = {}
+            prov = normalize_ai_provider(str(payload.get("provider") or cfg.news_ai_provider or "gemini"))
+            base_url = str(payload.get("base_url") if "base_url" in payload else cfg.news_ai_base_url).strip()
+            cand_key = str(payload.get("api_key") or "").strip()
+            raw_key = cfg.news_ai_api_key if (not cand_key or cand_key == "********") else cand_key
+            res_models = list_ai_provider_models(prov, raw_key, base_url=base_url)
+            return 200 if res_models.get("ok") else 400, json.dumps(res_models, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/news/feeds":
             denied = self._require_admin(user)

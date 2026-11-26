@@ -40,6 +40,11 @@ interface NewsPanelProps {
     api_key?: string
     base_url?: string
   }) => Promise<{ ok: boolean; bias?: string; impact?: string; reason?: string; latency_ms?: number; error?: string }>
+  onFetchNewsAiModels: (payload: {
+    provider: string
+    api_key?: string
+    base_url?: string
+  }) => Promise<{ ok: boolean; models: string[]; error?: string }>
   onSaveFeed: (payload: { feed_id?: string; source: string; url: string; default_symbol: string }) => Promise<boolean>
   onDeleteFeed: (feedId: string) => Promise<void>
   onResetFeeds: () => Promise<void>
@@ -50,8 +55,15 @@ const FALLBACK_AI_PROVIDERS: AIProviderCatalogItem[] = [
   {
     id: 'gemini',
     name: 'Google Gemini',
-    default_model: 'gemini-2.0-flash',
-    models: ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+    default_model: 'gemini-3.5-flash-lite',
+    models: [
+      'gemini-3.5-flash-lite',
+      'gemini-3.1-flash-lite',
+      'gemini-3-flash-preview',
+      'gemini-3.8-flash',
+      'gemini-3.5-flash',
+      'gemini-3.1-pro-preview',
+    ],
     needs_base_url: false,
     key_placeholder: 'AIza...',
   },
@@ -139,6 +151,7 @@ export function NewsPanel({
   onRefreshCalendar,
   onUpdateNewsConfig,
   onTestNewsAi,
+  onFetchNewsAiModels,
   onSaveFeed,
   onDeleteFeed,
   onResetFeeds,
@@ -171,12 +184,15 @@ export function NewsPanel({
   const aiDirtyRef = useRef(false)
   const [aiEnabled, setAiEnabled] = useState<boolean>(Boolean(news?.ai_enabled))
   const [aiProvider, setAiProvider] = useState<string>(news?.ai_provider || 'gemini')
-  const [aiModel, setAiModel] = useState<string>(news?.ai_model || 'gemini-2.0-flash')
+  const [aiModel, setAiModel] = useState<string>(news?.ai_model || 'gemini-3.5-flash-lite')
   const [aiCustomModelMode, setAiCustomModelMode] = useState<boolean>(false)
   const [aiBaseUrl, setAiBaseUrl] = useState<string>(news?.ai_base_url || '')
   const [aiApiKey, setAiApiKey] = useState<string>('')
   const [aiSaving, setAiSaving] = useState(false)
   const [aiTesting, setAiTesting] = useState(false)
+  const [aiLoadingModels, setAiLoadingModels] = useState(false)
+  const [dynamicModels, setDynamicModels] = useState<string[]>([])
+  const [aiModelsNote, setAiModelsNote] = useState<string>('')
   const [aiTestResult, setAiTestResult] = useState<{
     ok: boolean
     bias?: string
@@ -190,11 +206,18 @@ export function NewsPanel({
     () => aiProviders.find((p) => p.id === aiProvider) || aiProviders[0],
     [aiProviders, aiProvider],
   )
+  const availableModels = useMemo(() => {
+    const merged = [...(selectedProviderMeta?.models || [])]
+    for (const m of dynamicModels) {
+      if (m && !merged.includes(m)) merged.push(m)
+    }
+    return merged
+  }, [selectedProviderMeta, dynamicModels])
 
   useEffect(() => {
     if (aiDirtyRef.current || !news) return
     const nextProv = news.ai_provider || 'gemini'
-    const nextModel = news.ai_model || 'gemini-2.0-flash'
+    const nextModel = news.ai_model || 'gemini-3.5-flash-lite'
     const meta = aiProviders.find((p) => p.id === nextProv)
     const knownModels = meta?.models || []
     setAiEnabled(Boolean(news.ai_enabled))
@@ -277,6 +300,8 @@ export function NewsPanel({
   function handleProviderChange(nextProv: string) {
     aiDirtyRef.current = true
     setAiTestResult(null)
+    setAiModelsNote('')
+    setDynamicModels([])
     setAiProvider(nextProv)
     const meta = aiProviders.find((p) => p.id === nextProv)
     const defModel = meta?.default_model || 'gpt-4o-mini'
@@ -292,7 +317,7 @@ export function NewsPanel({
       const payload: Record<string, unknown> = {
         news_ai_enabled: aiEnabled,
         news_ai_provider: aiProvider,
-        news_ai_model: aiModel.trim() || selectedProviderMeta?.default_model || 'gemini-2.0-flash',
+        news_ai_model: aiModel.trim() || selectedProviderMeta?.default_model || 'gemini-3.5-flash-lite',
         news_ai_base_url: aiBaseUrl.trim(),
       }
       if (aiApiKey.trim()) {
@@ -328,13 +353,37 @@ export function NewsPanel({
     try {
       const res = await onTestNewsAi({
         provider: aiProvider,
-        model: aiModel.trim() || selectedProviderMeta?.default_model || 'gemini-2.0-flash',
+        model: aiModel.trim() || selectedProviderMeta?.default_model || 'gemini-3.5-flash-lite',
         api_key: aiApiKey.trim() || undefined,
         base_url: aiBaseUrl.trim() || undefined,
       })
       setAiTestResult(res)
     } finally {
       setAiTesting(false)
+    }
+  }
+
+  async function handleLoadProviderModels() {
+    setAiLoadingModels(true)
+    setAiModelsNote('')
+    setAiTestResult(null)
+    try {
+      const res = await onFetchNewsAiModels({
+        provider: aiProvider,
+        api_key: aiApiKey.trim() || undefined,
+        base_url: aiBaseUrl.trim() || undefined,
+      })
+      if (res.ok && res.models.length > 0) {
+        setDynamicModels(res.models)
+        setAiModelsNote(`${res.models.length} modelo(s) carregado(s) da API.`)
+      } else {
+        setAiTestResult({
+          ok: false,
+          error: res.error || 'Nenhum modelo retornado pela API para esta chave.',
+        })
+      }
+    } finally {
+      setAiLoadingModels(false)
     }
   }
 
@@ -645,8 +694,18 @@ export function NewsPanel({
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">Modelo</label>
-                {(selectedProviderMeta?.models || []).length > 0 && (
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block text-[11px] font-medium text-slate-500">Modelo</label>
+                  <button
+                    type="button"
+                    onClick={handleLoadProviderModels}
+                    disabled={aiLoadingModels || (!aiApiKey.trim() && !news?.ai_api_key_set)}
+                    className="text-[10px] font-semibold text-violet-600 dark:text-violet-300 hover:underline disabled:opacity-40"
+                  >
+                    {aiLoadingModels ? 'Buscando...' : 'Buscar da API'}
+                  </button>
+                </div>
+                {availableModels.length > 0 && (
                   <select
                     value={aiCustomModelMode ? '__CUSTOM__' : aiModel}
                     onChange={(e) => {
@@ -661,7 +720,7 @@ export function NewsPanel({
                     }}
                     className={inputClass}
                   >
-                    {(selectedProviderMeta?.models || []).map((m) => (
+                    {availableModels.map((m) => (
                       <option key={m} value={m}>
                         {m}
                       </option>
@@ -669,7 +728,7 @@ export function NewsPanel({
                     <option value="__CUSTOM__">Outro modelo (digitar ID manualmente)</option>
                   </select>
                 )}
-                {(aiCustomModelMode || (selectedProviderMeta?.models || []).length === 0) && (
+                {(aiCustomModelMode || availableModels.length === 0) && (
                   <input
                     type="text"
                     value={aiModel}
@@ -678,9 +737,14 @@ export function NewsPanel({
                       setAiModel(e.target.value)
                     }}
                     placeholder={selectedProviderMeta?.default_model || 'Ex: anthropic/claude-sonnet-4'}
-                    className={`${inputClass} font-mono ${(selectedProviderMeta?.models || []).length > 0 ? 'mt-1.5' : ''}`}
+                    className={`${inputClass} font-mono ${availableModels.length > 0 ? 'mt-1.5' : ''}`}
                     required
                   />
+                )}
+                {aiModelsNote && (
+                  <span className="mt-1 block text-[10px] text-emerald-600 dark:text-emerald-400">
+                    {aiModelsNote}
+                  </span>
                 )}
               </div>
 

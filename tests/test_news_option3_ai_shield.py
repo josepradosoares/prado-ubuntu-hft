@@ -13,9 +13,11 @@ from prado_linux.engine import PradoTradingService
 from prado_linux.news_scout import (
     AI_PROVIDER_CATALOG,
     AINewsAnalyzer,
+    DEFAULT_GEMINI_MODEL,
     EconomicCalendarScout,
     NewsScout,
     analyze_headline,
+    list_ai_provider_models,
 )
 from prado_linux.web_app import PradoWebApp
 
@@ -513,3 +515,94 @@ def test_subscriber_byok_ai_config_isolation_and_test_endpoint(tmp_path: Path, m
     locked_cookie = _login_cookie(app, "semconta@teste.com")
     c_lock, _, _ = app.handle_request("POST", "/api/news/ai-test", {"Cookie": locked_cookie}, b"{}")
     assert c_lock == 403
+
+
+def test_gemini_recommended_default_and_list_ai_models_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.test_saas_plans_kiwify import _FakeMultiTenantSupabase, _login_cookie
+
+    assert DEFAULT_GEMINI_MODEL == "gemini-3.5-flash-lite"
+    gem_entry = next(p for p in AI_PROVIDER_CATALOG if p["id"] == "gemini")
+    assert gem_entry["default_model"] == "gemini-3.5-flash-lite"
+    assert gem_entry["models"][0] == "gemini-3.5-flash-lite"
+
+    # Gemini filters to text generateContent models only
+    r_gem = list_ai_provider_models(
+        "gemini",
+        "fake-gem-key",
+        http_getter=lambda url, _hdr: {
+            "models": [
+                {"name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.8-flash-tts", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/embedding-001", "supportedGenerationMethods": ["embedContent"]},
+            ]
+        },
+    )
+    assert r_gem["ok"] is True
+    assert r_gem["models"] == ["gemini-3.5-flash-lite"]
+
+    # OpenAI-compatible provider returns sorted deduplicated model IDs
+    r_oai = list_ai_provider_models(
+        "openai",
+        "fake-oai-key",
+        http_getter=lambda _u, _h: {"data": [{"id": "gpt-4o-mini"}, {"id": "gpt-4.1"}, {"id": "gpt-4o-mini"}]},
+    )
+    assert r_oai["ok"] is True
+    assert r_oai["models"] == ["gpt-4.1", "gpt-4o-mini"]
+
+    # Claude sends required headers
+    seen_hdrs: dict = {}
+
+    def _claude_get(_url: str, hdrs: dict) -> dict:
+        seen_hdrs.update(hdrs)
+        return {"data": [{"id": "claude-3-5-haiku-latest"}]}
+
+    r_cl = list_ai_provider_models("claude", "fake-cl-key", http_getter=_claude_get)
+    assert r_cl["ok"] is True
+    assert r_cl["models"] == ["claude-3-5-haiku-latest"]
+    assert seen_hdrs["x-api-key"] == "fake-cl-key"
+    assert seen_hdrs["anthropic-version"] == "2023-06-01"
+
+    # SSRF block on custom private URL and error on missing key
+    r_ssrf = list_ai_provider_models("custom", "fake-k", base_url="http://127.0.0.1:8081/v1")
+    assert r_ssrf["ok"] is False
+    assert list_ai_provider_models("gemini", "")["ok"] is False
+
+    # HTTP endpoint POST /api/news/ai-models respects news_bot entitlement
+    fake_sb = _FakeMultiTenantSupabase()
+    app = PradoWebApp(config_path=tmp_path / "cfg_models.json", supabase_store=fake_sb)  # type: ignore[arg-type]
+    admin_cookie = _login_cookie(app, "sitepixer@gmail.com")
+    app.handle_request(
+        "POST",
+        "/api/admin/subscriptions",
+        {"Cookie": admin_cookie},
+        json.dumps({"email": "cliente@teste.com", "plan_id": "institutional", "status": "active", "duration_days": 30}).encode(),
+    )
+    app.handle_request(
+        "POST",
+        "/api/admin/subscriptions",
+        {"Cookie": admin_cookie},
+        json.dumps({"email": "semconta@teste.com", "plan_id": "starter", "status": "active", "duration_days": 30}).encode(),
+    )
+    client_cookie = _login_cookie(app, "cliente@teste.com")
+    locked_cookie = _login_cookie(app, "semconta@teste.com")
+
+    monkeypatch.setattr(
+        "prado_linux.news_scout._default_get_json",
+        lambda _u, _h: {"models": [{"name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"]}]},
+    )
+    c_ok, b_ok, _ = app.handle_request(
+        "POST",
+        "/api/news/ai-models",
+        {"Cookie": client_cookie},
+        json.dumps({"provider": "gemini", "api_key": "fake-live-key"}).encode(),
+    )
+    assert c_ok == 200
+    assert json.loads(b_ok)["models"] == ["gemini-3.5-flash-lite"]
+
+    c_den, _, _ = app.handle_request(
+        "POST",
+        "/api/news/ai-models",
+        {"Cookie": locked_cookie},
+        json.dumps({"provider": "gemini", "api_key": "fake-live-key"}).encode(),
+    )
+    assert c_den == 403

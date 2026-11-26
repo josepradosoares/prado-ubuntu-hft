@@ -19,12 +19,21 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+
 AI_PROVIDER_CATALOG: list[dict[str, Any]] = [
     {
         "id": "gemini",
         "name": "Google Gemini",
-        "default_model": "gemini-2.0-flash",
-        "models": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"],
+        "default_model": DEFAULT_GEMINI_MODEL,
+        "models": [
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-3-flash-preview",
+            "gemini-3.8-flash",
+            "gemini-3.5-flash",
+            "gemini-3.1-pro-preview",
+        ],
         "needs_base_url": False,
         "endpoint_hint": "https://generativelanguage.googleapis.com/v1beta",
         "key_placeholder": "AIza...",
@@ -533,7 +542,7 @@ class AINewsAnalyzer:
         enabled: bool = False,
         provider: str = "gemini",
         api_key: str = "",
-        model: str = "gemini-2.0-flash",
+        model: str = DEFAULT_GEMINI_MODEL,
         base_url: str = "",
         http_poster: Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
@@ -791,6 +800,91 @@ class AINewsAnalyzer:
                 "model": self.model,
                 "error": str(exc),
             }
+
+
+def _default_get_json(url: str, headers: dict[str, str]) -> dict[str, Any]:
+    req = urllib.request.Request(url, headers={"Accept": "application/json", **headers}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="ignore") or "{}")
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", errors="ignore").strip()[:240]
+        except Exception:
+            pass
+        raise RuntimeError(f"HTTP {exc.code}: {detail or exc.reason}") from exc
+
+
+_LIST_MODELS_SKIP_TOKENS = ("-tts", "-image", "lyria", "robotics", "nano-banana", "transcribe", "embedding")
+
+
+def list_ai_provider_models(
+    provider: str,
+    api_key: str,
+    base_url: str = "",
+    http_getter: Callable[[str, dict[str, str]], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    prov = normalize_ai_provider(provider)
+    key = str(api_key or "").strip()
+    if not key:
+        return {
+            "ok": False,
+            "provider": prov,
+            "models": [],
+            "error": "Informe a API Key para buscar os modelos disponíveis.",
+        }
+
+    getter = http_getter or _default_get_json
+    try:
+        models: list[str] = []
+        if prov == "gemini":
+            url = f"https://generativelanguage.googleapis.com/v1beta/models?key={urllib.parse.quote(key)}"
+            data = getter(url, {})
+            for entry in data.get("models") or []:
+                if not isinstance(entry, dict):
+                    continue
+                methods = entry.get("supportedGenerationMethods") or []
+                if "generateContent" not in methods:
+                    continue
+                mid = str(entry.get("name") or "").replace("models/", "").strip()
+                if not mid or any(tok in mid.lower() for tok in _LIST_MODELS_SKIP_TOKENS):
+                    continue
+                if mid not in models:
+                    models.append(mid)
+        elif prov == "claude":
+            data = getter(
+                "https://api.anthropic.com/v1/models",
+                {"x-api-key": key, "anthropic-version": "2023-06-01"},
+            )
+            models = sorted(
+                {str(d.get("id") or "").strip() for d in (data.get("data") or []) if isinstance(d, dict) and d.get("id")}
+            )
+        else:
+            endpoint_map = {
+                "openai": "https://api.openai.com/v1/models",
+                "openrouter": "https://openrouter.ai/api/v1/models",
+                "deepseek": "https://api.deepseek.com/models",
+                "groq": "https://api.groq.com/openai/v1/models",
+                "xai": "https://api.x.ai/v1/models",
+            }
+            if prov in endpoint_map:
+                url = endpoint_map[prov]
+            else:
+                raw = str(base_url or "").strip().rstrip("/")
+                ok, err = validate_rss_url(raw)
+                if not ok:
+                    return {"ok": False, "provider": prov, "models": [], "error": f"URL base inválida: {err}"}
+                if raw.endswith("/chat/completions"):
+                    raw = raw[: -len("/chat/completions")]
+                url = f"{raw}/models"
+            data = getter(url, {"Authorization": f"Bearer {key}"})
+            models = sorted(
+                {str(d.get("id") or "").strip() for d in (data.get("data") or []) if isinstance(d, dict) and d.get("id")}
+            )
+        return {"ok": True, "provider": prov, "models": models[:150]}
+    except Exception as exc:
+        return {"ok": False, "provider": prov, "models": [], "error": str(exc)}
 
 
 class NewsScout:

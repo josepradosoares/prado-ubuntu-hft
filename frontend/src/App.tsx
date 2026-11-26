@@ -984,6 +984,28 @@ export default function App() {
     }
   }
 
+  async function fetchNewsAiModels(payload: {
+    provider: string
+    api_key?: string
+    base_url?: string
+  }): Promise<{ ok: boolean; models: string[]; error?: string }> {
+    try {
+      const res = await fetch('/api/news/ai-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const d = await res.json()
+      return {
+        ok: Boolean(res.ok && d.ok),
+        models: Array.isArray(d.models) ? d.models : [],
+        error: d.error,
+      }
+    } catch {
+      return { ok: false, models: [], error: 'Erro de rede ao consultar modelos do provedor.' }
+    }
+  }
+
   async function saveNewsFeed(payload: {
     feed_id?: string
     source: string
@@ -3667,6 +3689,7 @@ export default function App() {
                   onRefreshCalendar={refreshCalendarNow}
                   onUpdateNewsConfig={updateNewsConfig}
                   onTestNewsAi={testNewsAi}
+                  onFetchNewsAiModels={fetchNewsAiModels}
                   onSaveFeed={saveNewsFeed}
                   onDeleteFeed={deleteNewsFeed}
                   onResetFeeds={resetNewsFeeds}

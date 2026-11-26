@@ -153,7 +153,7 @@ class SaasStore:
                 "news_feeds": [],
                 "ai_news_enabled": False,
                 "ai_news_provider": "gemini",
-                "ai_news_model": "gemini-2.0-flash",
+                "ai_news_model": "gemini-3.5-flash-lite",
                 "ai_news_api_key": "",
             },
             "plans": [dict(p) for p in DEFAULT_PLANS],
