@@ -159,6 +159,12 @@ SYMBOL_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
 _ATOM_NS = "{http://www.w3.org/2005/Atom}"
 
 
+_NEGATION_PREFIX = r"(?:não|nao|sem|nunca|jamais|nem|not|no|never|fails?\s+to|unable\s+to|without)"
+_USD_QUOTE_SYMBOLS = {"EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "XAUUSD", "XAGUSD", "BTCUSD", "ETHUSD"}
+_USD_BASE_SYMBOLS = {"USDJPY", "USDCAD", "USDCHF"}
+_USD_SUBJECT_TERMS = ("dólar", "dolar", "usd", "fed", "fomc", "powell", "payroll", "nfp", "cpi", "interest rate", "taxa de juros", "selic usa", "treasury")
+
+
 def _clean_html(raw: str) -> str:
     txt = re.sub(r"<[^>]+>", " ", raw or "")
     return re.sub(r"\s+", " ", txt).strip()
@@ -166,6 +172,10 @@ def _clean_html(raw: str) -> str:
 
 def _has_keyword(text_lower: str, kw: str) -> bool:
     return bool(re.search(rf"(?<!\w){re.escape(kw)}(?!\w)", text_lower))
+
+
+def _has_negated_keyword(text_lower: str, kw: str) -> bool:
+    return bool(re.search(rf"\b{_NEGATION_PREFIX}\b(?:\s+\w+){{0,2}}\s+{re.escape(kw)}(?!\w)", text_lower))
 
 
 def infer_symbol(text: str, fallback: str = "BTCUSD") -> str:
@@ -177,10 +187,22 @@ def infer_symbol(text: str, fallback: str = "BTCUSD") -> str:
 
 
 def analyze_headline(title: str, summary: str = "", fallback_symbol: str = "BTCUSD") -> dict[str, Any]:
-    """Classify headline impact (HIGH/MEDIUM/LOW), directional bias (BULLISH/BEARISH/NEUTRAL), and cTrader symbol."""
+    """Classify headline impact (HIGH/MEDIUM/LOW), directional bias with negation & USD inversion, and cTrader symbol."""
     combined = f"{title} {summary}".lower()
-    bull_hits = sum(1 for kw in BULLISH_KEYWORDS if _has_keyword(combined, kw))
-    bear_hits = sum(1 for kw in BEARISH_KEYWORDS if _has_keyword(combined, kw))
+    bull_hits = 0
+    bear_hits = 0
+    for kw in BULLISH_KEYWORDS:
+        if _has_keyword(combined, kw):
+            if _has_negated_keyword(combined, kw):
+                bear_hits += 1
+            else:
+                bull_hits += 1
+    for kw in BEARISH_KEYWORDS:
+        if _has_keyword(combined, kw):
+            if _has_negated_keyword(combined, kw):
+                bull_hits += 1
+            else:
+                bear_hits += 1
     high_hits = sum(1 for kw in HIGH_IMPACT_KEYWORDS if _has_keyword(combined, kw))
 
     if high_hits >= 1 or abs(bull_hits - bear_hits) >= 2:
@@ -191,6 +213,40 @@ def analyze_headline(title: str, summary: str = "", fallback_symbol: str = "BTCU
         impact = "LOW"
 
     net = bull_hits - bear_hits
+    symbol = infer_symbol(combined, fallback=fallback_symbol)
+    is_macro_usd = any(
+        _has_keyword(combined, kw)
+        for kw in ("fed", "fomc", "cpi", "nfp", "payroll", "powell", "interest rate", "taxa de juros", "corte de juros", "inflação", "inflacao")
+    )
+
+    # Dollar strength/weakness inverse correlation rule for USD pairs
+    reason = ""
+    has_usd_subject = any(_has_keyword(combined, kw) for kw in _USD_SUBJECT_TERMS)
+    has_other_asset = any(
+        _has_keyword(combined, kw)
+        for sym, kws in SYMBOL_KEYWORDS
+        if sym in ("BTCUSD", "ETHUSD", "XAUUSD", "EURUSD", "GBPUSD", "US100", "US500")
+        for kw in kws
+        if kw not in ("fed", "fomc", "cpi", "nfp", "payroll")
+    )
+    explicit_usd_weak = any(_has_keyword(combined, kw) for kw in ("rate cut", "corte de juros", "dovish"))
+    explicit_usd_strong = any(_has_keyword(combined, kw) for kw in ("rate hike", "alta de juros", "hawkish"))
+    if has_usd_subject and (net != 0 or explicit_usd_weak or explicit_usd_strong) and not has_other_asset:
+        usd_strong = net > 0
+        if explicit_usd_weak:
+            usd_strong = False
+        elif explicit_usd_strong:
+            usd_strong = True
+
+        mag = max(1, abs(net))
+        target_sym = str(fallback_symbol or symbol or "").upper()
+        if target_sym in _USD_QUOTE_SYMBOLS or symbol in _USD_QUOTE_SYMBOLS:
+            net = -mag if usd_strong else mag
+            reason = "Dólar forte pressiona o ativo para baixo." if usd_strong else "Dólar fraco favorece alta do ativo."
+        elif target_sym in _USD_BASE_SYMBOLS or symbol in _USD_BASE_SYMBOLS:
+            net = mag if usd_strong else -mag
+            reason = "Dólar forte impulsiona o par USD/*." if usd_strong else "Dólar fraco pressiona o par USD/*."
+
     if net > 0:
         bias = "BULLISH"
     elif net < 0:
@@ -199,17 +255,14 @@ def analyze_headline(title: str, summary: str = "", fallback_symbol: str = "BTCU
         bias = "NEUTRAL"
 
     score = max(-1.0, min(1.0, net / 3.0))
-    symbol = infer_symbol(combined, fallback=fallback_symbol)
-    is_macro_usd = any(
-        _has_keyword(combined, kw)
-        for kw in ("fed", "fomc", "cpi", "nfp", "payroll", "powell", "interest rate", "taxa de juros", "corte de juros", "inflação", "inflacao")
-    )
     return {
         "symbol": symbol,
         "impact": impact,
         "bias": bias,
         "score": round(score, 2),
         "is_macro_usd": is_macro_usd,
+        "analysis_source": "LOCAL_RULES",
+        "ai_reason": reason,
     }
 
 
@@ -349,8 +402,163 @@ def _recency_weight(published_ts: float, now_ts: float) -> float:
     return 0.1
 
 
+class AINewsAnalyzer:
+    """Optional semantic news analyzer via Gemini or OpenAI REST API with per-item cache and safe fallback."""
+
+    def __init__(
+        self,
+        enabled: bool = False,
+        provider: str = "gemini",
+        api_key: str = "",
+        model: str = "gemini-2.0-flash",
+        http_poster: Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> None:
+        self.enabled = bool(enabled)
+        self.provider = provider if provider in ("gemini", "openai") else "gemini"
+        self.api_key = str(api_key or "").strip()
+        self.model = str(model or ("gemini-2.0-flash" if self.provider == "gemini" else "gpt-4o-mini")).strip()
+        self._http_poster = http_poster or self._default_post_json
+        self._cache: dict[str, dict[str, Any]] = {}
+        self.last_error: str = ""
+
+    def _default_post_json(self, url: str, headers: dict[str, str], body: dict[str, Any]) -> dict[str, Any]:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json", **headers},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="ignore") or "{}")
+
+    def configure(
+        self,
+        enabled: bool,
+        provider: str,
+        api_key: str,
+        model: str = "",
+        http_poster: Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> None:
+        self.enabled = bool(enabled)
+        self.provider = provider if provider in ("gemini", "openai") else "gemini"
+        self.api_key = str(api_key or "").strip()
+        default_m = "gemini-2.0-flash" if self.provider == "gemini" else "gpt-4o-mini"
+        self.model = str(model or default_m).strip() or default_m
+        if http_poster is not None:
+            self._http_poster = http_poster
+
+    def enrich_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not self.enabled or not self.api_key or not items:
+            return items
+
+        out = [dict(it) for it in items]
+        pending: list[dict[str, Any]] = []
+        for idx, it in enumerate(out):
+            iid = str(it.get("id") or "")
+            cached = self._cache.get(iid)
+            if cached is not None:
+                out[idx].update(cached)
+            elif len(pending) < 12:
+                pending.append(it)
+
+        if not pending:
+            return out
+
+        lines = "\n".join(
+            f"ID={it['id']} SYMBOL_HINT={it.get('symbol', 'ALL')} TITLE={str(it.get('title', ''))[:160]}"
+            for it in pending
+        )
+        prompt = (
+            "Você é um analista quantitativo de Forex, Índices, Ouro e Cripto.\n"
+            "Classifique cada manchete abaixo em JSON (lista de objetos, ou objeto {\"items\": [...]}) com as chaves exatas:\n"
+            "- id: string com o codigo da manchete\n"
+            "- symbol: ativo mais afetado entre EURUSD, GBPUSD, USDJPY, XAUUSD, US100, US500, BTCUSD, ETHUSD ou ALL\n"
+            "- impact: HIGH, MEDIUM ou LOW\n"
+            "- bias: BULLISH (sobe o ativo), BEARISH (cai o ativo) ou NEUTRAL (lembre que dólar forte derruba EURUSD e XAUUSD!)\n"
+            "- score: numero entre -1.0 e 1.0\n"
+            "- reason: frase curta em portugues explicando o motivo\n\n"
+            f"Manchetes:\n{lines}"
+        )
+
+        try:
+            raw_text = ""
+            if self.provider == "gemini":
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(self.model)}:generateContent?key={urllib.parse.quote(self.api_key)}"
+                resp = self._http_poster(
+                    url,
+                    {},
+                    {
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1},
+                    },
+                )
+                cands = resp.get("candidates") or []
+                if cands and isinstance(cands[0], dict):
+                    parts = ((cands[0].get("content") or {}).get("parts")) or []
+                    if parts and isinstance(parts[0], dict):
+                        raw_text = str(parts[0].get("text") or "")
+            else:
+                resp = self._http_poster(
+                    "https://api.openai.com/v1/chat/completions",
+                    {"Authorization": f"Bearer {self.api_key}"},
+                    {
+                        "model": self.model,
+                        "temperature": 0.1,
+                        "response_format": {"type": "json_object"},
+                        "messages": [
+                            {"role": "system", "content": "Responda sempre com JSON valido."},
+                            {"role": "user", "content": prompt},
+                        ],
+                    },
+                )
+                choices = resp.get("choices") or []
+                if choices and isinstance(choices[0], dict):
+                    raw_text = str(((choices[0].get("message") or {}).get("content")) or "")
+
+            clean_json = raw_text.strip()
+            if clean_json.startswith("```"):
+                clean_json = re.sub(r"^```(?:json)?\s*|\s*```$", "", clean_json, flags=re.DOTALL).strip()
+            parsed = json.loads(clean_json or "[]")
+            rows = parsed.get("items") if isinstance(parsed, dict) else parsed
+            if not isinstance(rows, list):
+                return out
+
+            source_tag = "AI_GEMINI" if self.provider == "gemini" else "AI_OPENAI"
+            by_id: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                if not isinstance(row, dict) or not row.get("id"):
+                    continue
+                bias = str(row.get("bias") or "NEUTRAL").upper()
+                if bias not in ("BULLISH", "BEARISH", "NEUTRAL"):
+                    bias = "NEUTRAL"
+                imp = str(row.get("impact") or "MEDIUM").upper()
+                if imp not in ("HIGH", "MEDIUM", "LOW"):
+                    imp = "MEDIUM"
+                sc = max(-1.0, min(1.0, float(row.get("score") or 0.0)))
+                upd = {
+                    "symbol": str(row.get("symbol") or "ALL").upper(),
+                    "impact": imp,
+                    "bias": bias,
+                    "score": round(sc, 2),
+                    "ai_reason": str(row.get("reason") or "").strip()[:180],
+                    "analysis_source": source_tag,
+                }
+                by_id[str(row["id"])] = upd
+                self._cache[str(row["id"])] = upd
+                if len(self._cache) > 1000:
+                    self._cache.clear()
+
+            for idx, it in enumerate(out):
+                if str(it.get("id") or "") in by_id:
+                    out[idx].update(by_id[str(it["id"])])
+            self.last_error = ""
+        except Exception as exc:
+            self.last_error = str(exc)
+        return out
+
+
 class NewsScout:
-    """Periodic RSS/Atom news researcher that tracks seen items, feed health and recency-weighted sentiment."""
+    """Periodic RSS/Atom news researcher that tracks seen items, feed health, optional AI & recency sentiment."""
 
     def __init__(self, fetcher: Callable[[str], str] | None = None) -> None:
         self._fetcher = fetcher or self._default_fetch
@@ -359,6 +567,23 @@ class NewsScout:
         self.feed_status: list[dict[str, Any]] = []
         self.last_scan_at: float = 0.0
         self.last_error: str = ""
+        self._ai_analyzer = AINewsAnalyzer()
+
+    def configure_ai(
+        self,
+        enabled: bool,
+        provider: str,
+        api_key: str,
+        model: str = "",
+        http_poster: Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> None:
+        self._ai_analyzer.configure(
+            enabled=enabled,
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            http_poster=http_poster,
+        )
 
     def _default_fetch(self, url: str) -> str:
         req = urllib.request.Request(
@@ -407,6 +632,9 @@ class NewsScout:
             self.last_error = " | ".join(errors[:2])
         else:
             self.last_error = ""
+
+        if self.items and self._ai_analyzer.enabled and self._ai_analyzer.api_key:
+            self.items = self._ai_analyzer.enrich_items(self.items)
 
         new_items = [it for it in self.items if it["id"] not in self._seen_ids]
         for it in new_items:
@@ -650,10 +878,53 @@ class EconomicCalendarScout:
         self._sync_shared()
         return self.events
 
-    def snapshot_dict(self, now_ts: float | None = None) -> dict[str, Any]:
+    @staticmethod
+    def symbol_currencies(symbol: str) -> set[str]:
+        sym = str(symbol or "").upper()
+        if any(idx in sym for idx in ("US100", "US500", "US30", "NAS100", "SPX", "BTC", "ETH")):
+            return {"USD"}
+        if "XAU" in sym or "XAG" in sym:
+            return {"USD"}
+        if "DE40" in sym or "DAX" in sym:
+            return {"EUR"}
+        known = ("USD", "EUR", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF")
+        matched = {cur for cur in known if cur in sym}
+        return matched or {"USD"}
+
+    def get_active_shield_events(
+        self,
+        symbol: str,
+        window_minutes: int = 15,
+        now_ts: float | None = None,
+    ) -> list[dict[str, Any]]:
         ref_now = time.time() if now_ts is None else float(now_ts)
+        win_sec = max(5, int(window_minutes)) * 60.0
+        target_currencies = self.symbol_currencies(symbol)
+        active: list[dict[str, Any]] = []
+        for ev in self.events:
+            if str(ev.get("impact") or "") != "HIGH":
+                continue
+            if str(ev.get("currency") or "").upper() not in target_currencies:
+                continue
+            ts = float(ev.get("timestamp") or 0.0)
+            if ts <= 0:
+                continue
+            if abs(ts - ref_now) <= win_sec:
+                active.append(
+                    {
+                        **ev,
+                        "is_upcoming": ts > ref_now,
+                        "countdown": "Agora" if abs(ts - ref_now) <= 60 else _format_countdown(ts - ref_now),
+                    }
+                )
+        return active
+
+    def snapshot_dict(self, now_ts: float | None = None, window_minutes: int = 15) -> dict[str, Any]:
+        ref_now = time.time() if now_ts is None else float(now_ts)
+        win_sec = max(5, int(window_minutes)) * 60.0
         enriched: list[dict[str, Any]] = []
         next_high: dict[str, Any] | None = None
+        active_shield: list[dict[str, Any]] = []
         for ev in self.events:
             ts = float(ev.get("timestamp") or 0.0)
             delta = ts - ref_now if ts > 0 else -1.0
@@ -668,6 +939,8 @@ class EconomicCalendarScout:
                 next_high is None or float(rec.get("timestamp") or 0.0) < float(next_high.get("timestamp") or 0.0)
             ):
                 next_high = rec
+            if ev.get("impact") == "HIGH" and ts > 0 and abs(ts - ref_now) <= win_sec:
+                active_shield.append(rec)
         # Upcoming events first (ascending), followed by finished events (most recent first)
         enriched.sort(
             key=lambda x: (
@@ -681,4 +954,5 @@ class EconomicCalendarScout:
             "last_error": self.last_error,
             "status_note": self.status_note,
             "next_high_impact": next_high,
+            "active_shield_events": active_shield,
         }

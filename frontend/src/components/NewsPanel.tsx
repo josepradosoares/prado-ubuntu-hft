@@ -209,7 +209,21 @@ export function NewsPanel({
           )}
 
           {/* Controles Reais do Motor */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          {(calendar?.active_shield_events?.length || 0) > 0 && (news?.calendar_shield_enabled ?? true) && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/15 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
+              <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
+              <div>
+                <strong className="block">
+                  Escudo do Calendário 3★ ATIVO AGORA — novas entradas pausadas nos pares afetados:
+                </strong>
+                <span>
+                  {calendar?.active_shield_events?.map((ev) => `${ev.currency} (${ev.title})`).join(' • ')}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             <button
               type="button"
               onClick={() => onUpdateNewsConfig({ news_bot_enabled: !(news?.enabled ?? false) })}
@@ -226,7 +240,62 @@ export function NewsPanel({
                 </span>
               </div>
               <div className="text-[11px] opacity-80 mt-1">
-                Busca contínua nas fontes oficiais selecionadas pela plataforma
+                Busca contínua nas fontes oficiais ({news?.ai_enabled ? `IA ${(news?.ai_provider || 'GEMINI').toUpperCase()} ativa` : 'Regras Locais PT/EN + Dólar Inverso'})
+              </div>
+            </button>
+
+            <div
+              className={`rounded-xl border px-4 py-3 flex flex-col justify-between gap-2 ${
+                news?.calendar_shield_enabled ?? true
+                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+                  : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateNewsConfig({ news_calendar_shield_enabled: !(news?.calendar_shield_enabled ?? true) })
+                  }
+                  className="text-xs font-bold inline-flex items-center gap-1.5 text-left"
+                >
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  Escudo Calendário 3★: {(news?.calendar_shield_enabled ?? true) ? 'LIGADO' : 'DESLIGADO'}
+                </button>
+                <select
+                  value={news?.calendar_pause_minutes ?? 15}
+                  onChange={(e) => onUpdateNewsConfig({ news_calendar_pause_minutes: Number(e.target.value) || 15 })}
+                  className="rounded-md border border-amber-500/30 bg-white dark:bg-slate-900 px-2 py-0.5 text-[11px] font-mono text-slate-800 dark:text-slate-100"
+                >
+                  <option value={10}>±10 min</option>
+                  <option value={15}>±15 min</option>
+                  <option value={30}>±30 min</option>
+                </select>
+              </div>
+              <div className="text-[11px] opacity-85">
+                Trava todos os robôs automaticamente antes e depois de eventos 3★ da moeda do ativo
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onUpdateNewsConfig({ news_filter_only: !(news?.news_filter_only ?? true) })}
+              className={`rounded-xl border px-4 py-3 text-left transition ${
+                news?.news_filter_only ?? true
+                  ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300'
+                  : 'border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300'
+              }`}
+            >
+              <div className="text-xs font-bold flex items-center justify-between">
+                <span>Modo: {(news?.news_filter_only ?? true) ? 'Filtro Puro (Seguro)' : 'Híbrido (Agressivo)'}</span>
+                <span className="rounded px-1.5 py-0.5 text-[10px] font-mono bg-white/60 dark:bg-slate-900/60">
+                  {(news?.news_filter_only ?? true) ? 'FILTRO' : 'HÍBRIDO'}
+                </span>
+              </div>
+              <div className="text-[11px] opacity-80 mt-1">
+                {(news?.news_filter_only ?? true)
+                  ? 'Só entra com sinal técnico confirmado e bloqueia entradas contra a notícia'
+                  : 'Permite abrir ordens extras a favor da manchete mesmo sem sinal técnico'}
               </div>
             </button>
 
@@ -242,16 +311,13 @@ export function NewsPanel({
               }`}
             >
               <div className="text-xs font-bold flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5">
-                  <ShieldAlert className="h-3.5 w-3.5" />
-                  Escudo de Alto Impacto
-                </span>
+                <span>Pausar Grid em Manchetes</span>
                 <span className="rounded px-1.5 py-0.5 text-[10px] font-mono bg-white/60 dark:bg-slate-900/60">
                   {news?.pause_grid_on_high_impact ? 'LIGADO' : 'DESLIGADO'}
                 </span>
               </div>
               <div className="text-[11px] opacity-80 mt-1">
-                Pausa robôs de Grid automaticamente quando sair notícia forte (FED/CPI/Payroll)
+                Pausa robôs de Grid quando surgir manchete de alto impacto
               </div>
             </button>
 
@@ -582,11 +648,21 @@ export function NewsPanel({
                         MACRO USD
                       </span>
                     )}
+                    {it.analysis_source && it.analysis_source.startsWith('AI_') && (
+                      <span className="rounded bg-violet-500/20 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:text-violet-300">
+                        IA
+                      </span>
+                    )}
                     <span className="text-[11px] text-slate-400">
                       {it.source} • {it.published_at}
                     </span>
                   </div>
                   <div className="font-medium text-slate-900 dark:text-slate-100">{it.title}</div>
+                  {it.ai_reason && (
+                    <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      Leitura: {it.ai_reason}
+                    </div>
+                  )}
                 </div>
                 {it.link && (
                   <a

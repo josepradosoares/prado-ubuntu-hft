@@ -119,6 +119,10 @@ class SaasStore:
                 "default_trial_plan_id": "pro",
                 "kiwify_webhook_secret": "",
                 "news_feeds": [],
+                "ai_news_enabled": False,
+                "ai_news_provider": "gemini",
+                "ai_news_model": "gemini-2.0-flash",
+                "ai_news_api_key": "",
             },
             "plans": [dict(p) for p in DEFAULT_PLANS],
             "subscriptions": {},
@@ -233,7 +237,24 @@ class SaasStore:
             s["default_trial_plan_id"] = str(s.get("default_trial_plan_id") or "pro")
             if not s.get("kiwify_webhook_secret"):
                 s["kiwify_webhook_secret"] = os.environ.get("KIWIFY_WEBHOOK_SECRET", "").strip()
+            s["ai_news_enabled"] = bool(s.get("ai_news_enabled", False))
+            prov = str(s.get("ai_news_provider") or "gemini").strip().lower()
+            s["ai_news_provider"] = prov if prov in ("gemini", "openai") else "gemini"
+            default_model = "gemini-2.0-flash" if s["ai_news_provider"] == "gemini" else "gpt-4o-mini"
+            s["ai_news_model"] = str(s.get("ai_news_model") or default_model).strip() or default_model
+            raw_key = str(s.get("ai_news_api_key") or "").strip()
+            if not raw_key:
+                env_name = "GEMINI_API_KEY" if s["ai_news_provider"] == "gemini" else "OPENAI_API_KEY"
+                raw_key = os.environ.get(env_name, "").strip()
+            s["ai_news_api_key"] = raw_key
             return s
+
+    def get_public_admin_settings(self) -> dict[str, Any]:
+        s = self.get_settings()
+        has_key = bool(s.get("ai_news_api_key"))
+        s["ai_news_api_key"] = ""
+        s["ai_news_api_key_set"] = has_key
+        return s
 
     def update_settings(self, updates: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -246,6 +267,20 @@ class SaasStore:
                 s["default_trial_plan_id"] = str(updates["default_trial_plan_id"]).strip()
             if "kiwify_webhook_secret" in updates:
                 s["kiwify_webhook_secret"] = str(updates["kiwify_webhook_secret"] or "").strip()
+            if "ai_news_enabled" in updates:
+                s["ai_news_enabled"] = bool(updates["ai_news_enabled"])
+            if "ai_news_provider" in updates:
+                prov = str(updates["ai_news_provider"] or "gemini").strip().lower()
+                if prov in ("gemini", "openai"):
+                    s["ai_news_provider"] = prov
+            if "ai_news_model" in updates and str(updates["ai_news_model"]).strip():
+                s["ai_news_model"] = str(updates["ai_news_model"]).strip()
+            if updates.get("clear_ai_api_key"):
+                s["ai_news_api_key"] = ""
+            elif "ai_news_api_key" in updates:
+                cand = str(updates["ai_news_api_key"] or "").strip()
+                if cand and cand != "********":
+                    s["ai_news_api_key"] = cand
             self._persist_local()
             if self.supabase and getattr(self.supabase, "is_enabled", False) and hasattr(self.supabase, "upsert_saas_settings"):
                 try:

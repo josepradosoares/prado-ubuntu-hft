@@ -241,6 +241,9 @@ class PradoServerConfig:
     news_auto_trade_enabled: bool = False
     news_lot_size: float = 0.01
     news_poll_interval_sec: int = 90
+    news_calendar_shield_enabled: bool = True
+    news_calendar_pause_minutes: int = 15
+    news_filter_only: bool = True
     news_feeds: list[dict[str, str]] = field(default_factory=lambda: [dict(f) for f in DEFAULT_NEWS_FEEDS])
 
 

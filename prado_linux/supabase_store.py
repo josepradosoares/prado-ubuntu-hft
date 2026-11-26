@@ -473,6 +473,10 @@ class SupabaseStore:
             "default_trial_plan_id": str(settings_dict.get("default_trial_plan_id") or "pro"),
             "kiwify_webhook_secret": str(settings_dict.get("kiwify_webhook_secret") or ""),
             "news_feeds": list(settings_dict.get("news_feeds") or []),
+            "ai_news_enabled": bool(settings_dict.get("ai_news_enabled", False)),
+            "ai_news_provider": str(settings_dict.get("ai_news_provider") or "gemini"),
+            "ai_news_model": str(settings_dict.get("ai_news_model") or "gemini-2.0-flash"),
+            "ai_news_api_key": str(settings_dict.get("ai_news_api_key") or ""),
         }
         self._request(
             "POST",

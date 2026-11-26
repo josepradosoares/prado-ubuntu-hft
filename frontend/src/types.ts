@@ -177,6 +177,7 @@ export interface EconomicCalendarSnapshot {
   last_error: string
   status_note?: string
   next_high_impact: EconomicCalendarEvent | null
+  active_shield_events?: EconomicCalendarEvent[]
 }
 
 export interface NewsItem {
@@ -190,6 +191,8 @@ export interface NewsItem {
   bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL'
   score: number
   is_macro_usd?: boolean
+  analysis_source?: string
+  ai_reason?: string
 }
 
 export interface NewsSnapshot {
@@ -198,6 +201,12 @@ export interface NewsSnapshot {
   auto_trade_enabled: boolean
   lot_size: number
   poll_interval_sec?: number
+  calendar_shield_enabled?: boolean
+  calendar_pause_minutes?: number
+  news_filter_only?: boolean
+  ai_enabled?: boolean
+  ai_provider?: string
+  ai_model?: string
   last_scan_at: number
   last_error?: string
   feeds?: NewsFeed[]
@@ -417,6 +426,11 @@ export interface PlatformSettings {
   trial_allow_real_trading: boolean
   default_trial_plan_id: string
   kiwify_webhook_secret: string
+  ai_news_enabled?: boolean
+  ai_news_provider?: 'gemini' | 'openai' | string
+  ai_news_model?: string
+  ai_news_api_key?: string
+  ai_news_api_key_set?: boolean
 }
 
 export interface UserEntitlements {

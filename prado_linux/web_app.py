@@ -42,6 +42,16 @@ class PradoWebApp:
         self._user_tokens: dict[str, str] = {}
         self._user_emails: dict[str, str] = {}
         self._services_lock = threading.Lock()
+        self._apply_ai_news_settings(self.service)
+
+    def _apply_ai_news_settings(self, svc: PradoTradingService) -> None:
+        settings = self.saas.get_settings()
+        svc.news_scout.configure_ai(
+            enabled=bool(settings.get("ai_news_enabled", False)),
+            provider=str(settings.get("ai_news_provider") or "gemini"),
+            api_key=str(settings.get("ai_news_api_key") or ""),
+            model=str(settings.get("ai_news_model") or "gemini-2.0-flash"),
+        )
 
     def _user_email(self, user: str) -> str:
         return self._user_emails.get(user, "")
@@ -161,6 +171,7 @@ class PradoWebApp:
                 if global_feeds:
                     u_cfg.news_feeds = global_feeds
                 svc = PradoTradingService(u_cfg, config_path=user_cfg_path)
+                self._apply_ai_news_settings(svc)
                 svc.step_once()
                 if not svc._thread or not svc._thread.is_alive():
                     svc.start_background_loop()
@@ -468,7 +479,7 @@ class PradoWebApp:
             if method == "GET" and clean_path == "/api/admin/overview":
                 host = headers.get("Host") or headers.get("host") or f"localhost:{self.cfg.web_port}"
                 proto = headers.get("X-Forwarded-Proto") or headers.get("x-forwarded-proto") or "http"
-                settings = self.saas.get_settings()
+                settings = self.saas.get_public_admin_settings()
                 sec = settings.get("kiwify_webhook_secret") or ""
                 wh_url = f"{proto}://{host}/api/webhooks/kiwify" + (f"?token={quote(sec)}" if sec else "")
                 return (
@@ -492,8 +503,12 @@ class PradoWebApp:
                     payload = json.loads(body.decode("utf-8") or "{}")
                 except Exception:
                     return 400, json.dumps({"ok": False, "error": "JSON invalido"}), {"Content-Type": "application/json"}
-                updated_set = self.saas.update_settings(payload if isinstance(payload, dict) else {})
-                return 200, json.dumps({"ok": True, "settings": updated_set}, ensure_ascii=False), {"Content-Type": "application/json"}
+                self.saas.update_settings(payload if isinstance(payload, dict) else {})
+                self._apply_ai_news_settings(self.service)
+                with self._services_lock:
+                    for u_svc in self._user_services.values():
+                        self._apply_ai_news_settings(u_svc)
+                return 200, json.dumps({"ok": True, "settings": self.saas.get_public_admin_settings()}, ensure_ascii=False), {"Content-Type": "application/json"}
             if method == "POST" and clean_path == "/api/admin/plans":
                 try:
                     payload = json.loads(body.decode("utf-8") or "{}")

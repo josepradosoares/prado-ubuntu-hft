@@ -1921,6 +1921,9 @@ class PradoTradingService:
         "news_auto_trade_enabled",
         "news_lot_size",
         "news_poll_interval_sec",
+        "news_calendar_shield_enabled",
+        "news_calendar_pause_minutes",
+        "news_filter_only",
     })
 
     def update_config(self, updates: dict[str, Any]) -> PradoServerConfig:
@@ -2759,12 +2762,20 @@ class PradoTradingService:
         return positions
 
     def _news_snapshot_dict(self) -> dict[str, Any]:
+        pause_mins = max(5, min(60, int(getattr(self.cfg, "news_calendar_pause_minutes", 15) or 15)))
+        ai_cfg = getattr(self.news_scout, "_ai_analyzer", None)
         return {
             "enabled": bool(getattr(self.cfg, "news_bot_enabled", False)),
             "pause_grid_on_high_impact": bool(getattr(self.cfg, "news_pause_grid_on_high_impact", False)),
             "auto_trade_enabled": bool(getattr(self.cfg, "news_auto_trade_enabled", False)),
             "lot_size": float(getattr(self.cfg, "news_lot_size", 0.01)),
             "poll_interval_sec": max(30, int(getattr(self.cfg, "news_poll_interval_sec", 90) or 90)),
+            "calendar_shield_enabled": bool(getattr(self.cfg, "news_calendar_shield_enabled", True)),
+            "calendar_pause_minutes": pause_mins,
+            "news_filter_only": bool(getattr(self.cfg, "news_filter_only", True)),
+            "ai_enabled": bool(getattr(ai_cfg, "enabled", False)) if ai_cfg else False,
+            "ai_provider": str(getattr(ai_cfg, "provider", "gemini")) if ai_cfg else "gemini",
+            "ai_model": str(getattr(ai_cfg, "model", "gemini-2.0-flash")) if ai_cfg else "gemini-2.0-flash",
             "last_scan_at": self.news_scout.last_scan_at,
             "last_error": self.news_scout.last_error,
             "feeds": list(getattr(self.cfg, "news_feeds", [])),
@@ -2772,7 +2783,7 @@ class PradoTradingService:
             "curated_catalog": [dict(c) for c in CURATED_NEWS_CATALOG],
             "items": list(self.news_scout.items),
             "summary_by_symbol": self.news_scout.summary_by_symbol(),
-            "calendar": self.economic_calendar.snapshot_dict(),
+            "calendar": self.economic_calendar.snapshot_dict(window_minutes=pause_mins),
         }
 
     def refresh_economic_calendar(self, force: bool = True) -> dict[str, Any]:
@@ -3160,6 +3171,20 @@ class PradoTradingService:
                         if custom_act:
                             bot_action = custom_act
 
+                    # Escudo Automático do Calendário Econômico 3★ (janela configurável antes/depois do evento)
+                    if (
+                        getattr(self.cfg, "news_calendar_shield_enabled", True)
+                        and bot.get("status") == "RUNNING"
+                        and self.cfg.auto_trading_enabled
+                    ):
+                        shield_mins = max(5, min(60, int(getattr(self.cfg, "news_calendar_pause_minutes", 15) or 15)))
+                        shield_events = self.economic_calendar.get_active_shield_events(bsym, window_minutes=shield_mins)
+                        if shield_events:
+                            ev = shield_events[0]
+                            bot["last_signal"] = "SHIELD_CALENDAR"
+                            bot["last_regime"] = f"ESCUDO 3★ ({ev['currency']}: {str(ev.get('title', ''))[:28]})"
+                            continue
+
                     if bot["template_id"] == "GRID_LINEAR_HFT" or str(bot.get("operation_mode", "")).upper() == "GRID_LINEAR":
                         positions = self._evaluate_grid_bot(bot, last_price, positions, risk_locked)
                         continue
@@ -3211,15 +3236,28 @@ class PradoTradingService:
                             and self.cfg.auto_trading_enabled
                             and not risk_locked
                         ):
+                            pure_filter = bool(getattr(self.cfg, "news_filter_only", True))
                             chosen_action = ""
-                            if news_bias == "BULLISH" and not bot_action.startswith("SELL"):
-                                chosen_action = "BUY_NEWS_HYBRID"
-                            elif news_bias == "BEARISH" and not bot_action.startswith("BUY"):
-                                chosen_action = "SELL_NEWS_HYBRID"
-                            elif bot_action in ("BUY_FLOW", "BUY_REVERT_VWAP") and news_bias != "BEARISH":
-                                chosen_action = bot_action
-                            elif bot_action in ("SELL_FLOW", "SELL_REVERT_VWAP") and news_bias != "BULLISH":
-                                chosen_action = bot_action
+                            if pure_filter:
+                                if bot_action in ("BUY_FLOW", "BUY_REVERT_VWAP"):
+                                    if news_bias == "BEARISH":
+                                        bot["last_signal"] = "BLOCKED_BY_NEWS"
+                                    else:
+                                        chosen_action = bot_action
+                                elif bot_action in ("SELL_FLOW", "SELL_REVERT_VWAP"):
+                                    if news_bias == "BULLISH":
+                                        bot["last_signal"] = "BLOCKED_BY_NEWS"
+                                    else:
+                                        chosen_action = bot_action
+                            else:
+                                if news_bias == "BULLISH" and not bot_action.startswith("SELL"):
+                                    chosen_action = "BUY_NEWS_HYBRID"
+                                elif news_bias == "BEARISH" and not bot_action.startswith("BUY"):
+                                    chosen_action = "SELL_NEWS_HYBRID"
+                                elif bot_action in ("BUY_FLOW", "BUY_REVERT_VWAP") and news_bias != "BEARISH":
+                                    chosen_action = bot_action
+                                elif bot_action in ("SELL_FLOW", "SELL_REVERT_VWAP") and news_bias != "BULLISH":
+                                    chosen_action = bot_action
 
                             if chosen_action and not any(p["symbol"] == bsym for p in positions):
                                 if time.time() < float(bot.get("_unavailable_until", 0.0) or 0.0):

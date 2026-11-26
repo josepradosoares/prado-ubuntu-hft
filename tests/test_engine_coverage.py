@@ -193,6 +193,7 @@ def test_step_once_risk_locks_bot_guards_news_hybrid_and_errors(
             "max_loss_usd": 10.0,
         }
     )
+    svc.cfg.news_filter_only = False
     bot_news = svc.create_bot(
         {
             "name": "BotNews",

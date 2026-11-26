@@ -39,6 +39,11 @@ export function AdminPanel({ inputClass, showToast, onPlansChanged }: AdminPanel
     trial_allow_real_trading: false,
     default_trial_plan_id: 'pro',
     kiwify_webhook_secret: '',
+    ai_news_enabled: false,
+    ai_news_provider: 'gemini',
+    ai_news_model: 'gemini-2.0-flash',
+    ai_news_api_key: '',
+    ai_news_api_key_set: false,
   })
   const [plans, setPlans] = useState<SaasPlan[]>([])
   const [subs, setSubs] = useState<SaasSubscriptionRecord[]>([])
@@ -282,6 +287,70 @@ export function AdminPanel({ inputClass, showToast, onPlansChanged }: AdminPanel
                 <Save className="h-3.5 w-3.5" />
                 Salvar configurações
               </button>
+            </div>
+
+            <div className="md:col-span-2 lg:col-span-4 rounded-xl border border-violet-500/25 bg-violet-500/5 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-bold text-slate-900 dark:text-white">
+                    Inteligência Artificial nas Notícias (Opcional — Gemini ou OpenAI)
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Interpreta contexto real, negação e correlação do dólar em cada manchete nova (com cache para gastar quase zero). Se desligado, usa as regras gratuitas locais.
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settings.ai_news_enabled)}
+                    onChange={(e) => setSettings((s) => ({ ...s, ai_news_enabled: e.target.checked }))}
+                    className="rounded"
+                  />
+                  <span>{settings.ai_news_enabled ? 'IA Ativada' : 'IA Desativada'}</span>
+                </label>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-1">Provedor de IA</label>
+                  <select
+                    value={settings.ai_news_provider || 'gemini'}
+                    onChange={(e) => {
+                      const prov = e.target.value
+                      setSettings((s) => ({
+                        ...s,
+                        ai_news_provider: prov,
+                        ai_news_model: prov === 'openai' ? 'gpt-4o-mini' : 'gemini-2.0-flash',
+                      }))
+                    }}
+                    className={inputClass}
+                  >
+                    <option value="gemini">Google Gemini (Recomendado)</option>
+                    <option value="openai">OpenAI (ChatGPT)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-1">Modelo</label>
+                  <input
+                    type="text"
+                    value={settings.ai_news_model || ''}
+                    onChange={(e) => setSettings((s) => ({ ...s, ai_news_model: e.target.value }))}
+                    placeholder="gemini-2.0-flash"
+                    className={`${inputClass} font-mono`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-1">
+                    Chave da API ({settings.ai_news_api_key_set ? 'Salva' : 'Não configurada'})
+                  </label>
+                  <input
+                    type="password"
+                    value={settings.ai_news_api_key || ''}
+                    onChange={(e) => setSettings((s) => ({ ...s, ai_news_api_key: e.target.value }))}
+                    placeholder={settings.ai_news_api_key_set ? 'Chave salva (cole outra para trocar)' : 'Cole sua API Key aqui'}
+                    className={`${inputClass} font-mono`}
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="md:col-span-2 lg:col-span-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-3 flex flex-wrap items-center justify-between gap-2 text-xs">

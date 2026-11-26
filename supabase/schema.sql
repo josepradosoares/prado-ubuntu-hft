@@ -168,6 +168,10 @@ create table if not exists public.prado_platform_settings (
   default_trial_plan_id text not null default 'pro',
   kiwify_webhook_secret text not null default '',
   news_feeds jsonb not null default '[]'::jsonb,
+  ai_news_enabled boolean not null default false,
+  ai_news_provider text not null default 'gemini',
+  ai_news_model text not null default 'gemini-2.0-flash',
+  ai_news_api_key text not null default '',
   updated_at timestamptz not null default now()
 );
 
