@@ -34,6 +34,7 @@ import { BacktestEquityChart } from './components/BacktestEquityChart'
 import { BotCardGrid } from './components/BotCardGrid'
 import { ModelBuilderPanel } from './components/ModelBuilderPanel'
 import { AdminPanel } from './components/AdminPanel'
+import { NewsPanel } from './components/NewsPanel'
 import { Sidebar, TabKey } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { MarketIndicatorsBar } from './components/MarketIndicatorsBar'
@@ -58,7 +59,6 @@ import {
   formatDataSource,
   formatExitReason,
   formatLogModule,
-  formatNewsImpact,
   formatPeriod,
   formatRegime,
   formatSignal,
@@ -286,10 +286,7 @@ export default function App() {
   const [useCustomCreds, setUseCustomCreds] = useState(false)
   const [syncingAccounts, setSyncingAccounts] = useState(false)
   const [newsScanning, setNewsScanning] = useState(false)
-  const [feedEditingId, setFeedEditingId] = useState('')
-  const [feedSource, setFeedSource] = useState('')
-  const [feedUrl, setFeedUrl] = useState('')
-  const [feedSymbol, setFeedSymbol] = useState('ALL')
+  const [calendarRefreshing, setCalendarRefreshing] = useState(false)
 
   // Settings password state
   const [newAdminPassword, setNewAdminPassword] = useState('')
@@ -925,11 +922,34 @@ export default function App() {
     }
   }
 
-  async function saveNewsFeed(e: FormEvent) {
-    e.preventDefault()
-    if (!feedUrl.trim()) {
+  async function refreshCalendarNow() {
+    setCalendarRefreshing(true)
+    try {
+      const res = await fetch('/api/news/calendar', { method: 'POST' })
+      const d = await res.json()
+      if (res.ok && d.ok) {
+        showToast(`Agenda econômica atualizada: ${(d.calendar?.events || []).length} evento(s).`)
+        const stRes = await fetch('/api/status')
+        if (stRes.ok) setSnapshot(await stRes.json())
+      } else {
+        showToast(d.error || 'Falha ao atualizar calendário econômico.', true)
+      }
+    } catch {
+      showToast('Erro de rede ao atualizar calendário econômico.', true)
+    } finally {
+      setCalendarRefreshing(false)
+    }
+  }
+
+  async function saveNewsFeed(payload: {
+    feed_id?: string
+    source: string
+    url: string
+    default_symbol: string
+  }): Promise<boolean> {
+    if (!payload.url.trim()) {
       showToast('Informe a URL da fonte/RSS.', true)
-      return
+      return false
     }
     try {
       const res = await fetch('/api/news/feeds', {
@@ -937,26 +957,24 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'SAVE',
-          feed_id: feedEditingId || undefined,
-          source: feedSource.trim() || 'Fonte Customizada',
-          url: feedUrl.trim(),
-          default_symbol: feedSymbol || 'BTCUSD',
+          feed_id: payload.feed_id || undefined,
+          source: payload.source.trim() || 'Fonte Customizada',
+          url: payload.url.trim(),
+          default_symbol: payload.default_symbol || 'ALL',
         }),
       })
       const d = await res.json()
       if (res.ok && d.ok) {
-        setFeedEditingId('')
-        setFeedSource('')
-        setFeedUrl('')
-        setFeedSymbol('BTCUSD')
-        showToast('URL de notícia salva com sucesso!')
+        showToast('Fonte de notícias salva globalmente!')
         const stRes = await fetch('/api/status')
         if (stRes.ok) setSnapshot(await stRes.json())
-      } else {
-        showToast(d.error || 'Falha ao salvar URL de notícia.', true)
+        return true
       }
+      showToast(d.error || 'Falha ao salvar fonte de notícias.', true)
+      return false
     } catch {
-      showToast('Erro de rede ao salvar URL de notícia.', true)
+      showToast('Erro de rede ao salvar fonte de notícias.', true)
+      return false
     }
   }
 
@@ -969,12 +987,7 @@ export default function App() {
       })
       const d = await res.json()
       if (res.ok && d.ok) {
-        if (feedEditingId === feedId) {
-          setFeedEditingId('')
-          setFeedSource('')
-          setFeedUrl('')
-        }
-        showToast('URL de notícia removida.')
+        showToast('Fonte de notícias removida.')
         const stRes = await fetch('/api/status')
         if (stRes.ok) setSnapshot(await stRes.json())
       } else {
@@ -994,17 +1007,14 @@ export default function App() {
       })
       const d = await res.json()
       if (res.ok && d.ok) {
-        setFeedEditingId('')
-        setFeedSource('')
-        setFeedUrl('')
-        showToast('URLs padrão restauradas!')
+        showToast('Fontes padrão restauradas!')
         const stRes = await fetch('/api/status')
         if (stRes.ok) setSnapshot(await stRes.json())
       } else {
-        showToast(d.error || 'Falha ao restaurar URLs padrão.', true)
+        showToast(d.error || 'Falha ao restaurar fontes padrão.', true)
       }
     } catch {
-      showToast('Erro de rede ao restaurar URLs.', true)
+      showToast('Erro de rede ao restaurar fontes.', true)
     }
   }
 
@@ -3550,274 +3560,22 @@ export default function App() {
               {activeTab === 'news' && !hasFeature('news_bot') && renderLockedFeatureCard('news_bot', 'Monitor e Robô de Notícias')}
 
               {activeTab === 'news' && hasFeature('news_bot') && (
-                <div className="space-y-6">
-                  <Card>
-                    <CardHeader className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <CardTitle>Pesquisa &amp; Notícias na Internet</CardTitle>
-                        <CardDescription>
-                          Monitora manchetes das URLs configuradas abaixo. Os robôs só usam essas notícias se você ativar a opção &quot;Operar com Técnica + Notícias&quot; ao criar ou editar o robô.
-                        </CardDescription>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={scanNewsNow}
-                        disabled={newsScanning}
-                        className="rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                      >
-                        {newsScanning ? 'Pesquisando...' : 'Pesquisar Notícias Agora'}
-                      </button>
-                    </CardHeader>
-                    <CardBody className="space-y-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <button
-                          type="button"
-                          onClick={() => updateNewsConfig({ news_bot_enabled: !(snapshot?.news?.enabled ?? false) })}
-                          className={`rounded-xl border px-4 py-3 text-left transition ${
-                            snapshot?.news?.enabled
-                              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                              : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-300'
-                          }`}
-                        >
-                          <div className="text-xs font-bold">
-                            Robô de Pesquisa: {snapshot?.news?.enabled ? 'ATIVO' : 'PAUSADO'}
-                          </div>
-                          <div className="text-[11px] opacity-80 mt-0.5">
-                            Pesquisa automática a cada 90s nas URLs cadastradas (sem interferir automaticamente nos robôs)
-                          </div>
-                        </button>
-                      </div>
-
-                      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-4 space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <div className="text-xs font-bold text-slate-900 dark:text-white">
-                              Fontes &amp; URLs Monitoradas ({(snapshot?.news?.feeds || []).length})
-                            </div>
-                            <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                              Cadastre, troque ou exclua URLs RSS/notícias que alimentam os robôs com Técnica + Notícias ativada
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={resetNewsFeeds}
-                            className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800"
-                          >
-                            Restaurar padrões
-                          </button>
-                        </div>
-
-                        <form onSubmit={saveNewsFeed} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
-                          <div className="md:col-span-3">
-                            <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">Nome da fonte</label>
-                            <input
-                              type="text"
-                              placeholder="Ex: Reuters / RSS"
-                              value={feedSource}
-                              onChange={(e) => setFeedSource(e.target.value)}
-                              className={inputClass}
-                            />
-                          </div>
-                          <div className="md:col-span-5">
-                            <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">URL do Feed / Site</label>
-                            <input
-                              type="url"
-                              required
-                              placeholder="https://..."
-                              value={feedUrl}
-                              onChange={(e) => setFeedUrl(e.target.value)}
-                              className={inputClass}
-                            />
-                          </div>
-                          <div className="md:col-span-2">
-                            <div className="flex items-center justify-between mb-1">
-                              <label className="block text-[11px] text-slate-500 dark:text-slate-400">Ativo padrão</label>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  symbolModeRef.current = 'TODOS'
-                                  setSymbolMode('TODOS')
-                                  try {
-                                    const r = await fetch('/api/symbols?mode=TODOS')
-                                    if (r.ok) {
-                                      const d = await r.json()
-                                      setSymbols(Array.isArray(d.symbols) ? d.symbols : [])
-                                      showToast(`Carregados ${(d.symbols || []).length} ativos da cTrader!`)
-                                    }
-                                  } catch {
-                                    showToast('Erro ao carregar todos os ativos.', true)
-                                  }
-                                }}
-                                className="text-[10px] font-semibold text-blue-500 hover:text-blue-400"
-                              >
-                                Carregar todos ({symbols.length})
-                              </button>
-                            </div>
-                            <select
-                              value={feedSymbol}
-                              onChange={(e) => setFeedSymbol(e.target.value)}
-                              className={inputClass}
-                            >
-                              <option value="ALL">TODOS (Monitorar todos os ativos)</option>
-                              {symbols.map((s) => (
-                                <option key={s.name} value={s.name}>
-                                  {formatSymbolDisplay(s.name, symbols)}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="md:col-span-2 flex gap-1.5">
-                            <button
-                              type="submit"
-                              className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 px-3 py-2 text-xs font-semibold text-white"
-                            >
-                              {feedEditingId ? 'Atualizar' : 'Salvar URL'}
-                            </button>
-                            {feedEditingId && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setFeedEditingId('')
-                                  setFeedSource('')
-                                  setFeedUrl('')
-                                }}
-                                className="rounded-xl border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-600 dark:text-slate-300"
-                              >
-                                Cancelar
-                              </button>
-                            )}
-                          </div>
-                        </form>
-
-                        <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                          {(snapshot?.news?.feeds || []).map((f) => (
-                            <div
-                              key={f.feed_id}
-                              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 px-3 py-2"
-                            >
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs font-semibold text-slate-900 dark:text-white">{f.source}</span>
-                                  <span className="rounded bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-700 dark:text-slate-300">
-                                    {formatSymbolDisplay(f.default_symbol, symbols)}
-                                  </span>
-                                </div>
-                                <div className="truncate text-[11px] text-slate-500 dark:text-slate-400 font-mono">{f.url}</div>
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setFeedEditingId(f.feed_id)
-                                    setFeedSource(f.source)
-                                    setFeedUrl(f.url)
-                                    setFeedSymbol(f.default_symbol || 'BTCUSD')
-                                  }}
-                                  className="rounded-lg border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-                                >
-                                  Editar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => deleteNewsFeed(f.feed_id)}
-                                  className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] font-medium text-rose-600 dark:text-rose-300 hover:bg-rose-500/20"
-                                >
-                                  Apagar
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                        {Object.values(snapshot?.news?.summary_by_symbol || {}).map((s) => (
-                          <div
-                            key={s.symbol}
-                            className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-3"
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">{formatSymbolDisplay(s.symbol, symbols)}</span>
-                              <span
-                                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                                  s.bias === 'BULLISH'
-                                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
-                                    : s.bias === 'BEARISH'
-                                    ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300'
-                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                                }`}
-                              >
-                                {s.bias === 'BULLISH' ? 'ALTA' : s.bias === 'BEARISH' ? 'BAIXA' : 'NEUTRO'}
-                              </span>
-                            </div>
-                            <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                              {s.count} notícia(s) • {s.high_impact} alto impacto
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </CardBody>
-                  </Card>
-
-                  <Card className="overflow-hidden">
-                    <CardHeader>
-                      <CardTitle>Manchetes Financeiras Monitoradas ({snapshot?.news?.items?.length || 0})</CardTitle>
-                    </CardHeader>
-                    <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                      {!snapshot?.news?.items?.length ? (
-                        <div className="px-5 py-8 text-center text-xs text-slate-500">
-                          Nenhuma notícia carregada ainda. Clique em <strong>Pesquisar Notícias Agora</strong> acima.
-                        </div>
-                      ) : (
-                        snapshot.news.items.map((it) => (
-                          <div key={it.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-xs">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <span className="rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 font-mono text-[10px] font-bold text-slate-800 dark:text-white">
-                                  {it.symbol}
-                                </span>
-                                <span
-                                  className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
-                                    it.impact === 'HIGH'
-                                      ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
-                                  }`}
-                                >
-                                  {formatNewsImpact(it.impact)}
-                                </span>
-                                <span
-                                  className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
-                                    it.bias === 'BULLISH'
-                                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                      : it.bias === 'BEARISH'
-                                      ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
-                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
-                                  }`}
-                                >
-                                  {it.bias === 'BULLISH' ? 'ALTA' : it.bias === 'BEARISH' ? 'BAIXA' : 'NEUTRO'}
-                                </span>
-                                <span className="text-[11px] text-slate-400">
-                                  {it.source} • {it.published_at}
-                                </span>
-                              </div>
-                              <div className="font-medium text-slate-900 dark:text-slate-100">{it.title}</div>
-                            </div>
-                            {it.link && (
-                              <a
-                                href={it.link}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
-                              >
-                                Abrir
-                              </a>
-                            )}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </Card>
-                </div>
+                <NewsPanel
+                  news={snapshot?.news}
+                  bots={snapshot?.bots || config?.bots || []}
+                  symbols={symbols}
+                  isAdmin={isAdmin}
+                  newsScanning={newsScanning}
+                  calendarRefreshing={calendarRefreshing}
+                  inputClass={inputClass}
+                  onScanNews={scanNewsNow}
+                  onRefreshCalendar={refreshCalendarNow}
+                  onUpdateNewsConfig={updateNewsConfig}
+                  onSaveFeed={saveNewsFeed}
+                  onDeleteFeed={deleteNewsFeed}
+                  onResetFeeds={resetNewsFeeds}
+                  onLoadAllSymbols={() => refreshSymbols('TODOS')}
+                />
               )}
 
               {activeTab === 'monitor' && !hasFeature('market_radar') && renderLockedFeatureCard('market_radar', 'Radar de Mercado (VWAP / Z-Score)')}

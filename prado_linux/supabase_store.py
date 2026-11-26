@@ -472,6 +472,7 @@ class SupabaseStore:
             "trial_allow_real_trading": bool(settings_dict.get("trial_allow_real_trading", False)),
             "default_trial_plan_id": str(settings_dict.get("default_trial_plan_id") or "pro"),
             "kiwify_webhook_secret": str(settings_dict.get("kiwify_webhook_secret") or ""),
+            "news_feeds": list(settings_dict.get("news_feeds") or []),
         }
         self._request(
             "POST",

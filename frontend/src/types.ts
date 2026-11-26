@@ -138,6 +138,44 @@ export interface NewsFeed {
   default_symbol: string
 }
 
+export interface NewsFeedStatus {
+  feed_id: string
+  source: string
+  ok: boolean
+  count: number
+  error: string
+  checked_at: number
+}
+
+export interface CuratedNewsSource {
+  feed_id: string
+  source: string
+  url: string
+  default_symbol: string
+  language?: string
+  category?: string
+}
+
+export interface EconomicCalendarEvent {
+  id: string
+  title: string
+  currency: string
+  impact: 'HIGH' | 'MEDIUM' | 'LOW' | 'HOLIDAY' | string
+  timestamp: number
+  time_str: string
+  forecast: string
+  previous: string
+  is_upcoming: boolean
+  countdown: string
+}
+
+export interface EconomicCalendarSnapshot {
+  events: EconomicCalendarEvent[]
+  last_fetch_at: number
+  last_error: string
+  next_high_impact: EconomicCalendarEvent | null
+}
+
 export interface NewsItem {
   id: string
   title: string
@@ -156,11 +194,15 @@ export interface NewsSnapshot {
   pause_grid_on_high_impact: boolean
   auto_trade_enabled: boolean
   lot_size: number
+  poll_interval_sec?: number
   last_scan_at: number
   last_error?: string
   feeds?: NewsFeed[]
+  feed_status?: NewsFeedStatus[]
+  curated_catalog?: CuratedNewsSource[]
   items: NewsItem[]
   summary_by_symbol: Record<string, { symbol: string; count: number; high_impact: number; avg_score: number; bias: string }>
+  calendar?: EconomicCalendarSnapshot
 }
 
 export interface Snapshot {

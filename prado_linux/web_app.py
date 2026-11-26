@@ -35,6 +35,9 @@ class PradoWebApp:
             supabase_store=self.supabase,
             local_admin_username=self.cfg.admin_username,
         )
+        global_feeds = self.saas.get_global_news_feeds()
+        if global_feeds:
+            self.service.cfg.news_feeds = global_feeds
         self._user_services: dict[str, PradoTradingService] = {}
         self._user_tokens: dict[str, str] = {}
         self._user_emails: dict[str, str] = {}
@@ -154,6 +157,9 @@ class PradoWebApp:
                     u_cfg.active_symbols = list(self.cfg.active_symbols)
                     u_cfg.news_bot_enabled = self.cfg.news_bot_enabled
                     self.supabase.sync_user_config(user, token, u_cfg)
+                global_feeds = self.saas.get_global_news_feeds()
+                if global_feeds:
+                    u_cfg.news_feeds = global_feeds
                 svc = PradoTradingService(u_cfg, config_path=user_cfg_path)
                 svc.step_once()
                 if not svc._thread or not svc._thread.is_alive():
@@ -736,8 +742,16 @@ class PradoWebApp:
             svc.step_once()
             return 200, json.dumps({"ok": True, "news": news_data}, ensure_ascii=False), {"Content-Type": "application/json"}
 
-        if method == "POST" and clean_path == "/api/news/feeds":
+        if method == "POST" and clean_path == "/api/news/calendar":
             denied = self._require_access(user, "news_bot")
+            if denied is not None:
+                return denied
+            cal_data = svc.refresh_economic_calendar(force=True)
+            svc.step_once()
+            return 200, json.dumps({"ok": True, "calendar": cal_data}, ensure_ascii=False), {"Content-Type": "application/json"}
+
+        if method == "POST" and clean_path == "/api/news/feeds":
+            denied = self._require_admin(user)
             if denied is not None:
                 return denied
             try:
@@ -754,6 +768,11 @@ class PradoWebApp:
                     feeds = svc.save_news_feed(payload)
                 except ValueError as exc:
                     return 400, json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), {"Content-Type": "application/json"}
+            global_feeds = self.saas.set_global_news_feeds(feeds)
+            self.service.cfg.news_feeds = [dict(f) for f in global_feeds]
+            with self._services_lock:
+                for u_svc in self._user_services.values():
+                    u_svc.cfg.news_feeds = [dict(f) for f in global_feeds]
             self._sync_user(user, svc)
             return 200, json.dumps({"ok": True, "news_feeds": feeds}, ensure_ascii=False), {"Content-Type": "application/json"}
 

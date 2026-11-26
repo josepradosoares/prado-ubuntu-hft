@@ -39,7 +39,7 @@ from prado_linux.indicators import (
     evaluate_python_model,
     required_bars_for_indicators,
 )
-from prado_linux.news_scout import NewsScout, validate_rss_url
+from prado_linux.news_scout import CURATED_NEWS_CATALOG, EconomicCalendarScout, NewsScout, validate_rss_url
 
 
 def normalize_tp_config(tp_mode: Any, tp_value: Any) -> tuple[str, float]:
@@ -1326,6 +1326,7 @@ class PradoTradingService:
         self.connector = CTraderUniversalConnector(cfg)
         self.connector.connect()
         self.news_scout = NewsScout()
+        self.economic_calendar = EconomicCalendarScout()
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -2708,12 +2709,21 @@ class PradoTradingService:
             "pause_grid_on_high_impact": bool(getattr(self.cfg, "news_pause_grid_on_high_impact", False)),
             "auto_trade_enabled": bool(getattr(self.cfg, "news_auto_trade_enabled", False)),
             "lot_size": float(getattr(self.cfg, "news_lot_size", 0.01)),
+            "poll_interval_sec": max(30, int(getattr(self.cfg, "news_poll_interval_sec", 90) or 90)),
             "last_scan_at": self.news_scout.last_scan_at,
             "last_error": self.news_scout.last_error,
             "feeds": list(getattr(self.cfg, "news_feeds", [])),
+            "feed_status": list(getattr(self.news_scout, "feed_status", [])),
+            "curated_catalog": [dict(c) for c in CURATED_NEWS_CATALOG],
             "items": list(self.news_scout.items),
             "summary_by_symbol": self.news_scout.summary_by_symbol(),
+            "calendar": self.economic_calendar.snapshot_dict(),
         }
+
+    def refresh_economic_calendar(self, force: bool = True) -> dict[str, Any]:
+        with self._lock:
+            self.economic_calendar.fetch_week(force=force)
+            return self.economic_calendar.snapshot_dict()
 
     def save_news_feed(self, payload: dict[str, Any]) -> list[dict[str, str]]:
         with self._lock:
@@ -2853,6 +2863,7 @@ class PradoTradingService:
             poll_sec = max(30, int(getattr(self.cfg, "news_poll_interval_sec", 90) or 90))
             if force or (now - self.news_scout.last_scan_at) >= poll_sec:
                 _, new_items = self.news_scout.scan(feeds=self.cfg.news_feeds)
+                self.economic_calendar.fetch_week(force=False)
                 just_paused_ids: set[str] = set()
                 if getattr(self.cfg, "news_bot_enabled", False) and (
                     getattr(self.cfg, "news_pause_grid_on_high_impact", False)

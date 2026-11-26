@@ -167,6 +167,7 @@ create table if not exists public.prado_platform_settings (
   trial_allow_real_trading boolean not null default false,
   default_trial_plan_id text not null default 'pro',
   kiwify_webhook_secret text not null default '',
+  news_feeds jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now()
 );
 

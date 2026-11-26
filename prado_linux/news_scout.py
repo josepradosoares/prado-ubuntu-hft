@@ -1,10 +1,11 @@
-"""Internet financial news & market research scout for Prado Institutional HFT (zero paid keys)."""
+"""Internet financial news (RSS + Atom, PT-BR + EN) & Economic Calendar scout (zero paid keys)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import hashlib
 import ipaddress
+import json
 import re
 import socket
 import time
@@ -41,35 +42,117 @@ RSS_FEEDS: list[dict[str, str]] = [
 ]
 DEFAULT_NEWS_FEEDS = RSS_FEEDS
 
+CURATED_NEWS_CATALOG: list[dict[str, str]] = [
+    {
+        "feed_id": "gnews_br_macro",
+        "source": "Google Notícias Macro & Dólar (PT-BR)",
+        "url": "https://news.google.com/rss/search?q=dolar+OR+fed+OR+juros+OR+inflacao+EUA&hl=pt-BR&gl=BR&ceid=BR:pt-419",
+        "default_symbol": "EURUSD",
+        "language": "PT-BR",
+        "category": "Macro & Moedas",
+    },
+    {
+        "feed_id": "gnews_br_btc",
+        "source": "Google Notícias Bitcoin & Cripto (PT-BR)",
+        "url": "https://news.google.com/rss/search?q=bitcoin+OR+criptomoedas+mercado&hl=pt-BR&gl=BR&ceid=BR:pt-419",
+        "default_symbol": "BTCUSD",
+        "language": "PT-BR",
+        "category": "Cripto",
+    },
+    {
+        "feed_id": "gnews_br_ouro",
+        "source": "Google Notícias Ouro & Commodities (PT-BR)",
+        "url": "https://news.google.com/rss/search?q=ouro+cotacao+OR+onca+dolar&hl=pt-BR&gl=BR&ceid=BR:pt-419",
+        "default_symbol": "XAUUSD",
+        "language": "PT-BR",
+        "category": "Metais",
+    },
+    {
+        "feed_id": "gnews_br_nasdaq",
+        "source": "Google Notícias Nasdaq & S&P 500 (PT-BR)",
+        "url": "https://news.google.com/rss/search?q=nasdaq+OR+sp500+OR+wall+street&hl=pt-BR&gl=BR&ceid=BR:pt-419",
+        "default_symbol": "US100",
+        "language": "PT-BR",
+        "category": "Índices EUA",
+    },
+    {
+        "feed_id": "coindesk_rss",
+        "source": "CoinDesk (EN)",
+        "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        "default_symbol": "BTCUSD",
+        "language": "EN",
+        "category": "Cripto",
+    },
+    {
+        "feed_id": "fxstreet_forex",
+        "source": "FXStreet Forex News (EN)",
+        "url": "https://www.fxstreet.com/rss/news",
+        "default_symbol": "EURUSD",
+        "language": "EN",
+        "category": "Forex",
+    },
+    {
+        "feed_id": "yahoo_nasdaq",
+        "source": "Yahoo Finance Nasdaq 100 (EN)",
+        "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5ENDX&region=US&lang=en-US",
+        "default_symbol": "US100",
+        "language": "EN",
+        "category": "Índices EUA",
+    },
+    {
+        "feed_id": "infomoney_mercados",
+        "source": "InfoMoney Mercados (PT-BR)",
+        "url": "https://www.infomoney.com.br/mercados/feed/",
+        "default_symbol": "ALL",
+        "language": "PT-BR",
+        "category": "Brasil & Global",
+    },
+]
+
 HIGH_IMPACT_KEYWORDS = {
     "fed", "fomc", "powell", "cpi", "inflation", "payroll", "nfp", "interest rate",
     "rate cut", "rate hike", "ecb", "lagarde", "gdp", "sec", "etf", "hack", "exploit",
     "bankruptcy", "collapse", "crash", "emergency", "tariff", "war", "sanction",
     "recession", "unemployment", "halving", "ban",
+    # PT-BR
+    "inflação", "inflacao", "taxa de juros", "corte de juros", "alta de juros",
+    "juros", "bce", "pib", "desemprego", "recessão", "recessao", "tarifa",
+    "guerra", "sanção", "sancao", "falência", "falencia", "emergência", "emergencia",
+    "aprovação", "aprovacao", "aprovado", "banco central", "copom", "selic",
 }
 
 BULLISH_KEYWORDS = {
     "surge", "surges", "rally", "rallies", "jump", "jumps", "soar", "soars", "gain",
     "gains", "rise", "rises", "bullish", "approve", "approved", "etf inflow", "rate cut",
-    "dovish", "beat", "record high", "breakout", "rebound", "alta", "dispara", "sobe",
+    "dovish", "beat", "record high", "breakout", "rebound",
+    # PT-BR
+    "alta", "dispara", "sobe", "subida", "valoriza", "valorização", "valorizacao",
+    "recorde", "máxima", "maxima", "otimismo", "corte de juros", "aprovado",
+    "aprovação", "aprovacao", "avança", "avanca", "recupera", "recuperação", "forte demanda",
 }
 
 BEARISH_KEYWORDS = {
     "crash", "crashes", "plunge", "plunges", "drop", "drops", "fall", "falls", "slump",
     "bearish", "rate hike", "hawkish", "hack", "exploit", "bankruptcy", "collapse",
-    "lawsuit", "ban", "recession", "inflation fears", "selloff", "sell-off", "queda", "desaba",
+    "lawsuit", "ban", "recession", "inflation fears", "selloff", "sell-off",
+    # PT-BR
+    "queda", "desaba", "cai", "caída", "recua", "despencam", "despenca", "baixa",
+    "pessimismo", "alta de juros", "recessão", "recessao", "colapso", "mínima",
+    "minima", "pressão", "pressao", "temores", "liquidação", "liquidacao",
 }
 
 SYMBOL_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
-    ("BTCUSD", ("bitcoin", "btc", "crypto", "satoshi")),
+    ("BTCUSD", ("bitcoin", "btc", "crypto", "cripto", "criptomoeda", "satoshi")),
     ("ETHUSD", ("ethereum", "eth", "ether")),
     ("XAUUSD", ("gold", "xau", "bullion", "ouro")),
-    ("EURUSD", ("eurusd", "eur/usd", "euro", "ecb", "lagarde")),
-    ("GBPUSD", ("gbpusd", "gbp/usd", "pound", "sterling", "boe")),
-    ("USDJPY", ("usdjpy", "usd/jpy", "yen", "boj")),
+    ("EURUSD", ("eurusd", "eur/usd", "euro", "ecb", "bce", "lagarde")),
+    ("GBPUSD", ("gbpusd", "gbp/usd", "pound", "sterling", "libra", "boe")),
+    ("USDJPY", ("usdjpy", "usd/jpy", "yen", "iene", "boj")),
     ("US500", ("s&p 500", "sp500", "s&p", "wall street", "fed", "fomc", "cpi", "nfp", "payroll")),
-    ("US100", ("nasdaq", "tech stocks", "nvidia", "apple", "ai stocks")),
+    ("US100", ("nasdaq", "tech stocks", "nvidia", "apple", "ai stocks", "big techs")),
 ]
+
+_ATOM_NS = "{http://www.w3.org/2005/Atom}"
 
 
 def _clean_html(raw: str) -> str:
@@ -113,7 +196,10 @@ def analyze_headline(title: str, summary: str = "", fallback_symbol: str = "BTCU
 
     score = max(-1.0, min(1.0, net / 3.0))
     symbol = infer_symbol(combined, fallback=fallback_symbol)
-    is_macro_usd = any(kw in combined for kw in ("fed", "fomc", "cpi", "nfp", "payroll", "powell", "interest rate"))
+    is_macro_usd = any(
+        _has_keyword(combined, kw)
+        for kw in ("fed", "fomc", "cpi", "nfp", "payroll", "powell", "interest rate", "taxa de juros", "corte de juros", "inflação", "inflacao")
+    )
     return {
         "symbol": symbol,
         "impact": impact,
@@ -123,7 +209,29 @@ def analyze_headline(title: str, summary: str = "", fallback_symbol: str = "BTCU
     }
 
 
+def _parse_pub_date(pub_raw: str) -> tuple[float, str]:
+    raw = str(pub_raw or "").strip()
+    if not raw:
+        return time.time(), datetime.now().strftime("%d/%m %H:%M")
+    try:
+        dt = parsedate_to_datetime(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp(), dt.astimezone().strftime("%d/%m %H:%M")
+    except Exception:
+        pass
+    try:
+        iso = raw.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp(), dt.astimezone().strftime("%d/%m %H:%M")
+    except Exception:
+        return time.time(), datetime.now().strftime("%d/%m %H:%M")
+
+
 def parse_rss_xml(xml_text: str, source: str, default_symbol: str) -> list[dict[str, Any]]:
+    """Parse RSS 2.0 (<item>) or Atom (<entry>) XML feeds."""
     items: list[dict[str, Any]] = []
     if not xml_text.strip():
         return items
@@ -132,22 +240,57 @@ def parse_rss_xml(xml_text: str, source: str, default_symbol: str) -> list[dict[
     except ET.ParseError:
         return items
 
-    for node in root.findall(".//item")[:10]:
-        title = _clean_html(node.findtext("title") or "")
+    rss_nodes = root.findall(".//item")
+    if rss_nodes:
+        for node in rss_nodes[:10]:
+            title = _clean_html(node.findtext("title") or "")
+            if not title:
+                continue
+            link = (node.findtext("link") or "").strip()
+            desc = _clean_html(node.findtext("description") or "")
+            pub_ts, pub_str = _parse_pub_date(node.findtext("pubDate") or "")
+            analysis = analyze_headline(title, desc, fallback_symbol=default_symbol)
+            item_id = hashlib.sha1(f"{title}|{link}".encode("utf-8")).hexdigest()[:12]
+            items.append(
+                {
+                    "id": item_id,
+                    "title": title,
+                    "source": source,
+                    "link": link,
+                    "published_at": pub_str,
+                    "published_ts": pub_ts,
+                    **analysis,
+                }
+            )
+        return items
+
+    atom_nodes = root.findall(f".//{_ATOM_NS}entry") or root.findall(".//entry")
+    for node in atom_nodes[:10]:
+        title_raw = node.findtext(f"{_ATOM_NS}title") or node.findtext("title") or ""
+        title = _clean_html(title_raw)
         if not title:
             continue
-        link = (node.findtext("link") or "").strip()
-        desc = _clean_html(node.findtext("description") or "")
-        pub_raw = (node.findtext("pubDate") or "").strip()
-        pub_ts = time.time()
-        pub_str = datetime.now().strftime("%H:%M:%S")
-        if pub_raw:
-            try:
-                dt = parsedate_to_datetime(pub_raw)
-                pub_ts = dt.timestamp()
-                pub_str = dt.strftime("%d/%m %H:%M")
-            except Exception:
-                pass
+        link_el = node.find(f"{_ATOM_NS}link")
+        if link_el is None:
+            link_el = node.find("link")
+        link = (link_el.attrib.get("href") if link_el is not None else "") or (link_el.text if link_el is not None else "") or ""
+        link = link.strip()
+        desc_raw = (
+            node.findtext(f"{_ATOM_NS}summary")
+            or node.findtext("summary")
+            or node.findtext(f"{_ATOM_NS}content")
+            or node.findtext("content")
+            or ""
+        )
+        desc = _clean_html(desc_raw)
+        pub_raw = (
+            node.findtext(f"{_ATOM_NS}updated")
+            or node.findtext("updated")
+            or node.findtext(f"{_ATOM_NS}published")
+            or node.findtext("published")
+            or ""
+        )
+        pub_ts, pub_str = _parse_pub_date(pub_raw)
         analysis = analyze_headline(title, desc, fallback_symbol=default_symbol)
         item_id = hashlib.sha1(f"{title}|{link}".encode("utf-8")).hexdigest()[:12]
         items.append(
@@ -191,38 +334,61 @@ def validate_rss_url(url: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _recency_weight(published_ts: float, now_ts: float) -> float:
+    age = max(0.0, now_ts - float(published_ts or now_ts))
+    if age <= 6 * 3600:
+        return 1.0
+    if age <= 24 * 3600:
+        return 0.6
+    if age <= 72 * 3600:
+        return 0.25
+    return 0.1
+
+
 class NewsScout:
-    """Periodic RSS news researcher that tracks seen items so each headline acts at most once."""
+    """Periodic RSS/Atom news researcher that tracks seen items, feed health and recency-weighted sentiment."""
 
     def __init__(self, fetcher: Callable[[str], str] | None = None) -> None:
         self._fetcher = fetcher or self._default_fetch
         self._seen_ids: set[str] = set()
         self.items: list[dict[str, Any]] = []
+        self.feed_status: list[dict[str, Any]] = []
         self.last_scan_at: float = 0.0
         self.last_error: str = ""
 
     def _default_fetch(self, url: str) -> str:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Mozilla/5.0 PradoHFT-NewsScout/1.0", "Accept": "application/rss+xml, application/xml"},
+            headers={
+                "User-Agent": "Mozilla/5.0 PradoHFT-NewsScout/2.0",
+                "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml",
+            },
         )
         with urllib.request.urlopen(req, timeout=8) as resp:
             return resp.read().decode("utf-8", errors="ignore")
 
     def scan(self, feeds: list[dict[str, str]] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Scan RSS feeds; returns (all_recent_items, newly_discovered_items)."""
+        """Scan RSS/Atom feeds; returns (all_recent_items, newly_discovered_items)."""
         target_feeds = feeds or RSS_FEEDS
         collected: list[dict[str, Any]] = []
         errors: list[str] = []
+        statuses: list[dict[str, Any]] = []
+        now = time.time()
         for f in target_feeds:
+            fid = str(f.get("feed_id") or "")
+            source = str(f.get("source") or fid or "Fonte")
             try:
                 xml_txt = self._fetcher(f["url"])
-                parsed = parse_rss_xml(xml_txt, source=f["source"], default_symbol=f["default_symbol"])
+                parsed = parse_rss_xml(xml_txt, source=source, default_symbol=str(f.get("default_symbol") or "ALL"))
                 collected.extend(parsed)
+                statuses.append({"feed_id": fid, "source": source, "ok": True, "count": len(parsed), "error": "", "checked_at": now})
             except Exception as exc:
-                errors.append(f"{f['source']}: {exc}")
+                err_txt = str(exc)
+                errors.append(f"{source}: {err_txt}")
+                statuses.append({"feed_id": fid, "source": source, "ok": False, "count": 0, "error": err_txt, "checked_at": now})
 
-        self.last_scan_at = time.time()
+        self.feed_status = statuses
+        self.last_scan_at = now
         if collected:
             collected.sort(key=lambda x: float(x.get("published_ts", 0.0)), reverse=True)
             deduped: list[dict[str, Any]] = []
@@ -232,9 +398,11 @@ class NewsScout:
                     seen_now.add(it["id"])
                     deduped.append(it)
             self.items = deduped[:40]
-            self.last_error = ""
+            self.last_error = " | ".join(errors[:2]) if errors else ""
         elif errors:
             self.last_error = " | ".join(errors[:2])
+        else:
+            self.last_error = ""
 
         new_items = [it for it in self.items if it["id"] not in self._seen_ids]
         for it in new_items:
@@ -243,19 +411,137 @@ class NewsScout:
             self._seen_ids = {it["id"] for it in self.items}
         return self.items, new_items
 
-    def summary_by_symbol(self) -> dict[str, dict[str, Any]]:
+    def summary_by_symbol(self, now_ts: float | None = None) -> dict[str, dict[str, Any]]:
+        ref_now = time.time() if now_ts is None else float(now_ts)
         summary: dict[str, dict[str, Any]] = {}
         for it in self.items:
             sym = str(it.get("symbol", ""))
             if not sym:
                 continue
-            entry = summary.setdefault(sym, {"symbol": sym, "count": 0, "high_impact": 0, "score_sum": 0.0, "bias": "NEUTRAL"})
+            w = _recency_weight(float(it.get("published_ts") or ref_now), ref_now)
+            entry = summary.setdefault(
+                sym,
+                {"symbol": sym, "count": 0, "high_impact": 0, "weighted_sum": 0.0, "weight_total": 0.0, "bias": "NEUTRAL"},
+            )
             entry["count"] += 1
             if it.get("impact") == "HIGH":
                 entry["high_impact"] += 1
-            entry["score_sum"] += float(it.get("score", 0.0))
+            entry["weighted_sum"] += float(it.get("score", 0.0)) * w
+            entry["weight_total"] += w
         for entry in summary.values():
-            avg = entry["score_sum"] / max(1, entry["count"])
+            denom = max(1e-9, float(entry["weight_total"]))
+            avg = float(entry["weighted_sum"]) / denom
             entry["avg_score"] = round(avg, 2)
             entry["bias"] = "BULLISH" if avg > 0.1 else ("BEARISH" if avg < -0.1 else "NEUTRAL")
         return summary
+
+
+def _format_countdown(delta_sec: float) -> str:
+    if delta_sec <= 0:
+        return "Encerrado"
+    mins = int(delta_sec // 60)
+    if mins < 60:
+        return f"em {max(1, mins)}m"
+    hrs = mins // 60
+    rem_m = mins % 60
+    if hrs < 24:
+        return f"em {hrs}h {rem_m:02d}m"
+    days = hrs // 24
+    return f"em {days}d {hrs % 24}h"
+
+
+class EconomicCalendarScout:
+    """Weekly public economic calendar fetcher with caching (zero paid keys)."""
+
+    CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+
+    def __init__(self, fetcher: Callable[[str], str] | None = None, cache_sec: int = 1800) -> None:
+        self._fetcher = fetcher or self._default_fetch
+        self.cache_sec = max(60, int(cache_sec))
+        self.events: list[dict[str, Any]] = []
+        self.last_fetch_at: float = 0.0
+        self.last_error: str = ""
+
+    def _default_fetch(self, url: str) -> str:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 Quantix-EconomicCalendar/1.0", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return resp.read().decode("utf-8", errors="ignore")
+
+    def fetch_week(self, force: bool = False) -> list[dict[str, Any]]:
+        now = time.time()
+        if not force and self.last_fetch_at > 0 and (now - self.last_fetch_at) < self.cache_sec:
+            return self.events
+        try:
+            raw_txt = self._fetcher(self.CALENDAR_URL)
+            data = json.loads(raw_txt or "[]")
+            if not isinstance(data, list):
+                raise ValueError("Formato inválido do calendário econômico.")
+            parsed: list[dict[str, Any]] = []
+            for idx, item in enumerate(data):
+                if not isinstance(item, dict):
+                    continue
+                date_str = str(item.get("date") or "").strip()
+                ts = 0.0
+                time_label = date_str
+                if date_str:
+                    try:
+                        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        ts = dt.timestamp()
+                        time_label = dt.astimezone().strftime("%d/%m %H:%M")
+                    except Exception:
+                        pass
+                raw_imp = str(item.get("impact") or "Low").strip().upper()
+                impact = "HIGH" if raw_imp == "HIGH" else ("MEDIUM" if raw_imp == "MEDIUM" else ("HOLIDAY" if raw_imp == "HOLIDAY" else "LOW"))
+                currency = str(item.get("country") or item.get("currency") or "USD").strip().upper()
+                title = str(item.get("title") or "").strip()
+                if not title:
+                    continue
+                eid = hashlib.sha1(f"{currency}|{title}|{date_str}|{idx}".encode("utf-8")).hexdigest()[:12]
+                parsed.append(
+                    {
+                        "id": eid,
+                        "title": title,
+                        "currency": currency,
+                        "impact": impact,
+                        "timestamp": ts,
+                        "time_str": time_label,
+                        "forecast": str(item.get("forecast") or "").strip(),
+                        "previous": str(item.get("previous") or "").strip(),
+                    }
+                )
+            parsed.sort(key=lambda x: float(x.get("timestamp") or 0.0))
+            self.events = parsed[:120]
+            self.last_error = ""
+        except Exception as exc:
+            self.last_error = f"Falha ao consultar calendário econômico: {exc}"
+        finally:
+            self.last_fetch_at = now
+        return self.events
+
+    def snapshot_dict(self, now_ts: float | None = None) -> dict[str, Any]:
+        ref_now = time.time() if now_ts is None else float(now_ts)
+        enriched: list[dict[str, Any]] = []
+        next_high: dict[str, Any] | None = None
+        for ev in self.events:
+            ts = float(ev.get("timestamp") or 0.0)
+            delta = ts - ref_now if ts > 0 else -1.0
+            is_up = delta > 0
+            rec = {
+                **ev,
+                "is_upcoming": is_up,
+                "countdown": _format_countdown(delta) if ts > 0 else "--",
+            }
+            enriched.append(rec)
+            if is_up and ev.get("impact") == "HIGH" and next_high is None:
+                next_high = rec
+        return {
+            "events": enriched,
+            "last_fetch_at": self.last_fetch_at,
+            "last_error": self.last_error,
+            "next_high_impact": next_high,
+        }

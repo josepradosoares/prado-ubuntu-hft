@@ -118,6 +118,7 @@ class SaasStore:
                 "trial_allow_real_trading": False,
                 "default_trial_plan_id": "pro",
                 "kiwify_webhook_secret": "",
+                "news_feeds": [],
             },
             "plans": [dict(p) for p in DEFAULT_PLANS],
             "subscriptions": {},
@@ -252,6 +253,25 @@ class SaasStore:
                 except Exception:
                     pass
             return self.get_settings()
+
+    def get_global_news_feeds(self) -> list[dict[str, str]]:
+        with self._lock:
+            raw = self._state["settings"].get("news_feeds") or []
+            if isinstance(raw, list) and raw:
+                return [dict(f) for f in raw if isinstance(f, dict)]
+            return []
+
+    def set_global_news_feeds(self, feeds: list[dict[str, str]]) -> list[dict[str, str]]:
+        with self._lock:
+            cleaned = [dict(f) for f in feeds if isinstance(f, dict) and f.get("url")]
+            self._state["settings"]["news_feeds"] = cleaned
+            self._persist_local()
+            if self.supabase and getattr(self.supabase, "is_enabled", False) and hasattr(self.supabase, "upsert_saas_settings"):
+                try:
+                    self.supabase.upsert_saas_settings(self._state["settings"])
+                except Exception:
+                    pass
+            return [dict(f) for f in cleaned]
 
     def list_plans(self, active_only: bool = False) -> list[dict[str, Any]]:
         with self._lock:
