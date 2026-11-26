@@ -86,8 +86,11 @@ const FALLBACK_AI_PROVIDERS: AIProviderCatalogItem[] = [
   {
     id: 'openrouter',
     name: 'OpenRouter (Todos os modelos)',
-    default_model: 'google/gemini-2.0-flash-001',
+    default_model: 'meta-llama/llama-3.3-70b-instruct:free',
     models: [
+      'meta-llama/llama-3.3-70b-instruct:free',
+      'google/gemini-2.0-flash-exp:free',
+      'deepseek/deepseek-chat-v3-0324:free',
       'google/gemini-2.0-flash-001',
       'openai/gpt-4o-mini',
       'anthropic/claude-3.5-haiku',
@@ -163,6 +166,7 @@ export function NewsPanel({
   const [filterImpact, setFilterImpact] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL')
   const [filterBias, setFilterBias] = useState<'ALL' | 'BULLISH' | 'BEARISH' | 'NEUTRAL'>('ALL')
   const [onlyMacroUsd, setOnlyMacroUsd] = useState(false)
+  const [onlyAi, setOnlyAi] = useState(false)
 
   // Economic calendar filters
   const [calOnlyHigh, setCalOnlyHigh] = useState(false)
@@ -237,6 +241,11 @@ export function NewsPanel({
     return map
   }, [news])
 
+  const aiAnalyzedCount = useMemo(
+    () => (news?.items || []).filter((it) => Boolean(it.analysis_source && it.analysis_source.startsWith('AI_'))).length,
+    [news],
+  )
+
   const filteredItems = useMemo(() => {
     const q = searchTerm.trim().toLowerCase()
     return (news?.items || []).filter((it) => {
@@ -244,10 +253,11 @@ export function NewsPanel({
       if (filterImpact !== 'ALL' && it.impact !== filterImpact) return false
       if (filterBias !== 'ALL' && it.bias !== filterBias) return false
       if (onlyMacroUsd && !it.is_macro_usd) return false
+      if (onlyAi && !(it.analysis_source && it.analysis_source.startsWith('AI_'))) return false
       if (q && !it.title.toLowerCase().includes(q) && !it.source.toLowerCase().includes(q)) return false
       return true
     })
-  }, [news, searchTerm, filterSymbol, filterImpact, filterBias, onlyMacroUsd])
+  }, [news, searchTerm, filterSymbol, filterImpact, filterBias, onlyMacroUsd, onlyAi])
 
   const calendar = news?.calendar
   const calendarCurrencies = useMemo(() => {
@@ -436,15 +446,6 @@ export function NewsPanel({
               </div>
             </div>
           )}
-          {news?.last_error && (news?.items?.length || 0) > 0 && isAdmin && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-800 dark:text-amber-300">
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-              <div>
-                <strong className="block">Aviso do administrador (1 ou mais fontes secundárias falharam; os clientes não veem este aviso):</strong>
-                <span className="font-mono text-[11px]">{news.last_error}</span>
-              </div>
-            </div>
-          )}
 
           {/* Controles Reais do Motor */}
           {(calendar?.active_shield_events?.length || 0) > 0 && (news?.calendar_shield_enabled ?? true) && (
@@ -617,8 +618,13 @@ export function NewsPanel({
                     {s.bias === 'BULLISH' ? 'ALTA' : s.bias === 'BEARISH' ? 'BAIXA' : 'NEUTRO'}
                   </span>
                 </div>
-                <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  {s.count} notícia(s) • {s.high_impact} alto impacto
+                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                  <span>
+                    {s.count} notícia(s) • {s.high_impact} alto impacto
+                  </span>
+                  <span className="font-mono text-[10px]">
+                    {s.avg_score > 0 ? `+${s.avg_score.toFixed(2)}` : s.avg_score.toFixed(2)}
+                  </span>
                 </div>
               </button>
             ))}
@@ -626,83 +632,98 @@ export function NewsPanel({
         </CardBody>
       </Card>
 
-      {/* 1B. Inteligência Artificial nas Notícias (Sua API Key — Todos os Provedores) */}
-      <Card className="border-violet-500/25">
-        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+      {/* 1B. Inteligência Artificial nas Notícias (Sua API Key — Design Limpo & Multi-Provedor) */}
+      <Card className="overflow-hidden border-violet-500/30">
+        <CardHeader className="bg-gradient-to-r from-violet-500/10 via-fuchsia-500/5 to-transparent flex flex-wrap items-center justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-violet-500" />
-              Inteligência Artificial nas Notícias (Sua API Key)
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-violet-500/15 text-violet-500">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              Inteligência Artificial nas Notícias
             </CardTitle>
             <CardDescription>
-              Escolha seu provedor favorito (Google Gemini, OpenAI ChatGPT, Anthropic Claude, OpenRouter, DeepSeek, Groq, xAI Grok ou API compatível), selecione qualquer modelo e cole sua própria API Key.
+              Conecte sua própria API Key para interpretar contexto, negação e correlação do dólar em tempo real.
             </CardDescription>
           </div>
-          <span
-            className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold ${
-              news?.ai_active
-                ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-            }`}
-          >
-            {news?.ai_active
-              ? `IA ATIVA • ${(news?.ai_provider || 'gemini').toUpperCase()} (${news?.ai_model || ''})`
-              : 'Usando Regras Locais Gratuitas'}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {aiAnalyzedCount > 0 && (
+              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                {aiAnalyzedCount} de {news?.items?.length || 0} lidas por IA
+              </span>
+            )}
+            <span
+              className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                news?.ai_active
+                  ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              {news?.ai_active
+                ? `IA Ativa • ${(news?.ai_provider || 'gemini').toUpperCase()} (${news?.ai_model || ''})`
+                : 'Regras Locais Gratuitas'}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                aiDirtyRef.current = true
+                setAiEnabled((v) => !v)
+              }}
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                aiEnabled
+                  ? 'border-violet-500 bg-violet-600 text-white'
+                  : 'border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full ${aiEnabled ? 'bg-emerald-300' : 'bg-slate-400'}`} />
+              {aiEnabled ? 'IA Ligada' : 'IA Desligada'}
+            </button>
+          </div>
         </CardHeader>
         <CardBody>
           <form onSubmit={handleSaveAiConfig} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-start">
-              <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-3 text-xs cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={aiEnabled}
-                  onChange={(e) => {
-                    aiDirtyRef.current = true
-                    setAiEnabled(e.target.checked)
-                  }}
-                  className="mt-0.5 rounded"
-                />
-                <span>
-                  <strong className="block text-slate-900 dark:text-white">
-                    {aiEnabled ? 'Análise por IA Ligada' : 'Ativar Análise por IA'}
-                  </strong>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Analisa contexto, negação e dólar em cada manchete nova (com cache)
-                  </span>
-                </span>
-              </label>
-
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">Provedor de IA</label>
-                <select
-                  value={aiProvider}
-                  onChange={(e) => handleProviderChange(e.target.value)}
-                  className={inputClass}
-                >
-                  {aiProviders.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                {selectedProviderMeta?.endpoint_hint && (
-                  <span className="mt-1 block text-[10px] font-mono text-slate-400 truncate">
-                    {selectedProviderMeta.endpoint_hint}
-                  </span>
-                )}
+            {/* Seletor visual de provedores */}
+            <div>
+              <span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+                1. Escolha o provedor de IA
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {aiProviders.map((p) => {
+                  const selected = aiProvider === p.id
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleProviderChange(p.id)}
+                      className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                        selected
+                          ? 'border-violet-500 bg-violet-500/15 text-violet-800 dark:text-violet-200 ring-1 ring-violet-500/40'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
+                      }`}
+                    >
+                      <span className="truncate">{p.name}</span>
+                      {selected && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-violet-500" />}
+                    </button>
+                  )
+                })}
               </div>
+            </div>
 
+            {/* Modelo + Sua API Key */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <div className="flex items-center justify-between gap-2 mb-1">
-                  <label className="block text-[11px] font-medium text-slate-500">Modelo</label>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    2. Modelo
+                  </label>
                   <button
                     type="button"
                     onClick={handleLoadProviderModels}
                     disabled={aiLoadingModels || (!aiApiKey.trim() && !news?.ai_api_key_set)}
-                    className="text-[10px] font-semibold text-violet-600 dark:text-violet-300 hover:underline disabled:opacity-40"
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-600 dark:text-violet-300 hover:underline disabled:opacity-40"
                   >
-                    {aiLoadingModels ? 'Buscando...' : 'Buscar da API'}
+                    <RefreshCw className={`h-3 w-3 ${aiLoadingModels ? 'animate-spin' : ''}`} />
+                    {aiLoadingModels ? 'Buscando...' : 'Carregar modelos da minha API'}
                   </button>
                 </div>
                 {availableModels.length > 0 && (
@@ -736,22 +757,46 @@ export function NewsPanel({
                       aiDirtyRef.current = true
                       setAiModel(e.target.value)
                     }}
-                    placeholder={selectedProviderMeta?.default_model || 'Ex: anthropic/claude-sonnet-4'}
+                    placeholder={selectedProviderMeta?.default_model || 'Ex: meta-llama/llama-3.3-70b-instruct:free'}
                     className={`${inputClass} font-mono ${availableModels.length > 0 ? 'mt-1.5' : ''}`}
                     required
                   />
                 )}
                 {aiModelsNote && (
-                  <span className="mt-1 block text-[10px] text-emerald-600 dark:text-emerald-400">
+                  <span className="mt-1 block text-[11px] text-emerald-600 dark:text-emerald-400">
                     {aiModelsNote}
                   </span>
                 )}
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">
-                  Sua API Key ({news?.ai_api_key_set ? 'Salva na sua conta' : 'Não configurada'})
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    3. Sua API Key
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        news?.ai_api_key_set
+                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                          : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                      }`}
+                    >
+                      {news?.ai_api_key_set ? 'Chave salva' : 'Não configurada'}
+                    </span>
+                    {news?.ai_api_key_set && (
+                      <button
+                        type="button"
+                        onClick={handleClearAiKey}
+                        disabled={aiSaving}
+                        className="inline-flex items-center gap-1 text-[11px] text-rose-600 dark:text-rose-400 hover:underline"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Remover
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <input
                   type="password"
                   value={aiApiKey}
@@ -761,28 +806,17 @@ export function NewsPanel({
                   }}
                   placeholder={
                     news?.ai_api_key_set
-                      ? 'Chave salva (cole outra para trocar)'
-                      : selectedProviderMeta?.key_placeholder || 'Cole sua API Key'
+                      ? 'Chave salva e protegida (cole outra só para trocar)'
+                      : selectedProviderMeta?.key_placeholder || 'Cole sua API Key aqui'
                   }
                   className={`${inputClass} font-mono`}
                 />
-                {news?.ai_api_key_set && (
-                  <button
-                    type="button"
-                    onClick={handleClearAiKey}
-                    disabled={aiSaving}
-                    className="mt-1 inline-flex items-center gap-1 text-[11px] text-rose-600 dark:text-rose-400 hover:underline"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                    Remover chave salva
-                  </button>
-                )}
               </div>
             </div>
 
             {selectedProviderMeta?.needs_base_url && (
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
                   URL Base da API (Compatível com OpenAI /chat/completions)
                 </label>
                 <input
@@ -799,15 +833,9 @@ export function NewsPanel({
               </div>
             )}
 
-            {news?.ai_last_error && (
-              <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-                <strong>Último aviso da IA:</strong> <span className="font-mono text-[11px]">{news.ai_last_error}</span>
-              </div>
-            )}
-
             {aiTestResult && (
               <div
-                className={`rounded-xl border px-3 py-2.5 text-xs ${
+                className={`rounded-xl border px-3.5 py-2.5 text-xs ${
                   aiTestResult.ok
                     ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
                     : 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200'
@@ -821,8 +849,7 @@ export function NewsPanel({
                   </div>
                 ) : (
                   <div>
-                    <strong>Falha ao conectar com a IA:</strong>{' '}
-                    <span className="font-mono text-[11px]">{aiTestResult.error}</span>
+                    <strong>Não foi possível conectar:</strong> {aiTestResult.error}
                   </div>
                 )}
               </div>
@@ -830,7 +857,7 @@ export function NewsPanel({
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
               <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                Privacidade: sua API Key fica salva exclusivamente na sua conta e é enviada direto para o provedor escolhido.
+                Sua chave fica salva exclusivamente na sua conta. Se o provedor oscilar, as regras locais assumem automaticamente.
               </span>
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -1076,6 +1103,18 @@ export function NewsPanel({
               <Filter className="h-3 w-3" />
               Macro USD
             </button>
+            <button
+              type="button"
+              onClick={() => setOnlyAi((v) => !v)}
+              className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
+                onlyAi
+                  ? 'border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300'
+                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              <Sparkles className="h-3 w-3" />
+              Só IA ({aiAnalyzedCount})
+            </button>
           </div>
         </CardHeader>
         <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -1118,7 +1157,7 @@ export function NewsPanel({
                     )}
                     {it.analysis_source && it.analysis_source.startsWith('AI_') && (
                       <span className="rounded bg-violet-500/20 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:text-violet-300">
-                        IA
+                        IA {it.score > 0 ? `+${it.score.toFixed(2)}` : it.score.toFixed(2)}
                       </span>
                     )}
                     <span className="text-[11px] text-slate-400">

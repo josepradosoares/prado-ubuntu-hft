@@ -17,6 +17,7 @@ from prado_linux.news_scout import (
     EconomicCalendarScout,
     NewsScout,
     analyze_headline,
+    friendly_ai_error,
     list_ai_provider_models,
 )
 from prado_linux.web_app import PradoWebApp
@@ -394,7 +395,7 @@ def test_ai_news_analyzer_claude_openrouter_deepseek_groq_xai_custom_and_test_co
     )
     err_conn = err_ai.test_connection()
     assert err_conn["ok"] is False
-    assert "401" in err_conn["error"]
+    assert "inválida" in err_conn["error"].lower()
 
 
 def test_subscriber_byok_ai_config_isolation_and_test_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -606,3 +607,138 @@ def test_gemini_recommended_default_and_list_ai_models_endpoint(tmp_path: Path, 
         json.dumps({"provider": "gemini", "api_key": "fake-live-key"}).encode(),
     )
     assert c_den == 403
+
+
+def test_openrouter_sends_bounded_max_tokens_and_gemini_503_failover() -> None:
+    seen_bodies: list[dict] = []
+
+    def _or_poster(url: str, headers: dict, body: dict) -> dict:
+        seen_bodies.append(body)
+        iid = body["messages"][1]["content"].split("ID=")[1].split(" ")[0]
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            [
+                                {
+                                    "id": iid,
+                                    "symbol": "EURUSD",
+                                    "impact": "MEDIUM",
+                                    "bias": "BULLISH",
+                                    "score": 0.55,
+                                    "reason": "OpenRouter respondeu dentro do limite.",
+                                }
+                            ]
+                        )
+                    }
+                }
+            ]
+        }
+
+    or_ai = AINewsAnalyzer(
+        enabled=True,
+        provider="openrouter",
+        api_key="sk-or-test",
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        http_poster=_or_poster,
+    )
+    res_or = or_ai.enrich_items([{"id": "or1", "title": "ECB steady on rates", "symbol": "EURUSD"}])
+    assert res_or[0]["analysis_source"] == "AI_OPENROUTER"
+    assert "max_tokens" in seen_bodies[-1]
+    assert 0 < seen_bodies[-1]["max_tokens"] <= 1500
+
+    res_conn = or_ai.test_connection()
+    assert res_conn["ok"] is True
+    assert seen_bodies[-1]["max_tokens"] <= 500
+
+    # OpenAI o4-mini uses max_completion_tokens instead of max_tokens
+    or_ai.configure(enabled=True, provider="openai", api_key="sk-oa-test", model="o4-mini", http_poster=_or_poster)
+    or_ai.enrich_items([{"id": "oa1", "title": "Fed speaks", "symbol": "EURUSD"}])
+    assert "max_completion_tokens" in seen_bodies[-1]
+    assert "max_tokens" not in seen_bodies[-1]
+
+    # Gemini 503 failover automatically tries sibling flash model
+    tried_urls: list[str] = []
+
+    def _flaky_gemini(url: str, headers: dict, body: dict) -> dict:
+        tried_urls.append(url)
+        if "gemini-3.5-flash-lite" in url:
+            raise RuntimeError('HTTP 503: {"error":{"code":503,"message":"high demand","status":"UNAVAILABLE"}}')
+        iid = body["contents"][0]["parts"][0]["text"].split("ID=")[1].split(" ")[0]
+        return {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": json.dumps(
+                                    [
+                                        {
+                                            "id": iid,
+                                            "symbol": "XAUUSD",
+                                            "impact": "HIGH",
+                                            "bias": "BULLISH",
+                                            "score": 0.78,
+                                            "reason": "Ouro sobe com dólar fraco.",
+                                        }
+                                    ]
+                                )
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+    gem_ai = AINewsAnalyzer(
+        enabled=True,
+        provider="gemini",
+        api_key="fake-gem",
+        model="gemini-3.5-flash-lite",
+        http_poster=_flaky_gemini,
+    )
+    out_gem = gem_ai.enrich_items([{"id": "g1", "title": "Fed cut signals weaken dollar", "symbol": "XAUUSD"}])
+    assert len(tried_urls) >= 2
+    assert "gemini-3.5-flash-lite" in tried_urls[0]
+    assert "gemini-3.1-flash-lite" in tried_urls[1]
+    assert out_gem[0]["analysis_source"] == "AI_GEMINI"
+    assert gem_ai.last_error == ""
+
+    # Friendly error translation strips ugly JSON
+    assert "Créditos insuficientes" in friendly_ai_error('HTTP 402: {"error":{"message":"more credits"}}')
+    assert "congestionado" in friendly_ai_error("HTTP 503: high demand UNAVAILABLE")
+    assert "{" not in friendly_ai_error('HTTP 503: {"error":{"code":503}}')
+
+
+def test_news_scout_rss_429_host_cooldown_and_cached_fallback() -> None:
+    calls = 0
+
+    def _fetcher(url: str) -> str:
+        nonlocal calls
+        calls += 1
+        if "news.google.com" in url and calls >= 2:
+            raise RuntimeError("HTTP Error 429: Too Many Requests")
+        if "news.google.com" in url:
+            return "<rss><channel><item><title>Fed holds rates steady</title><link>https://g/1</link></item></channel></rss>"
+        return "<rss><channel><item><title>Bitcoin rallies above key level</title><link>https://y/1</link></item></channel></rss>"
+
+    scout = NewsScout(fetcher=_fetcher)
+    feeds = [
+        {"feed_id": "g1", "source": "Google News", "url": "https://news.google.com/rss/search?q=fed", "default_symbol": "EURUSD"},
+        {"feed_id": "y1", "source": "Yahoo", "url": "https://feeds.finance.yahoo.com/rss/2.0/headline", "default_symbol": "BTCUSD"},
+    ]
+    items1, _ = scout.scan(feeds=feeds)
+    assert len(items1) == 2
+
+    # Force 429 on Google News -> preserves cached item, sets cooldown, keeps last_error clean
+    calls_before_second = calls
+    items2, _ = scout.scan(feeds=feeds)
+    assert scout.last_error == ""
+    assert any(it["title"] == "Fed holds rates steady" for it in items2)
+
+    # Next scan during host cooldown skips network call for Google News completely
+    calls_before_third = calls
+    items3, _ = scout.scan(feeds=feeds)
+    assert calls - calls_before_third == 1  # only Yahoo called
+    assert any(it["title"] == "Fed holds rates steady" for it in items3)

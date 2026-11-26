@@ -804,6 +804,8 @@ class PradoWebApp:
                 base_url=base_url,
             )
             test_res = analyzer.test_connection()
+            if test_res.get("ok"):
+                svc.news_scout._ai_analyzer.last_error = ""
             return 200 if test_res.get("ok") else 400, json.dumps(test_res, ensure_ascii=False), {"Content-Type": "application/json"}
 
         if method == "POST" and clean_path == "/api/news/ai-models":

@@ -20,6 +20,11 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+GEMINI_FAILOVER_MODELS: tuple[str, ...] = (
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3-flash-preview",
+)
 
 AI_PROVIDER_CATALOG: list[dict[str, Any]] = [
     {
@@ -59,8 +64,11 @@ AI_PROVIDER_CATALOG: list[dict[str, Any]] = [
     {
         "id": "openrouter",
         "name": "OpenRouter (Todos os modelos)",
-        "default_model": "google/gemini-2.0-flash-001",
+        "default_model": "meta-llama/llama-3.3-70b-instruct:free",
         "models": [
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "google/gemini-2.0-flash-exp:free",
+            "deepseek/deepseek-chat-v3-0324:free",
             "google/gemini-2.0-flash-001",
             "openai/gpt-4o-mini",
             "anthropic/claude-3.5-haiku",
@@ -122,6 +130,28 @@ def normalize_ai_provider(provider: str) -> str:
     elif clean in ("chatgpt",):
         clean = "openai"
     return clean if clean in AI_PROVIDER_MAP else "gemini"
+
+
+def friendly_ai_error(raw: Any) -> str:
+    msg = str(raw or "").strip()
+    low = msg.lower()
+    if any(tok in low for tok in ("401", "403", "invalid api key", "api_key_invalid", "unauthorized", "permission")):
+        return "Chave de API inválida ou sem permissão neste provedor."
+    if any(tok in low for tok in ("402", "more credits", "afford", "insufficient", "payment required")):
+        return "Créditos insuficientes na conta do provedor para este modelo. Use um modelo gratuito (:free) ou adicione créditos."
+    if any(tok in low for tok in ("404", "not found", "no longer available")):
+        return "Modelo indisponível neste provedor. Clique em 'Buscar da API' para selecionar um modelo ativo."
+    if any(tok in low for tok in ("429", "quota", "rate limit", "too many requests")):
+        return "Limite de uso temporário do provedor atingido. O sistema retomará automaticamente no próximo ciclo."
+    if any(tok in low for tok in ("503", "502", "504", "500", "high demand", "unavailable", "timed out", "timeout", "temporarily")):
+        return "Provedor temporariamente congestionado. O sistema tentará novamente automaticamente no próximo ciclo."
+    cleaned = re.sub(r"\{.*\}", "", msg, flags=re.DOTALL).strip()
+    return (cleaned or "Falha momentânea ao consultar o provedor de IA.")[:140]
+
+
+def _is_transient_ai_error(exc: Exception) -> bool:
+    low = str(exc).lower()
+    return any(tok in low for tok in ("503", "502", "504", "500", "high demand", "unavailable", "timed out", "timeout"))
 
 
 def _extract_json_payload(raw_text: str) -> Any:
@@ -615,22 +645,40 @@ class AINewsAnalyzer:
             raw = f"{raw}/chat/completions"
         return raw
 
-    def _call_provider(self, prompt: str) -> str:
-        if self.provider == "gemini":
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(self.model)}:generateContent?key={urllib.parse.quote(self.api_key)}"
-            resp = self._http_poster(
-                url,
-                {},
-                {
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1},
+    def _call_gemini_model(self, model_name: str, prompt: str, max_tokens: int) -> str:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model_name)}:generateContent?key={urllib.parse.quote(self.api_key)}"
+        resp = self._http_poster(
+            url,
+            {},
+            {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "temperature": 0.1,
+                    "maxOutputTokens": max_tokens,
                 },
-            )
-            cands = resp.get("candidates") or []
-            if cands and isinstance(cands[0], dict):
-                parts = ((cands[0].get("content") or {}).get("parts")) or []
-                if parts and isinstance(parts[0], dict):
-                    return str(parts[0].get("text") or "")
+            },
+        )
+        cands = resp.get("candidates") or []
+        if cands and isinstance(cands[0], dict):
+            parts = ((cands[0].get("content") or {}).get("parts")) or []
+            if parts and isinstance(parts[0], dict):
+                return str(parts[0].get("text") or "")
+        return ""
+
+    def _call_provider(self, prompt: str, max_tokens: int = 1200) -> str:
+        if self.provider == "gemini":
+            candidates = [self.model] + [m for m in GEMINI_FAILOVER_MODELS if m != self.model]
+            last_exc: Exception | None = None
+            for idx, mod in enumerate(candidates):
+                try:
+                    return self._call_gemini_model(mod, prompt, max_tokens=max_tokens)
+                except Exception as exc:
+                    last_exc = exc
+                    if not _is_transient_ai_error(exc) or idx == len(candidates) - 1:
+                        raise
+            if last_exc is not None:
+                raise last_exc
             return ""
 
         if self.provider == "claude":
@@ -639,7 +687,7 @@ class AINewsAnalyzer:
                 {"x-api-key": self.api_key, "anthropic-version": "2023-06-01"},
                 {
                     "model": self.model,
-                    "max_tokens": 1024,
+                    "max_tokens": max_tokens,
                     "temperature": 0.1,
                     "system": "Responda sempre exclusivamente com JSON válido.",
                     "messages": [{"role": "user", "content": prompt}],
@@ -662,12 +710,20 @@ class AINewsAnalyzer:
             ],
         }
         model_low = self.model.lower()
-        if not model_low.startswith(("o1", "o3", "o4", "gpt-5")):
+        if model_low.startswith(("o1", "o3", "o4", "gpt-5")):
+            body["max_completion_tokens"] = max_tokens
+        else:
+            body["max_tokens"] = max_tokens
             body["temperature"] = 0.1
         if self.provider == "openai" and not model_low.startswith("o1"):
             body["response_format"] = {"type": "json_object"}
 
-        resp = self._http_poster(url, req_headers, body)
+        try:
+            resp = self._http_poster(url, req_headers, body)
+        except Exception as exc:
+            if not _is_transient_ai_error(exc):
+                raise
+            resp = self._http_poster(url, req_headers, body)
         choices = resp.get("choices") or []
         if choices and isinstance(choices[0], dict):
             return str(((choices[0].get("message") or {}).get("content")) or "")
@@ -746,7 +802,7 @@ class AINewsAnalyzer:
                     out[idx].update(by_id[str(it["id"])])
             self.last_error = ""
         except Exception as exc:
-            self.last_error = str(exc)
+            self.last_error = friendly_ai_error(exc)
         return out
 
     def test_connection(self) -> dict[str, Any]:
@@ -768,7 +824,7 @@ class AINewsAnalyzer:
                     }
                 ]
             )
-            raw_text = self._call_provider(prompt)
+            raw_text = self._call_provider(prompt, max_tokens=400)
             parsed = _extract_json_payload(raw_text)
             rows = parsed.get("items") if isinstance(parsed, dict) else parsed
             if isinstance(parsed, dict) and "bias" in parsed and not isinstance(rows, list):
@@ -798,7 +854,7 @@ class AINewsAnalyzer:
                 "ok": False,
                 "provider": self.provider,
                 "model": self.model,
-                "error": str(exc),
+                "error": friendly_ai_error(exc),
             }
 
 
@@ -898,6 +954,10 @@ class NewsScout:
         self.last_scan_at: float = 0.0
         self.last_error: str = ""
         self._ai_analyzer = AINewsAnalyzer()
+        self._feed_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+        self._host_cooldown_until: dict[str, float] = {}
+        self.feed_429_cooldown_sec: int = 600
+        self.min_host_cache_sec: int = 180
 
     def configure_ai(
         self,
@@ -929,7 +989,7 @@ class NewsScout:
             return resp.read().decode("utf-8", errors="ignore")
 
     def scan(self, feeds: list[dict[str, str]] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Scan RSS/Atom feeds; returns (all_recent_items, newly_discovered_items)."""
+        """Scan RSS/Atom feeds with per-host 429 cooldown & cached fallback; returns (all_recent_items, newly_discovered_items)."""
         target_feeds = feeds or RSS_FEEDS
         collected: list[dict[str, Any]] = []
         errors: list[str] = []
@@ -938,15 +998,39 @@ class NewsScout:
         for f in target_feeds:
             fid = str(f.get("feed_id") or "")
             source = str(f.get("source") or fid or "Fonte")
+            url = str(f.get("url") or "")
+            host = (urllib.parse.urlparse(url).hostname or "").lower()
+            cached_entry = self._feed_cache.get(url)
+
+            if host and now < self._host_cooldown_until.get(host, 0.0):
+                if cached_entry is not None:
+                    collected.extend(dict(it) for it in cached_entry[1])
+                statuses.append({"feed_id": fid, "source": source, "ok": True, "count": len(cached_entry[1]) if cached_entry else 0, "error": "", "checked_at": now})
+                continue
+
+            if "news.google.com" in host and cached_entry is not None and (now - cached_entry[0]) < self.min_host_cache_sec:
+                collected.extend(dict(it) for it in cached_entry[1])
+                statuses.append({"feed_id": fid, "source": source, "ok": True, "count": len(cached_entry[1]), "error": "", "checked_at": now})
+                continue
+
             try:
-                xml_txt = self._fetcher(f["url"])
+                xml_txt = self._fetcher(url)
                 parsed = parse_rss_xml(xml_txt, source=source, default_symbol=str(f.get("default_symbol") or "ALL"))
+                self._feed_cache[url] = (now, [dict(it) for it in parsed])
                 collected.extend(parsed)
                 statuses.append({"feed_id": fid, "source": source, "ok": True, "count": len(parsed), "error": "", "checked_at": now})
             except Exception as exc:
                 err_txt = str(exc)
-                errors.append(f"{source}: {err_txt}")
-                statuses.append({"feed_id": fid, "source": source, "ok": False, "count": 0, "error": err_txt, "checked_at": now})
+                is_rate_limit = "429" in err_txt or "too many requests" in err_txt.lower()
+                if is_rate_limit and host:
+                    self._host_cooldown_until[host] = now + self.feed_429_cooldown_sec
+                if cached_entry is not None:
+                    collected.extend(dict(it) for it in cached_entry[1])
+                    statuses.append({"feed_id": fid, "source": source, "ok": True, "count": len(cached_entry[1]), "error": "", "checked_at": now})
+                else:
+                    if not is_rate_limit:
+                        errors.append(f"{source}: {err_txt}")
+                    statuses.append({"feed_id": fid, "source": source, "ok": False, "count": 0, "error": err_txt if not is_rate_limit else "Limite temporário da fonte (em cooldown)", "checked_at": now})
 
         self.feed_status = statuses
         self.last_scan_at = now
