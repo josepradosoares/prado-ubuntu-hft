@@ -34,6 +34,7 @@ const EMPTY_PLAN_FORM = {
 
 export function AdminPanel({ inputClass, showToast, onPlansChanged }: AdminPanelProps) {
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [settings, setSettings] = useState<PlatformSettings>({
     trial_days: 7,
     trial_allow_real_trading: false,
@@ -59,10 +60,24 @@ export function AdminPanel({ inputClass, showToast, onPlansChanged }: AdminPanel
 
   const loadOverview = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       const res = await fetch('/api/admin/overview')
       if (!res.ok) {
-        showToast('Sem permissão ou falha ao carregar Painel Admin.', true)
+        let d: { error?: string } | null = null
+        try {
+          d = await res.json()
+        } catch {
+          d = null
+        }
+        const msg =
+          res.status === 401
+            ? 'Sessão expirada. Faça login novamente.'
+            : res.status === 403
+              ? d?.error || 'Sem permissão de administrador para acessar esta página.'
+              : d?.error || `Falha ao carregar Painel Admin (HTTP ${res.status}).`
+        setLoadError(msg)
+        showToast(msg, true)
         return
       }
       const d: AdminOverviewResponse = await res.json()
@@ -73,7 +88,9 @@ export function AdminPanel({ inputClass, showToast, onPlansChanged }: AdminPanel
       setWebhookUrl(d.webhook_url || '')
       setFeatureCatalog(d.feature_catalog || [])
     } catch {
-      showToast('Erro de rede ao carregar Painel Admin.', true)
+      const msg = 'Erro de rede ao carregar Painel Admin.'
+      setLoadError(msg)
+      showToast(msg, true)
     } finally {
       setLoading(false)
     }
@@ -189,6 +206,22 @@ export function AdminPanel({ inputClass, showToast, onPlansChanged }: AdminPanel
 
   return (
     <div className="space-y-6">
+      {loadError && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-700 dark:text-rose-200">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 shrink-0 text-rose-500" />
+            <span>{loadError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={loadOverview}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-1.5 font-semibold hover:bg-rose-500/25"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Tentar novamente
+          </button>
+        </div>
+      )}
       {/* 1. Configurações Globais: Trial Grátis + Kiwify Webhook */}
       <Card>
         <CardHeader className="flex flex-wrap items-center justify-between gap-3">

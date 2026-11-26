@@ -480,7 +480,7 @@ class SupabaseStore:
         }
         self._request(
             "POST",
-            "/rest/v1/prado_platform_settings",
+            "/rest/v1/prado_platform_settings?on_conflict=id",
             row,
             bearer_token=self.cfg.service_role_key,
             extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
@@ -505,7 +505,7 @@ class SupabaseStore:
         }
         self._request(
             "POST",
-            "/rest/v1/prado_plans",
+            "/rest/v1/prado_plans?on_conflict=plan_id",
             row,
             bearer_token=self.cfg.service_role_key,
             extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
@@ -537,7 +537,7 @@ class SupabaseStore:
         }
         self._request(
             "POST",
-            "/rest/v1/prado_subscriptions",
+            "/rest/v1/prado_subscriptions?on_conflict=email",
             row,
             bearer_token=self.cfg.service_role_key,
             extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"},

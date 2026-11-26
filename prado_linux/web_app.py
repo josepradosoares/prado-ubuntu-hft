@@ -9,6 +9,7 @@ import mimetypes
 import os
 from pathlib import Path
 import threading
+import traceback
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
 
@@ -959,7 +960,13 @@ def run_http_server(config_path: Path, host: str = "0.0.0.0", port: int | None =
                 return
             body = self.rfile.read(length) if length > 0 else b""
             hdrs = {k: v for k, v in self.headers.items()}
-            code, resp_body, resp_headers = app.handle_request(method, self.path, hdrs, body)
+            try:
+                code, resp_body, resp_headers = app.handle_request(method, self.path, hdrs, body)
+            except Exception as exc:
+                traceback.print_exc()
+                code = 500
+                resp_body = json.dumps({"ok": False, "error": f"Erro interno no servidor: {exc}"}, ensure_ascii=False)
+                resp_headers = {"Content-Type": "application/json"}
             self.send_response(code)
             for hk, hv in resp_headers.items():
                 self.send_header(hk, hv)

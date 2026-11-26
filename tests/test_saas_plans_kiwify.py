@@ -400,3 +400,141 @@ def test_web_app_admin_routes_plan_gating_and_webhook_bot_pause(
     c_flat, _, _ = app.handle_request("POST", "/api/flatten", {"Cookie": client_cookie}, b"{}")
     assert c_flat == 200
     assert len(ALL_FEATURES) == 7
+
+
+def test_admin_overview_handles_supabase_iso_timestamps_and_malformed_values(tmp_path: Path) -> None:
+    class _IsoPostgresSupabase(_FakeMultiTenantSupabase):
+        def load_saas_tables(self) -> dict | None:
+            return {
+                "settings": {
+                    "id": "default",
+                    "trial_days": 7,
+                    "trial_allow_real_trading": False,
+                    "default_trial_plan_id": "pro",
+                    "kiwify_webhook_secret": "sec_pg",
+                    "updated_at": "2026-11-26 14:01:27.583643+00",
+                },
+                "plans": [
+                    {
+                        "plan_id": "starter",
+                        "name": "Starter",
+                        "price_brl": 97.0,
+                        "max_bots": 2,
+                        "allow_real_trading": True,
+                        "allowed_features": ["real_trading"],
+                        "active": True,
+                        "sort_order": 1,
+                        "updated_at": "2026-11-26T14:01:27+00:00",
+                    },
+                    {
+                        "plan_id": "pro",
+                        "name": "Pro",
+                        "price_brl": 197.0,
+                        "max_bots": 10,
+                        "allow_real_trading": True,
+                        "allowed_features": ["real_trading", "backtest"],
+                        "active": True,
+                        "sort_order": 2,
+                        "updated_at": "2026-11-26T14:01:27+00:00",
+                    },
+                    {
+                        "plan_id": "institutional",
+                        "name": "Elite",
+                        "price_brl": 397.0,
+                        "max_bots": 50,
+                        "allow_real_trading": True,
+                        "allowed_features": list(ALL_FEATURES),
+                        "active": True,
+                        "sort_order": 3,
+                        "updated_at": "2026-11-26T14:01:27+00:00",
+                    },
+                ],
+                "subscriptions": [
+                    {
+                        "email": "sitepixer@gmail.com",
+                        "user_id": "uid-admin",
+                        "plan_id": "pro",
+                        "status": "trial",
+                        "trial_ends_at": 1796308849.99375,
+                        "current_period_end": 0,
+                        "updated_at": "2026-11-26 14:40:50.05518+00",
+                    },
+                    {
+                        "email": "cliente@teste.com",
+                        "user_id": "uid-client",
+                        "plan_id": "pro",
+                        "status": "trial",
+                        "trial_ends_at": "2026-12-03T15:10:00+00:00",
+                        "current_period_end": 0,
+                        "updated_at": "2026-11-26T15:10:00Z",
+                    },
+                    {
+                        "email": "antigo@teste.com",
+                        "user_id": "uid-old",
+                        "plan_id": "starter",
+                        "status": "expired",
+                        "trial_ends_at": None,
+                        "current_period_end": None,
+                        "updated_at": "not-a-timestamp",
+                    },
+                ],
+            }
+
+    sb = _IsoPostgresSupabase()
+    cfg_path = tmp_path / "config.json"
+    app = PradoWebApp(config_path=cfg_path, supabase_store=sb)  # type: ignore[arg-type]
+    admin_cookie = _login_cookie(app, "sitepixer@gmail.com")
+
+    code, raw_body, _ = app.handle_request("GET", "/api/admin/overview", {"Cookie": admin_cookie})
+    assert code == 200
+    body = json.loads(raw_body)
+    assert body["ok"] is True
+    assert len(body["plans"]) == 3
+    assert len(body["subscriptions"]) == 3
+    assert [s["email"] for s in body["subscriptions"]] == [
+        "cliente@teste.com",
+        "sitepixer@gmail.com",
+        "antigo@teste.com",
+    ]
+    for sub in body["subscriptions"]:
+        assert isinstance(sub["updated_at"], float)
+        assert sub["updated_at"] >= 0.0
+
+    # Simulate reloading SaasStore from an already-corrupted local saas_state.json on disk
+    dirty_state_path = tmp_path / "dirty_saas_state.json"
+    dirty_state_path.write_text(
+        json.dumps(
+            {
+                "settings": {"trial_days": 7},
+                "plans": [],
+                "subscriptions": {
+                    "sitepixer@gmail.com": {
+                        "email": "sitepixer@gmail.com",
+                        "plan_id": "pro",
+                        "status": "trial",
+                        "trial_ends_at": "2026-12-03T15:10:00+00:00",
+                        "current_period_end": None,
+                        "updated_at": "2026-11-26 14:40:50.05518+00",
+                    }
+                },
+                "webhook_logs": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    reloaded = SaasStore(dirty_state_path)
+    reloaded_subs = reloaded.list_subscriptions()
+    assert len(reloaded_subs) == 1
+    assert isinstance(reloaded_subs[0]["updated_at"], float)
+    assert reloaded_subs[0]["updated_at"] > 0.0
+
+    # Test admin_upsert_subscription and get_entitlements on ISO-hydrated client record
+    ent = app.saas.get_entitlements("uid-client", "cliente@teste.com", supabase_enabled=True)
+    assert ent["plan_id"] == "pro"
+    assert isinstance(ent["trial_ends_at"], float)
+
+    updated = app.saas.admin_upsert_subscription(
+        {"email": "cliente@teste.com", "plan_id": "pro", "add_trial_days": 5}
+    )
+    assert updated["status"] == "trial"
+    assert isinstance(updated["trial_ends_at"], float)

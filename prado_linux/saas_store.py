@@ -1,6 +1,7 @@
 """Zero-dependency SaaS Plans, Trial Days, Admin Entitlements & Kiwify Webhook Store."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hmac
 import json
 import math
@@ -99,6 +100,35 @@ def _slugify(value: str) -> str:
     return cleaned or f"plan_{int(time.time())}"
 
 
+def _parse_ts(value: Any) -> float:
+    """Parse float, numeric string, or Postgres/ISO-8601 timestamp safely (Python 3.10+ compatible)."""
+    if value is None or value == "" or isinstance(value, bool):
+        return 0.0
+    if isinstance(value, (int, float)):
+        fval = float(value)
+        return fval if math.isfinite(fval) else 0.0
+    raw_str = str(value).strip()
+    if not raw_str:
+        return 0.0
+    try:
+        num = float(raw_str)
+        return num if math.isfinite(num) else 0.0
+    except (ValueError, TypeError, OverflowError):
+        pass
+    try:
+        iso = raw_str.replace(" ", "T")
+        if iso.endswith(("Z", "z")):
+            iso = iso[:-1] + "+00:00"
+        iso = re.sub(r"\.(\d+)", lambda m: "." + m.group(1)[:6].ljust(6, "0"), iso, count=1)
+        iso = re.sub(r"([+-]\d{2})$", r"\1:00", iso)
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return float(dt.timestamp())
+    except (ValueError, TypeError, OverflowError):
+        return 0.0
+
+
 class SaasStore:
     """Thread-safe SaaS Store with local JSON atomic persistence and optional Supabase mirroring."""
 
@@ -141,7 +171,12 @@ class SaasStore:
                         if isinstance(raw.get("plans"), list) and raw["plans"]:
                             self._state["plans"] = [self._normalize_plan(p) for p in raw["plans"]]
                         if isinstance(raw.get("subscriptions"), dict):
-                            self._state["subscriptions"] = dict(raw["subscriptions"])
+                            norm_subs: dict[str, Any] = {}
+                            for k, v in raw["subscriptions"].items():
+                                if isinstance(v, dict):
+                                    norm_s = self._normalize_subscription(v, str(k))
+                                    norm_subs[norm_s["email"] or str(k).strip().lower()] = norm_s
+                            self._state["subscriptions"] = norm_subs
                         if isinstance(raw.get("webhook_logs"), list):
                             self._state["webhook_logs"] = list(raw["webhook_logs"])[:50]
                 except Exception:
@@ -152,7 +187,10 @@ class SaasStore:
                     remote = self.supabase.load_saas_tables()
                     if isinstance(remote, dict):
                         if isinstance(remote.get("settings"), dict):
-                            self._state["settings"].update(remote["settings"])
+                            clean_settings = {
+                                k: v for k, v in remote["settings"].items() if k not in ("id", "updated_at")
+                            }
+                            self._state["settings"].update(clean_settings)
                         else:
                             self.supabase.upsert_saas_settings(self._state["settings"])
                         if isinstance(remote.get("plans"), list) and remote["plans"]:
@@ -163,9 +201,11 @@ class SaasStore:
                         if isinstance(remote.get("subscriptions"), list) and remote["subscriptions"]:
                             subs = {}
                             for sr in remote["subscriptions"]:
+                                if not isinstance(sr, dict):
+                                    continue
                                 em = str(sr.get("email") or "").strip().lower()
                                 if em:
-                                    subs[em] = dict(sr)
+                                    subs[em] = self._normalize_subscription(sr, em)
                             if subs:
                                 self._state["subscriptions"].update(subs)
                 except Exception:
@@ -187,6 +227,22 @@ class SaasStore:
                     os.unlink(tmp_name)
                 except OSError:
                     pass
+
+    @staticmethod
+    def _normalize_subscription(raw: dict[str, Any], fallback_key: str = "") -> dict[str, Any]:
+        rec = dict(raw)
+        rec["email"] = str(rec.get("email") or fallback_key or "").strip().lower()
+        rec["user_id"] = str(rec.get("user_id") or "")
+        rec["plan_id"] = str(rec.get("plan_id") or "starter").strip() or "starter"
+        rec["status"] = str(rec.get("status") or "expired").strip().lower() or "expired"
+        rec["trial_ends_at"] = _parse_ts(rec.get("trial_ends_at"))
+        rec["current_period_end"] = _parse_ts(rec.get("current_period_end"))
+        rec["updated_at"] = _parse_ts(rec.get("updated_at"))
+        rec["kiwify_order_id"] = str(rec.get("kiwify_order_id") or "")
+        rec["kiwify_subscription_id"] = str(rec.get("kiwify_subscription_id") or "")
+        rec["kiwify_customer_name"] = str(rec.get("kiwify_customer_name") or "")
+        rec["last_event"] = str(rec.get("last_event") or "")
+        return rec
 
     @staticmethod
     def _normalize_plan(raw: dict[str, Any], idx: int = 0) -> dict[str, Any]:
@@ -232,7 +288,8 @@ class SaasStore:
     def get_settings(self) -> dict[str, Any]:
         with self._lock:
             s = dict(self._state["settings"])
-            s["trial_days"] = max(0, min(365, int(s.get("trial_days", 7))))
+            raw_trial = s.get("trial_days")
+            s["trial_days"] = max(0, min(365, int(7 if raw_trial is None else raw_trial)))
             s["trial_allow_real_trading"] = bool(s.get("trial_allow_real_trading", False))
             s["default_trial_plan_id"] = str(s.get("default_trial_plan_id") or "pro")
             if not s.get("kiwify_webhook_secret"):
@@ -443,7 +500,7 @@ class SaasStore:
             key = self._sub_key(user_id, email)
             sub = self.ensure_user_subscription(user_id, email)
             now = time.time()
-            if sub.get("status") != "trial" or float(sub.get("trial_ends_at") or 0.0) <= now:
+            if sub.get("status") != "trial" or _parse_ts(sub.get("trial_ends_at")) <= now:
                 raise ValueError("A troca de plano de teste só está disponível durante um período grátis ativo.")
             target = next((p for p in self.list_plans(active_only=True) if p["plan_id"] == plan_id), None)
             if target is None:
@@ -482,8 +539,8 @@ class SaasStore:
             settings = self.get_settings()
             now = time.time()
             raw_status = str(sub.get("status") or "expired")
-            trial_ends = float(sub.get("trial_ends_at") or 0.0)
-            period_end = float(sub.get("current_period_end") or 0.0)
+            trial_ends = _parse_ts(sub.get("trial_ends_at"))
+            period_end = _parse_ts(sub.get("current_period_end"))
 
             effective_status = raw_status
             days_left = 0
@@ -538,11 +595,11 @@ class SaasStore:
             now = time.time()
             out: list[dict[str, Any]] = []
             for key, sub in self._state["subscriptions"].items():
-                rec = dict(sub)
+                rec = self._normalize_subscription(sub, str(key))
                 plan = self._get_plan(str(rec.get("plan_id") or ""))
                 rec["plan_name"] = plan["name"] if plan else rec.get("plan_id", "")
                 st = str(rec.get("status") or "expired")
-                end_ts = float(rec.get("trial_ends_at") or 0.0) if st == "trial" else float(rec.get("current_period_end") or 0.0)
+                end_ts = rec["trial_ends_at"] if st == "trial" else rec["current_period_end"]
                 if st in ("trial", "active") and end_ts > 0:
                     rec["days_left"] = max(0, math.ceil((end_ts - now) / 86400))
                     if end_ts <= now:
@@ -552,9 +609,8 @@ class SaasStore:
                 else:
                     rec["days_left"] = 0
                     rec["effective_status"] = st
-                rec["email"] = rec.get("email") or key
                 out.append(rec)
-            out.sort(key=lambda x: float(x.get("updated_at") or 0.0), reverse=True)
+            out.sort(key=lambda x: x["updated_at"], reverse=True)
             return out
 
     def admin_upsert_subscription(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -572,8 +628,8 @@ class SaasStore:
             if status not in ("trial", "active", "expired", "canceled", "blocked"):
                 raise ValueError("Status inválido.")
 
-            trial_ends = float(cur.get("trial_ends_at") or 0.0)
-            period_end = float(cur.get("current_period_end") or 0.0)
+            trial_ends = _parse_ts(cur.get("trial_ends_at"))
+            period_end = _parse_ts(cur.get("current_period_end"))
             if payload.get("add_trial_days") is not None:
                 add_d = max(0, int(payload["add_trial_days"]))
                 base = max(now, trial_ends)
@@ -672,7 +728,7 @@ class SaasStore:
                     period_end = 0.0
                 else:
                     days = 365 if cycle == "yearly" else 30
-                    base = max(now, float(cur.get("current_period_end") or 0.0))
+                    base = max(now, _parse_ts(cur.get("current_period_end")))
                     period_end = base + days * 86400
                 status = "active"
             elif raw_event in _REVOKE_EVENTS:
@@ -687,7 +743,7 @@ class SaasStore:
                 "user_id": str(cur.get("user_id") or ""),
                 "plan_id": cur.get("plan_id") if revoked and cur.get("plan_id") else plan["plan_id"],
                 "status": status,
-                "trial_ends_at": float(cur.get("trial_ends_at") or 0.0),
+                "trial_ends_at": _parse_ts(cur.get("trial_ends_at")),
                 "current_period_end": period_end,
                 "kiwify_order_id": str(payload.get("order_id") or cur.get("kiwify_order_id") or ""),
                 "kiwify_subscription_id": str(payload.get("subscription_id") or cur.get("kiwify_subscription_id") or ""),
