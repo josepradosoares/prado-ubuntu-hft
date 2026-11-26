@@ -88,9 +88,9 @@ CURATED_NEWS_CATALOG: list[dict[str, str]] = [
         "category": "Cripto",
     },
     {
-        "feed_id": "fxstreet_forex",
-        "source": "FXStreet Forex News (EN)",
-        "url": "https://www.fxstreet.com/rss/news",
+        "feed_id": "gnews_en_forex",
+        "source": "Google News Forex & Fed (EN)",
+        "url": "https://news.google.com/rss/search?q=EURUSD+OR+forex+OR+federal+reserve&hl=en-US&gl=US&ceid=US:en",
         "default_symbol": "EURUSD",
         "language": "EN",
         "category": "Forex",

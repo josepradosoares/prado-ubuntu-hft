@@ -63,6 +63,7 @@ def _login_cookie(app: PradoWebApp, email: str) -> str:
 
 def test_parse_atom_feed_and_ptbr_sentiment_classification() -> None:
     assert len(CURATED_NEWS_CATALOG) >= 4
+    assert all("fxstreet.com/rss/news" not in item["url"] for item in CURATED_NEWS_CATALOG)
     atom_xml = """<?xml version="1.0" encoding="utf-8"?>
     <feed xmlns="http://www.w3.org/2005/Atom">
       <title>Noticias Mercado</title>

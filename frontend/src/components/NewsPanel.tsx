@@ -189,11 +189,20 @@ export function NewsPanel({
         </CardHeader>
 
         <CardBody className="space-y-4">
-          {news?.last_error && (
+          {news?.last_error && (news?.items?.length || 0) === 0 && (
             <div className="flex items-start gap-2.5 rounded-xl border border-rose-500/35 bg-rose-500/10 px-4 py-3 text-xs text-rose-700 dark:text-rose-300">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
               <div>
-                <strong className="block">Aviso de leitura em uma ou mais fontes:</strong>
+                <strong className="block">Não foi possível ler as fontes de notícias:</strong>
+                <span className="font-mono text-[11px]">{news.last_error}</span>
+              </div>
+            </div>
+          )}
+          {news?.last_error && (news?.items?.length || 0) > 0 && isAdmin && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div>
+                <strong className="block">Aviso do administrador (1 ou mais fontes secundárias falharam; os clientes não veem este aviso):</strong>
                 <span className="font-mono text-[11px]">{news.last_error}</span>
               </div>
             </div>
