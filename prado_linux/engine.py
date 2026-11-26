@@ -42,21 +42,55 @@ from prado_linux.indicators import (
 from prado_linux.news_scout import CURATED_NEWS_CATALOG, EconomicCalendarScout, NewsScout, validate_rss_url
 
 
+def _normalize_distance_config(
+    mode: Any,
+    value: Any,
+    defaults: dict[str, float],
+) -> tuple[str, float]:
+    """Normalize SL/TP mode ('AUTO', 'USD', 'PCT', 'PIPS', 'TICKS') and value."""
+    norm_mode = str(mode or "AUTO").strip().upper()
+    if norm_mode not in ("AUTO", "USD", "PCT", "PIPS", "TICKS") or norm_mode == "AUTO":
+        return "AUTO", 0.0
+    try:
+        val = float(value)
+    except (TypeError, ValueError):
+        val = defaults[norm_mode]
+    if not math.isfinite(val) or val <= 0.0:
+        val = defaults[norm_mode]
+    return norm_mode, round(val, 4)
+
+
 def normalize_tp_config(tp_mode: Any, tp_value: Any) -> tuple[str, float]:
     """Normalize per-bot Take Profit mode ('AUTO', 'USD', 'PCT', 'PIPS', 'TICKS') and value."""
-    mode = str(tp_mode or "AUTO").strip().upper()
-    if mode not in ("AUTO", "USD", "PCT", "PIPS", "TICKS"):
-        return "AUTO", 0.0
-    if mode == "AUTO":
-        return "AUTO", 0.0
-    defaults = {"USD": 2.0, "PCT": 0.25, "PIPS": 10.0, "TICKS": 10.0}
-    try:
-        val = float(tp_value)
-    except (TypeError, ValueError):
-        val = defaults[mode]
-    if not math.isfinite(val) or val <= 0.0:
-        val = defaults[mode]
-    return mode, round(val, 4)
+    return _normalize_distance_config(tp_mode, tp_value, {"USD": 2.0, "PCT": 0.25, "PIPS": 10.0, "TICKS": 10.0})
+
+
+def normalize_sl_config(sl_mode: Any, sl_value: Any) -> tuple[str, float]:
+    """Normalize per-bot Stop Loss mode ('AUTO', 'USD', 'PCT', 'PIPS', 'TICKS') and value."""
+    return _normalize_distance_config(sl_mode, sl_value, {"USD": 2.0, "PCT": 0.5, "PIPS": 15.0, "TICKS": 15.0})
+
+
+def _resolve_distance_points(
+    mode: str,
+    val: float,
+    symbol: str,
+    price: float,
+    lots: float,
+    spec: dict[str, float],
+    fallback_pts: float,
+) -> float:
+    """Resolve price distance from mode ('USD', 'PCT', 'PIPS', 'TICKS', or fallback)."""
+    if mode == "USD":
+        denom = max(1e-6, lots * spec["contract_size"])
+        usd_dist = val / denom
+        if symbol.upper().endswith(("JPY", "CHF", "CAD")) and price > 0:
+            usd_dist *= price
+        return max(spec["pip_size"], usd_dist)
+    if mode == "PCT":
+        return max(spec["pip_size"], price * (val / 100.0))
+    if mode in ("PIPS", "TICKS"):
+        return max(spec["pip_size"], val * spec["pip_size"])
+    return float(fallback_pts or 0.0)
 
 
 MAIN_CTRADER_SYMBOLS: list[dict[str, str]] = [
@@ -1002,6 +1036,8 @@ class CTraderUniversalConnector:
         max_levels_override: int = 0,
         tp_mode: str = "AUTO",
         tp_value: float = 0.0,
+        sl_mode: str = "AUTO",
+        sl_value: float = 0.0,
     ) -> tuple[bool, str]:
         now = time.time()
         lots = max(0.01, round(float(lot_size or 0.01), 4))
@@ -1046,24 +1082,18 @@ class CTraderUniversalConnector:
         self._last_order_ts[symbol] = now
         is_buy = action.startswith("BUY")
         spec = get_symbol_spec(symbol)
-        # Mandatory SL guard for CFD margin protection
-        eff_sl_pts = float(sl_points or 0.0)
+
+        # Resolve Stop Loss distance with mandatory guard against zero or negative SL price
+        norm_sl_mode, norm_sl_val = normalize_sl_config(sl_mode, sl_value)
+        eff_sl_pts = _resolve_distance_points(norm_sl_mode, norm_sl_val, symbol, price, lots, spec, float(sl_points or 0.0))
         if eff_sl_pts <= 0.0:
             eff_sl_pts = max(price * 0.0020, spec["pip_size"] * 20.0)
+        if price > 0.0 and eff_sl_pts >= price * 0.50:
+            eff_sl_pts = round(price * 0.20, 6)
 
         norm_tp_mode, norm_tp_val = normalize_tp_config(tp_mode, tp_value)
-        eff_tp_pts = float(tp_points or 0.0)
-        if norm_tp_mode == "USD":
-            denom = max(1e-6, lots * spec["contract_size"])
-            usd_dist = norm_tp_val / denom
-            if symbol.upper().endswith(("JPY", "CHF", "CAD")) and price > 0:
-                usd_dist *= price
-            eff_tp_pts = max(spec["pip_size"], usd_dist)
-        elif norm_tp_mode == "PCT":
-            eff_tp_pts = max(spec["pip_size"], price * (norm_tp_val / 100.0))
-        elif norm_tp_mode in ("PIPS", "TICKS"):
-            eff_tp_pts = max(spec["pip_size"], norm_tp_val * spec["pip_size"])
-        elif eff_tp_pts <= 0.0:
+        eff_tp_pts = _resolve_distance_points(norm_tp_mode, norm_tp_val, symbol, price, lots, spec, float(tp_points or 0.0))
+        if eff_tp_pts <= 0.0:
             eff_tp_pts = eff_sl_pts * 1.8
 
         if self._client is not None:
@@ -1612,6 +1642,9 @@ class PradoTradingService:
             raw_tp_mode = payload.get("tp_mode", existing_bot.get("tp_mode", "AUTO") if existing_bot else "AUTO")
             raw_tp_val = payload.get("tp_value", existing_bot.get("tp_value", 0.0) if existing_bot else 0.0)
             norm_tp_mode, norm_tp_val = normalize_tp_config(raw_tp_mode, raw_tp_val)
+            raw_sl_mode = payload.get("sl_mode", existing_bot.get("sl_mode", "AUTO") if existing_bot else "AUTO")
+            raw_sl_val = payload.get("sl_value", existing_bot.get("sl_value", 0.0) if existing_bot else 0.0)
+            norm_sl_mode, norm_sl_val = normalize_sl_config(raw_sl_mode, raw_sl_val)
 
             lot_val = float(payload.get("lot_size") if payload.get("lot_size") is not None else self.cfg.default_lot_size)
             lot_val = max(0.01, round(lot_val, 4))
@@ -1639,6 +1672,8 @@ class PradoTradingService:
                 "tp_sigma_mult": float(payload.get("tp_sigma_mult") or (tpl_tp if tpl_tp is not None else 1.8)),
                 "tp_mode": norm_tp_mode,
                 "tp_value": norm_tp_val,
+                "sl_mode": norm_sl_mode,
+                "sl_value": norm_sl_val,
                 "grid_direction": str(payload.get("grid_direction") or (existing_bot.get("grid_direction") if existing_bot else tpl.get("grid_direction", "BUY_ONLY"))).upper(),
                 "grid_step_points": max(0.00001, float(payload.get("grid_step_points") or (existing_bot.get("grid_step_points") if existing_bot else tpl.get("grid_step_points", 0.0020)))),
                 "grid_tp_points": max(0.00001, float(payload.get("grid_tp_points") or (existing_bot.get("grid_tp_points") if existing_bot else tpl.get("grid_tp_points", 0.0020)))),
@@ -1731,6 +1766,8 @@ class PradoTradingService:
                             bot_name=str(b.get("name", "PradoBot")),
                             tp_mode=str(b.get("tp_mode", "AUTO")),
                             tp_value=float(b.get("tp_value", 0.0) or 0.0),
+                            sl_mode=str(b.get("sl_mode", "AUTO")),
+                            sl_value=float(b.get("sl_value", 0.0) or 0.0),
                         )
                         if ok:
                             b["trades_executed"] = int(b.get("trades_executed", 0)) + 1
@@ -2596,6 +2633,18 @@ class PradoTradingService:
             grid_dir = "BUY_ONLY"
         grid_step = max(0.00001, float(bot.get("grid_step_points", 0.0020) or 0.0020))
         grid_tp = max(0.00001, float(bot.get("grid_tp_points", 0.0020) or 0.0020))
+        b_tp_mode, b_tp_val = normalize_tp_config(bot.get("tp_mode", "AUTO"), bot.get("tp_value", 0.0))
+        b_sl_mode, b_sl_val = normalize_sl_config(bot.get("sl_mode", "AUTO"), bot.get("sl_value", 0.0))
+        if b_tp_mode != "AUTO" and last_price > 0:
+            grid_tp = _resolve_distance_points(
+                b_tp_mode,
+                b_tp_val,
+                bsym,
+                last_price,
+                float(bot.get("lot_size", self.cfg.default_lot_size) or 0.01),
+                get_symbol_spec(bsym),
+                grid_tp,
+            )
         max_levels = max(1, min(20, int(bot.get("max_grid_levels", 5) or 5)))
         bot_name = str(bot.get("name", "PradoBot"))
 
@@ -2676,6 +2725,10 @@ class PradoTradingService:
                         bot_name=bot_name,
                         allow_multi_same_symbol=True,
                         max_levels_override=max_levels,
+                        tp_mode=b_tp_mode,
+                        tp_value=b_tp_val,
+                        sl_mode=b_sl_mode,
+                        sl_value=b_sl_val,
                     )
                     if ok:
                         bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
@@ -3183,6 +3236,8 @@ class PradoTradingService:
                                     bot_name=bname or "PradoBot",
                                     tp_mode=str(bot.get("tp_mode", "AUTO")),
                                     tp_value=float(bot.get("tp_value", 0.0) or 0.0),
+                                    sl_mode=str(bot.get("sl_mode", "AUTO")),
+                                    sl_value=float(bot.get("sl_value", 0.0) or 0.0),
                                 )
                                 if ok:
                                     bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1
@@ -3222,6 +3277,8 @@ class PradoTradingService:
                                 bot_name=str(bot.get("name", "PradoBot")),
                                 tp_mode=str(bot.get("tp_mode", "AUTO")),
                                 tp_value=float(bot.get("tp_value", 0.0) or 0.0),
+                                sl_mode=str(bot.get("sl_mode", "AUTO")),
+                                sl_value=float(bot.get("sl_value", 0.0) or 0.0),
                             )
                             if ok:
                                 bot["trades_executed"] = int(bot.get("trades_executed", 0)) + 1

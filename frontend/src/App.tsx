@@ -249,6 +249,8 @@ export default function App() {
   const [botTimeframe, setBotTimeframe] = useState('TICKS')
   const [botTpMode, setBotTpMode] = useState<'AUTO' | 'USD' | 'PCT' | 'PIPS' | 'TICKS'>('AUTO')
   const [botTpValue, setBotTpValue] = useState(10)
+  const [botSlMode, setBotSlMode] = useState<'AUTO' | 'USD' | 'PCT' | 'PIPS' | 'TICKS'>('AUTO')
+  const [botSlValue, setBotSlValue] = useState(0.5)
   const [botFormDirty, setBotFormDirty] = useState(false)
 
   // Backtest form state
@@ -595,6 +597,8 @@ export default function App() {
     setBotTimeframe('TICKS')
     setBotTpMode('AUTO')
     setBotTpValue(10)
+    setBotSlMode('AUTO')
+    setBotSlValue(0.5)
     setBotFormDirty(false)
   }
 
@@ -620,6 +624,9 @@ export default function App() {
     const loadedTpMode = String(b.tp_mode || 'AUTO').toUpperCase() as 'AUTO' | 'USD' | 'PCT' | 'PIPS' | 'TICKS'
     setBotTpMode(['AUTO', 'USD', 'PCT', 'PIPS', 'TICKS'].includes(loadedTpMode) ? loadedTpMode : 'AUTO')
     setBotTpValue(b.tp_value && b.tp_value > 0 ? b.tp_value : loadedTpMode === 'USD' ? 2.0 : loadedTpMode === 'PCT' ? 0.25 : 10)
+    const loadedSlMode = String(b.sl_mode || 'AUTO').toUpperCase() as 'AUTO' | 'USD' | 'PCT' | 'PIPS' | 'TICKS'
+    setBotSlMode(['AUTO', 'USD', 'PCT', 'PIPS', 'TICKS'].includes(loadedSlMode) ? loadedSlMode : 'AUTO')
+    setBotSlValue(b.sl_value && b.sl_value > 0 ? b.sl_value : loadedSlMode === 'USD' ? 2.0 : loadedSlMode === 'PCT' ? 0.5 : 15)
     setBotFormDirty(false)
     setActiveTab('create-bot')
   }
@@ -681,6 +688,8 @@ export default function App() {
       revert_sigma: Number(b.revert_sigma) || 2.0,
       tp_mode: b.tp_mode || 'AUTO',
       tp_value: Number(b.tp_value) || 0,
+      sl_mode: b.sl_mode || 'AUTO',
+      sl_value: Number(b.sl_value) || 0,
       auto_start: false,
     }
     try {
@@ -734,6 +743,8 @@ export default function App() {
       timeframe: botTimeframe,
       tp_mode: botTpMode,
       tp_value: botTpMode === 'AUTO' ? 0 : Number(botTpValue),
+      sl_mode: botSlMode,
+      sl_value: botSlMode === 'AUTO' ? 0 : Number(botSlValue),
     }
     if (editingBotId) {
       payload.bot_id = editingBotId
@@ -2373,12 +2384,64 @@ export default function App() {
                             />
                           </div>
                         )}
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                            Stop Loss (Proteção)
+                          </label>
+                          <select
+                            value={botSlMode}
+                            onChange={(e) => {
+                              const next = e.target.value as 'AUTO' | 'USD' | 'PCT' | 'PIPS' | 'TICKS'
+                              setBotSlMode(next)
+                              if (next === 'USD' && botSlValue <= 0) setBotSlValue(2.0)
+                              else if (next === 'PCT' && botSlValue <= 0) setBotSlValue(0.5)
+                              else if ((next === 'PIPS' || next === 'TICKS') && botSlValue <= 0) setBotSlValue(15)
+                            }}
+                            className={inputClass}
+                          >
+                            <option value="AUTO">Padrão Matemático (1.0σ VWAP)</option>
+                            <option value="USD">Perda máxima (USD)</option>
+                            <option value="PIPS">Distância em Pips</option>
+                            <option value="PCT">% do Preço da Entrada</option>
+                            <option value="TICKS">Quantidade de Ticks</option>
+                          </select>
+                        </div>
+                        {botSlMode !== 'AUTO' && (
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                              {botSlMode === 'USD'
+                                ? 'Stop em USD'
+                                : botSlMode === 'PCT'
+                                  ? 'Stop (% da entrada)'
+                                  : botSlMode === 'PIPS'
+                                    ? 'Stop em Pips'
+                                    : 'Stop em Ticks'}
+                            </label>
+                            <input
+                              type="number"
+                              step={botSlMode === 'USD' ? '0.5' : botSlMode === 'PCT' ? '0.05' : '1'}
+                              min={botSlMode === 'USD' ? '0.1' : botSlMode === 'PCT' ? '0.01' : '1'}
+                              value={botSlValue}
+                              onChange={(e) => setBotSlValue(Number(e.target.value))}
+                              className={`${inputClass} font-mono`}
+                            />
+                          </div>
+                        )}
                       </div>
 
                       {botTemplateId === 'GRID_LINEAR_HFT' && (
                         <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-4 space-y-3">
-                          <div className="text-xs font-semibold text-violet-600 dark:text-violet-300">
-                            Parâmetros do Gradiente Linear (Grid HFT)
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs font-semibold text-violet-600 dark:text-violet-300">
+                              Parâmetros do Gradiente Linear (Grid HFT)
+                            </div>
+                            {snapshot?.symbols?.[botSymbol]?.price &&
+                              (botGridStep > snapshot.symbols[botSymbol].price * 0.05 ||
+                                botGridTp > snapshot.symbols[botSymbol].price * 0.05) && (
+                                <span className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                                  Atenção: Passo/Alvo do Grid ({botGridStep}) é maior que 5% do preço de {botSymbol}. Para Forex, use ex.: 0.0020 (20 pips) ou configure SL/TP acima em %.
+                                </span>
+                              )}
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                             <div>

@@ -75,6 +75,8 @@ export interface BotItem {
   tp_sigma_mult: number
   tp_mode?: 'AUTO' | 'USD' | 'PCT' | 'PIPS' | 'TICKS' | string
   tp_value?: number
+  sl_mode?: 'AUTO' | 'USD' | 'PCT' | 'PIPS' | 'TICKS' | string
+  sl_value?: number
   active: boolean
   status?: 'STOPPED' | 'STARTING' | 'RUNNING' | 'PAUSED' | 'ERROR' | 'STOPPING'
   last_error?: string
